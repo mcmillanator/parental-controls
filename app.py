@@ -339,10 +339,16 @@ def api_bedtime_set():
     # Allow clearing a bedtime by submitting empty start/end
     if not start and not end and not days_raw:
         data = load_bedtime()
+        existing = data.get(username, {})
         if username in data:
             del data[username]
             save_bedtime(data)
-        return jsonify({'success': True, 'message': 'Bedtime cleared'})
+        if existing.get('locked_by_bedtime'):
+            success, message = run_lock_command(username, 'unlock')
+            if not success:
+                return jsonify({'success': False, 'message': message, 'locked': True})
+            return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
+        return jsonify({'success': True, 'message': 'Bedtime cleared', 'locked': False})
 
     if _parse_hhmm(start) is None or _parse_hhmm(end) is None:
         return jsonify({'success': False, 'error': 'Invalid time format (use HH:MM)'}), 400
@@ -363,7 +369,26 @@ def api_bedtime_set():
         'locked_by_bedtime': bool(existing.get('locked_by_bedtime', False)),
     }
     save_bedtime(data)
-    return jsonify({'success': True, 'message': 'Bedtime saved'})
+
+    # Immediately enforce the new bedtime for this user
+    entry = data[username]
+    if is_in_bedtime(entry):
+        success, message = run_lock_command(username, 'lock')
+        if success:
+            entry['locked_by_bedtime'] = True
+            save_bedtime(data)
+            return jsonify({'success': True, 'message': 'Locked', 'locked': True})
+        return jsonify({'success': False, 'message': message, 'locked': False})
+
+    if entry.get('locked_by_bedtime'):
+        success, message = run_lock_command(username, 'unlock')
+        if success:
+            entry['locked_by_bedtime'] = False
+            save_bedtime(data)
+            return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
+        return jsonify({'success': False, 'message': message, 'locked': True})
+
+    return jsonify({'success': True, 'message': 'Bedtime saved', 'locked': False})
 
 
 if __name__ == '__main__':
