@@ -292,16 +292,43 @@ def api_users():
 
 @app.route('/api/lock', methods=['POST'])
 def api_lock():
-    """Lock a user account."""
+    """Lock a user account and screen without terminating the session.
+
+    Runs:
+      sudo usermod -L <user>      — lock the account
+      loginctl lock-session       — lock the screen (session stays alive)
+    """
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    # Basic sanitization — only allow valid username characters
     if not all(c.isalnum() or c in '_-.' for c in username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
-    success, message = run_lock_command(username, 'lock')
-    return jsonify({'success': success, 'message': message})
+    # Lock the account
+    try:
+        result = subprocess.run(
+            ['sudo', 'usermod', '-L', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+                msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+                return jsonify({'success': False, 'message': msg}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
+
+    # Lock the screen without terminating the session
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'lock-session'],
+            capture_output=True, text=True, timeout=10
+        )
+        screen_msg = result.stderr.strip() or 'Screen locked'
+        if result.returncode != 0:
+            screen_msg = f'loginctl lock-session: {result.stderr.strip() or "failed"}'
+    except Exception as e:
+        screen_msg = f'loginctl lock-session error: {e}'
+
+    return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
 
 
 @app.route('/api/lock-screen', methods=['POST'])
@@ -328,7 +355,7 @@ def api_lock_screen():
                 msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
                 return jsonify({'success': False, 'message': msg}), 400
     except Exception as e:
-        return jsonify({'success': False, 'message': f'usermod -L error: {e}'}), 400
+        return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
     # Lock the screen without terminating the session
     try:
@@ -430,6 +457,92 @@ def api_bedtime_set():
         return jsonify({'success': False, 'message': message, 'locked': True})
 
     return jsonify({'success': True, 'message': 'Bedtime saved', 'locked': False})
+
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    """Emergency logout — terminates the user's session.
+
+    Runs:
+      sudo usermod -L <user>      — lock the account
+      sudo loginctl terminate-user <user>  — terminates all user sessions
+    """
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    # Lock the account
+    try:
+        result = subprocess.run(
+            ['sudo', 'usermod', '-L', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return jsonify({'success': False, 'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': 'usermod -L error: ' + str(e)}), 400
+
+    # Terminate the user's sessions
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'terminate-user', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return jsonify({'success': False, 'message': 'loginctl terminate-user: ' + (result.stderr.strip() or 'failed')}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': 'loginctl terminate-user error: ' + str(e)}), 400
+
+    return jsonify({'success': True, 'message': 'Session terminated. User logged out.'})
+
+
+@app.route('/user/<username>')
+def user_detail(username):
+    """Render the user details page for a specific user."""
+    users = get_human_users()
+    bedtime = load_bedtime()
+    user_data = []
+    for u in users:
+        if u['username'] == username:
+            locked, detail = get_lock_status(u['username'])
+            entry = bedtime.get(u['username'], {})
+            user_data.append({
+                'username': u['username'],
+                'uid': u['uid'],
+                'home': u['home'],
+                'shell': u['shell'],
+                'locked': locked,
+                'status_detail': detail,
+                'bedtime': entry,
+                'in_bedtime': is_in_bedtime(entry),
+            })
+            break
+    else:
+        # Username not found
+        return "User not found", 404
+    
+    # Get processes owned by this user
+    processes = []
+    try:
+        result = subprocess.run(
+            ['ps', '-u', username, '-o', 'pid,comm,etimes=STARTED'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
+                parts = line.split()
+                if len(parts) >= 3:
+                    pid = parts[0]
+                    comm = parts[1]
+                    # etimes shows seconds since epoch start, we need to calculate duration
+                    # For simplicity, show the raw output
+                    processes.append({'pid': pid, 'comm': comm})
+    except Exception as e:
+        processes = [{'error': str(e)}]
+    
+    return render_template('user.html', username=username, user=user_data[0] if user_data else None, processes=processes, day_labels=DAY_LABELS)
 
 
 if __name__ == '__main__':
