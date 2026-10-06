@@ -68,26 +68,6 @@
             font-weight: 600;
             margin-left: 0.5rem;
         }
-        h2 { margin: 2rem 0 0.75rem; font-size: 1.3rem; }
-        .bedtime-card {
-            background: #16213e;
-            border-radius: 8px;
-            padding: 1rem 1.25rem;
-            margin-bottom: 1rem;
-        }
-        .bedtime-card h3 { margin-bottom: 0.75rem; font-size: 1rem; }
-        .bedtime-card label { font-size: 0.85rem; color: #aaa; margin-right: 0.35rem; }
-        .bedtime-card input[type="time"] {
-            background: #1a1a2e;
-            color: #e0e0e0;
-            border: 1px solid #0f3460;
-            border-radius: 4px;
-            padding: 0.3rem 0.5rem;
-            margin-right: 1rem;
-        }
-        .days-row { margin: 0.75rem 0; }
-        .days-row label { margin-right: 0.75rem; color: #ccc; }
-        .btn-save { background: #0f8b8d; color: #fff; margin-top: 0.5rem; }
         .bedtime-summary { color: #888; font-size: 0.8rem; margin-top: 0.5rem; }
         #toast {
             position: fixed;
@@ -111,6 +91,7 @@
 <body>
     <h1>Parental Controls</h1>
     <p class="subtitle">Manage user account lock status on this Bazzite system</p>
+    <p class="nav-links"><a href="/bedtime" style="color: #4ecca3;">Bedtime Settings →</a></p>
 
     <table>
         <thead>
@@ -154,26 +135,6 @@
     </table>
 
     <p class="refresh-info">Page auto-refreshes every 10 seconds</p>
-
-    <h2>Bedtime Settings</h2>
-    {% for user in users %}
-    <div class="bedtime-card">
-        <h3>{{ user.username }}</h3>
-        <form class="bedtime-form" data-username="{{ user.username }}" onsubmit="return saveBedtime('{{ user.username }}', event)">
-            <label for="start-{{ user.username }}">From</label>
-            <input type="time" id="start-{{ user.username }}" name="start" value="{{ user.bedtime.start if user.bedtime else '' }}">
-            <label for="end-{{ user.username }}">To</label>
-            <input type="time" id="end-{{ user.username }}" name="end" value="{{ user.bedtime.end if user.bedtime else '' }}">
-            <div class="days-row">
-                {% for label in day_labels %}
-                <label><input type="checkbox" name="days" value="{{ loop.index0 }}" {% if user.bedtime and loop.index0 in user.bedtime.days %}checked{% endif %}> {{ label }}</label>
-                {% endfor %}
-            </div>
-            <button type="submit" class="btn-save">Save</button>
-            <button type="button" class="btn-unlock" onclick="clearBedtime('{{ user.username }}')">Clear</button>
-        </form>
-    </div>
-    {% endfor %}
 
     <div id="toast"></div>
 
@@ -226,69 +187,8 @@
             }
         }
 
-        let bedtimeDirty = false;
-        document.addEventListener('input', function (e) {
-            if (e.target.closest('.bedtime-form')) bedtimeDirty = true;
-        });
-        document.addEventListener('change', function (e) {
-            if (e.target.closest('.bedtime-form')) bedtimeDirty = true;
-        });
-
-        async function saveBedtime(username, event) {
-            event.preventDefault();
-            const form = event.target;
-            const start = form.querySelector('input[name="start"]').value;
-            const end = form.querySelector('input[name="end"]').value;
-            const days = Array.from(form.querySelectorAll('input[name="days"]:checked')).map(cb => cb.value);
-            if (!start || !end || days.length === 0) {
-                showToast('Set start, end, and at least one day (or use Clear)', true);
-                return false;
-            }
-            try {
-                const body = `username=${encodeURIComponent(username)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}` +
-                    days.map(d => `&days=${encodeURIComponent(d)}`).join('');
-                const resp = await fetch('/api/bedtime', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: body
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    bedtimeDirty = false;
-                    showToast(`Bedtime saved for ${username}`, false);
-                    setTimeout(() => location.reload(), 800);
-                } else {
-                    showToast(`Error: ${data.error || data.message}`, true);
-                }
-            } catch (e) {
-                showToast(`Error: ${e.message}`, true);
-            }
-            return false;
-        }
-
-        async function clearBedtime(username) {
-            if (!confirm(`Clear bedtime for "${username}"?`)) return;
-            try {
-                const resp = await fetch('/api/bedtime', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `username=${encodeURIComponent(username)}`
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    bedtimeDirty = false;
-                    showToast(`Bedtime cleared for ${username}`, false);
-                    setTimeout(() => location.reload(), 800);
-                } else {
-                    showToast(`Error: ${data.error || data.message}`, true);
-                }
-            } catch (e) {
-                showToast(`Error: ${e.message}`, true);
-            }
-        }
-
-        // Auto-refresh every 10 seconds (skip while the user is editing a form)
-        setInterval(() => { if (!bedtimeDirty) location.reload(); }, 10000);
+        // Auto-refresh every 10 seconds
+        setInterval(() => { location.reload(); }, 10000);
     </script>
 </body>
 </html>
