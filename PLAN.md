@@ -59,5 +59,6 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Test user created
 - [x] Sudoers rule installed
 - [x] Git repo initialized with worktree structure
-- [ ] Web UI built and tested
+- [x] Web UI built and tested (lock/unlock verified with bluefox)
+- [ ] Merge feature/webui to master
 - [ ] Systemd service for auto-start (later)
