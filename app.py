@@ -318,10 +318,16 @@ def api_lock_screen():
     if not all(c.isalnum() or c in '_-.' for c in username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
-    # Lock the account
-    success, msg = run_lock_command(username, 'lock')
-    if not success:
-        return jsonify({'success': False, 'message': msg}), 400
+    # Lock the account (without terminating the session)
+    try:
+        result = subprocess.run(
+            ['sudo', 'usermod', '-L', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return jsonify({'success': False, 'message': f'usermod -L: {result.stderr.strip() or "failed}"'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'usermod -L error: {e}'}), 400
 
     # Lock the screen without terminating the session
     try:
