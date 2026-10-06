@@ -64,6 +64,8 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Dedicated /bedtime settings page
 - [x] Immediate lock/unlock on bedtime save/clear
 - [x] Lock Screen button (locks account + screen without logout)
+- [x] Emergency logout endpoint (/api/logout)
+- [x] User details page with process list (/user/<username>)
 - [x] Merge feature/screen-lock to master
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
