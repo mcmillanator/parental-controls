@@ -42,7 +42,7 @@ def get_lock_status(username):
     """
     try:
         result = subprocess.run(
-            ['passwd', '-S', username],
+            ['sudo', 'passwd', '-S', username],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
