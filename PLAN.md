@@ -60,5 +60,10 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Sudoers rule installed
 - [x] Git repo initialized with worktree structure
 - [x] Web UI built and tested (lock/unlock verified with bluefox)
-- [ ] Merge feature/webui to master
+- [x] Bedtime schedule feature (start/end times, days of week)
+- [x] Dedicated /bedtime settings page
+- [x] Immediate lock/unlock on bedtime save/clear
+- [x] Lock Screen button (locks account + screen without logout)
+- [x] Merge feature/screen-lock to master
 - [ ] Systemd service for auto-start (later)
+- [ ] Scheduled timers (7pm lock / 10am unlock) (later)
