@@ -325,7 +325,8 @@ def api_lock_screen():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode != 0:
-            return jsonify({'success': False, 'message': f'usermod -L: {result.stderr.strip() or "failed}"'}), 400
+                msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+                return jsonify({'success': False, 'message': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'message': f'usermod -L error: {e}'}), 400
 
