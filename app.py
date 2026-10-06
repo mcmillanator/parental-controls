@@ -8,12 +8,22 @@ locking/unlocking their accounts via sudo commands.
 import subprocess
 import pwd
 import html
+import os
+import json
+import threading
+import time
+import traceback
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
 MIN_UID = 1000
 MAX_UID = 60000
+
+BEDTIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bedtime.json')
+
+DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 
 def get_human_users():
@@ -106,13 +116,127 @@ def run_lock_command(username, action):
     return True, 'OK'
 
 
+# ---------------------------------------------------------------------------
+# Bedtime settings storage (simple JSON file)
+# ---------------------------------------------------------------------------
+
+def load_bedtime():
+    """Load bedtime settings from JSON file. Returns dict keyed by username."""
+    try:
+        with open(BEDTIME_FILE, 'r') as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_bedtime(data):
+    """Persist bedtime settings to JSON file."""
+    with open(BEDTIME_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def _parse_hhmm(value):
+    """Parse 'HH:MM' into minutes since midnight. Returns None if invalid."""
+    try:
+        hours, minutes = value.strip().split(':')
+        h, m = int(hours), int(minutes)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h * 60 + m
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def is_in_bedtime(entry, now=None):
+    """Return True if `now` falls inside the configured bedtime window.
+
+    Handles windows that span midnight (e.g. 21:00-08:00): if the bedtime
+    starts on day X and runs past midnight, the early-morning hours belong
+    to day X's window.
+    """
+    if not entry:
+        return False
+    start = _parse_hhmm(entry.get('start', ''))
+    end = _parse_hhmm(entry.get('end', ''))
+    try:
+        days = {int(d) for d in entry.get('days', [])}
+    except (ValueError, TypeError):
+        return False
+    if start is None or end is None or not days or start == end:
+        return False
+
+    now = now or datetime.now()
+    cur = now.hour * 60 + now.minute
+    today = now.weekday()  # Monday=0 ... Sunday=6
+    yesterday = (today - 1) % 7
+
+    if start < end:
+        # Same-day window, e.g. 12:00-14:00
+        return today in days and start <= cur < end
+    # Overnight window, e.g. 21:00-08:00
+    if today in days and cur >= start:
+        return True
+    if yesterday in days and cur < end:
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Bedtime enforcement (background thread)
+# ---------------------------------------------------------------------------
+
+def enforce_bedtime():
+    """Lock users whose bedtime started; unlock only those bedtime locked."""
+    data = load_bedtime()
+    changed = False
+    for username, entry in list(data.items()):
+        in_bed = is_in_bedtime(entry)
+        locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
+
+        if in_bed:
+            locked, _detail = get_lock_status(username)
+            if locked is False:
+                success, _msg = run_lock_command(username, 'lock')
+                if success:
+                    entry['locked_by_bedtime'] = True
+                    changed = True
+            elif locked is None and not locked_by_bedtime:
+                # Couldn't determine status; try to lock anyway on next pass
+                pass
+        else:
+            if locked_by_bedtime:
+                success, _msg = run_lock_command(username, 'unlock')
+                if success:
+                    entry['locked_by_bedtime'] = False
+                    changed = True
+
+    if changed:
+        save_bedtime(data)
+
+
+def bedtime_loop():
+    while True:
+        try:
+            enforce_bedtime()
+        except Exception:
+            traceback.print_exc()
+        time.sleep(60)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
 @app.route('/')
 def index():
     """Render the main page with user list."""
     users = get_human_users()
+    bedtime = load_bedtime()
     user_data = []
     for u in users:
         locked, detail = get_lock_status(u['username'])
+        entry = bedtime.get(u['username'], {})
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -120,22 +244,28 @@ def index():
             'shell': u['shell'],
             'locked': locked,
             'status_detail': detail,
+            'bedtime': entry,
+            'in_bedtime': is_in_bedtime(entry),
         })
-    return render_template('index.html', users=user_data)
+    return render_template('index.html', users=user_data, day_labels=DAY_LABELS)
 
 
 @app.route('/api/users')
 def api_users():
     """JSON endpoint returning current user list with lock status."""
     users = get_human_users()
+    bedtime = load_bedtime()
     user_data = []
     for u in users:
         locked, detail = get_lock_status(u['username'])
+        entry = bedtime.get(u['username'], {})
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
             'locked': locked,
             'status_detail': detail,
+            'bedtime': entry,
+            'in_bedtime': is_in_bedtime(entry),
         })
     return jsonify(user_data)
 
@@ -167,5 +297,56 @@ def api_unlock():
     return jsonify({'success': success, 'message': message})
 
 
+@app.route('/api/bedtime', methods=['GET'])
+def api_bedtime_get():
+    """Return all bedtime settings."""
+    return jsonify(load_bedtime())
+
+
+@app.route('/api/bedtime', methods=['POST'])
+def api_bedtime_set():
+    """Set bedtime for a user. Form fields: username, start, end, days[]."""
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    start = request.form.get('start', '').strip()
+    end = request.form.get('end', '').strip()
+    days_raw = request.form.getlist('days')
+
+    # Allow clearing a bedtime by submitting empty start/end
+    if not start and not end and not days_raw:
+        data = load_bedtime()
+        if username in data:
+            del data[username]
+            save_bedtime(data)
+        return jsonify({'success': True, 'message': 'Bedtime cleared'})
+
+    if _parse_hhmm(start) is None or _parse_hhmm(end) is None:
+        return jsonify({'success': False, 'error': 'Invalid time format (use HH:MM)'}), 400
+
+    try:
+        days = sorted({int(d) for d in days_raw})
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid days'}), 400
+    if not days or any(d < 0 or d > 6 for d in days):
+        return jsonify({'success': False, 'error': 'Select at least one valid day'}), 400
+
+    data = load_bedtime()
+    existing = data.get(username, {})
+    data[username] = {
+        'start': start,
+        'end': end,
+        'days': days,
+        'locked_by_bedtime': bool(existing.get('locked_by_bedtime', False)),
+    }
+    save_bedtime(data)
+    return jsonify({'success': True, 'message': 'Bedtime saved'})
+
+
 if __name__ == '__main__':
+    t = threading.Thread(target=bedtime_loop, daemon=True)
+    t.start()
     app.run(host='0.0.0.0', port=5000, debug=False)
