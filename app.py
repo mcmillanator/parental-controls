@@ -304,6 +304,40 @@ def api_lock():
     return jsonify({'success': success, 'message': message})
 
 
+@app.route('/api/lock-screen', methods=['POST'])
+def api_lock_screen():
+    """Lock the user's screen and account without terminating the session.
+
+    Runs:
+      sudo usermod -L <user>      — lock the account
+      loginctl lock-session       — lock the screen (session stays alive)
+    """
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    # Lock the account
+    success, msg = run_lock_command(username, 'lock')
+    if not success:
+        return jsonify({'success': False, 'message': msg}), 400
+
+    # Lock the screen without terminating the session
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'lock-session'],
+            capture_output=True, text=True, timeout=10
+        )
+        screen_msg = result.stderr.strip() or 'Screen locked'
+        if result.returncode != 0:
+            screen_msg = f'loginctl lock-session: {result.stderr.strip() or "failed"}'
+    except Exception as e:
+        screen_msg = f'loginctl lock-session error: {e}'
+
+    return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
+
+
 @app.route('/api/unlock', methods=['POST'])
 def api_unlock():
     """Unlock a user account."""
