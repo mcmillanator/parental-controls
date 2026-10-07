@@ -39,6 +39,14 @@ Bazzite (Fedora-based immutable desktop OS)
 - Polished UI/UX
 - Multi-device support
 
+### Planned (Post-Prototype)
+- Systemd service to auto-start the Flask app on boot
+- Scheduled timers (e.g., cron or systemd timer) to enforce lock/unlock at fixed times
+- Lockout prevention / safeguards
+- Notifications before lock (e.g., notify-send via systemd-run)
+- Multi-device support (multiple Bazzite devices)
+- Polished UI/UX
+
 ## Test User
 
 - Username: `bluefox`
@@ -69,3 +77,8 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Merge feature/screen-lock to master
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
+- [ ] Notifications before lock (notify-send via systemd-run) (later)
+- [ ] Authentication / authorization (later)
+- [ ] Lockout prevention / safeguards (later)
+- [ ] Multi-device support (later)
+- [ ] Polished UI/UX (later)
