@@ -527,7 +527,7 @@ def user_detail(username):
     processes = []
     try:
         result = subprocess.run(
-            ['ps', '-u', username, '-o', 'pid,comm,etimes=STARTED'],
+            ['ps', '-u', username, '-o', 'pid,comm,etime'],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0 and result.stdout.strip():

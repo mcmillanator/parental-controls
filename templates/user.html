@@ -73,7 +73,7 @@
                 <tr>
                     <th>PID</th>
                     <th>Command</th>
-                    <th>Running Since</th>
+                    <th>Elapsed</th>
                 </tr>
             </thead>
             <tbody>
@@ -81,7 +81,7 @@
                 <tr>
                     <td>{{ proc.pid }}</td>
                     <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
-                    <td>See system for duration</td>
+                    <td>{{ proc.etime }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
