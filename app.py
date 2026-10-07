@@ -548,14 +548,13 @@ def user_detail(username):
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.strip().split('\n'):
-                parts = line.split()
+            for line in result.stdout.strip().split('\n')[1:]:  # skip header
+                parts = line.split(None, 2)  # split on whitespace, maxsplit=2
                 if len(parts) >= 3:
                     pid = parts[0]
                     comm = parts[1]
-                    # etimes shows seconds since epoch start, we need to calculate duration
-                    # For simplicity, show the raw output
-                    processes.append({'pid': pid, 'comm': comm})
+                    etime = parts[2]
+                    processes.append({'pid': pid, 'comm': comm, 'etime': etime})
     except Exception as e:
         processes = [{'error': str(e)}]
     
