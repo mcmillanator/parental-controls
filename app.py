@@ -409,7 +409,20 @@ def api_bedtime_set():
     all_days = 'all_days' in request.form
     days_raw = request.form.getlist('day_')  # day_0, day_1, ..., day_6
 
-    # Allow clearing a bedtime by not providing start/end
+    # Allow clearing a bedtime by not providing start/end, or by clicking clear button
+    if 'clear' in request.form:
+        data = load_bedtime()
+        existing = data.get(username, {})
+        if username in data:
+            del data[username]
+            save_bedtime(data)
+        if existing.get('locked_by_bedtime'):
+            success, message = run_lock_command(username, 'unlock')
+            if not success:
+                return jsonify({'success': False, 'message': message, 'locked': True})
+            return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
+        return jsonify({'success': True, 'message': 'Bedtime cleared', 'locked': False})
+
     if not start and not end:
         data = load_bedtime()
         existing = data.get(username, {})
