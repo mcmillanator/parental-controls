@@ -393,7 +393,11 @@ def api_bedtime_get():
 
 @app.route('/api/bedtime', methods=['POST'])
 def api_bedtime_set():
-    """Set bedtime for a user. Form fields: username, start, end, days[]."""
+    """Set bedtime for a user.
+
+    Form fields:
+      username, start, end, all_days, day_0 through day_6, save/clear
+    """
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
@@ -402,10 +406,11 @@ def api_bedtime_set():
 
     start = request.form.get('start', '').strip()
     end = request.form.get('end', '').strip()
-    days_raw = request.form.getlist('days')
+    all_days = 'all_days' in request.form
+    days_raw = request.form.getlist('day_')  # day_0, day_1, ..., day_6
 
-    # Allow clearing a bedtime by submitting empty start/end
-    if not start and not end and not days_raw:
+    # Allow clearing a bedtime by not providing start/end
+    if not start and not end:
         data = load_bedtime()
         existing = data.get(username, {})
         if username in data:
@@ -421,12 +426,21 @@ def api_bedtime_set():
     if _parse_hhmm(start) is None or _parse_hhmm(end) is None:
         return jsonify({'success': False, 'error': 'Invalid time format (use HH:MM)'}), 400
 
+    # Determine days: all_days checkbox takes precedence, otherwise individual days
+    if all_days:
+        days = [0, 1, 2, 3, 4, 5, 6]
+    else:
+        days = []
+        for i in range(7):
+            if f'day_{i}' in days_raw:
+                days.append(i)
+        if not days:
+            return jsonify({'success': False, 'error': 'Select at least one day or check "Apply to all days"'}), 400
+
     try:
-        days = sorted({int(d) for d in days_raw})
+        days = sorted(days)
     except ValueError:
         return jsonify({'success': False, 'error': 'Invalid days'}), 400
-    if not days or any(d < 0 or d > 6 for d in days):
-        return jsonify({'success': False, 'error': 'Select at least one valid day'}), 400
 
     data = load_bedtime()
     existing = data.get(username, {})
@@ -434,6 +448,7 @@ def api_bedtime_set():
         'start': start,
         'end': end,
         'days': days,
+        # Preserve locked_by_bedtime if it was already set, otherwise default to False
         'locked_by_bedtime': bool(existing.get('locked_by_bedtime', False)),
     }
     save_bedtime(data)
@@ -441,22 +456,23 @@ def api_bedtime_set():
     # Immediately enforce the new bedtime for this user
     entry = data[username]
     if is_in_bedtime(entry):
-        success, message = run_lock_command(username, 'lock')
-        if success:
-            entry['locked_by_bedtime'] = True
-            save_bedtime(data)
-            return jsonify({'success': True, 'message': 'Locked', 'locked': True})
-        return jsonify({'success': False, 'message': message, 'locked': False})
-
-    if entry.get('locked_by_bedtime'):
-        success, message = run_lock_command(username, 'unlock')
-        if success:
-            entry['locked_by_bedtime'] = False
-            save_bedtime(data)
-            return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
-        return jsonify({'success': False, 'message': message, 'locked': True})
-
-    return jsonify({'success': True, 'message': 'Bedtime saved', 'locked': False})
+        # Only lock if not already manually unlocked
+        if not entry.get('locked_by_bedtime'):
+            success, message = run_lock_command(username, 'lock')
+            if success:
+                entry['locked_by_bedtime'] = True
+                save_bedtime(data)
+                return jsonify({'success': True, 'message': 'Locked', 'locked': True})
+        return jsonify({'success': True, 'message': 'Already locked by bedtime', 'locked': True})
+    else:
+        # Outside bedtime - if was previously bedtime-locked, unlock now
+        if existing.get('locked_by_bedtime'):
+            success, message = run_lock_command(username, 'unlock')
+            if success:
+                entry['locked_by_bedtime'] = False
+                save_bedtime(data)
+                return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
+        return jsonify({'success': True, 'message': 'Bedtime saved', 'locked': False})
 
 
 @app.route('/api/logout', methods=['POST'])
