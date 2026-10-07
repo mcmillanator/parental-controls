@@ -50,6 +50,14 @@ Bazzite (Fedora-based immutable desktop OS)
 ### MVP Scope (not prototype)
 - Responsive design via Bootstrap (add Bootstrap CSS/JS to templates and be done; still prototype phase, so no custom design work)
 
+### Approved decisions (2026-10-07, from process-filtering research review)
+- Enforcement builds on the existing `parental-*-games` / `parental-*-quarantine` cgroup experiment (cgroup freezer, not per-PID signals)
+- Per-category budgets first; apps displayed grouped by category; per-app overrides deferred to a later phase
+- Paused apps auto-resume at the next window (plus a manual Resume button for the parent)
+- Budget day resets at bedtime end (midnight fallback when no bedtime is set)
+- Background-idle must NOT burn budget (rules out raw ETIME accounting); CPU-time deltas until a session agent exists
+- Enforcement may eventually need a per-user session agent (focus time, warnings) — not this phase
+
 ## Test User
 
 - Username: `bluefox`
@@ -90,3 +98,6 @@ Bazzite (Fedora-based immutable desktop OS)
 - [ ] Multi-device support (later)
 - [ ] Polished UI/UX (later)
 - [ ] Responsive design via Bootstrap (MVP, not prototype)
+- [ ] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
+- [ ] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
+- [ ] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
