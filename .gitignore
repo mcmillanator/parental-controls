@@ -24,3 +24,5 @@ Thumbs.db
 
 # Runtime data
 bedtime.json
+budgets.json
+process_prefs.json

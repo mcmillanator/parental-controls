@@ -1,0 +1,26 @@
+    PID COMMAND             ELAPSED     TIME COMMAND
+  31265 mpris-proxy        22:26:31 00:00:00 /usr/bin/mpris-proxy
+  31274 dbus-broker-lau    22:26:31 00:00:00 /usr/bin/dbus-broker-launch --scope user
+  31279 dbus-broker        22:26:31 00:00:00 dbus-broker --log 11 --controller 10 --machine-id 14b875e540f04f0db8d8885d2b6950a0 --max-bytes 100000000000000 --max-fds 25000000000000 --max-matches 5000000000
+  31394 dmemcg-booster     22:26:31 00:00:01 /usr/bin/dmemcg-booster
+  31399 uresourced         22:26:31 00:00:00 /usr/libexec/uresourced --user
+  31415 baloo_file         22:26:31 00:00:00 /usr/libexec/kf6/baloo_file
+  31421 gvfsd              22:26:31 00:00:00 /usr/libexec/gvfsd
+  31442 pipewire           22:26:31 00:00:00 /usr/bin/pipewire
+  31443 wireplumber        22:26:31 00:00:01 /usr/bin/wireplumber
+  31523 at-spi-bus-laun    22:26:30 00:00:00 /usr/libexec/at-spi-bus-launcher
+  31532 dbus-broker-lau    22:26:30 00:00:00 /usr/bin/dbus-broker-launch --config-file=/usr/share/defaults/at-spi2/accessibility.conf --scope user
+  31534 dbus-broker        22:26:30 00:00:00 dbus-broker --log 10 --controller 9 --machine-id 14b875e540f04f0db8d8885d2b6950a0 --max-bytes 100000000000000 --max-fds 6400000 --max-matches 5000000000
+  31558 at-spi2-registr    22:26:30 00:00:00 /usr/libexec/at-spi2-registryd --use-gnome-session
+  31566 pipewire-pulse     22:26:30 00:00:00 /usr/bin/pipewire-pulse
+  31623 dconf-service      22:26:30 00:00:00 /usr/libexec/dconf-service
+  31683 obexd              22:26:30 00:00:01 /usr/libexec/bluetooth/obexd
+  31761 kunifiedpush-di    22:26:29 00:00:00 /usr/bin/kunifiedpush-distributor
+  31768 xdg-desktop-por    22:26:29 00:00:00 /usr/libexec/xdg-desktop-portal
+  31777 agent              22:26:29 00:00:00 /usr/libexec/geoclue-2.0/demos/agent
+  31795 xdg-permission-    22:26:29 00:00:00 /usr/libexec/xdg-permission-store
+  31815 gvfs-udisks2-vo    22:26:29 00:00:00 /usr/libexec/gvfs-udisks2-volume-monitor
+  31831 bash               22:26:29 00:00:00 bash /usr/libexec/ntfs-exfat-monitor-script
+  31859 findmnt            22:26:29 00:00:00 findmnt -n --poll -t exfat,ntfs,fuseblk
+  31860 bash               22:26:29 00:00:00 bash /usr/libexec/ntfs-exfat-monitor-script
+  32935 catatonit          22:25:43 00:00:00 catatonit -P

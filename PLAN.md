@@ -98,6 +98,6 @@ Bazzite (Fedora-based immutable desktop OS)
 - [ ] Multi-device support (later)
 - [ ] Polished UI/UX (later)
 - [ ] Responsive design via Bootstrap (MVP, not prototype)
-- [ ] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
-- [ ] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
-- [ ] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
+- [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
+- [x] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
+- [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button

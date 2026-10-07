@@ -16,6 +16,8 @@ import traceback
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
+import budgets
+
 app = Flask(__name__)
 
 MIN_UID = 1000
@@ -295,6 +297,12 @@ def bedtime_loop():
     while True:
         try:
             enforce_bedtime()
+        except Exception:
+            traceback.print_exc()
+        try:
+            # Per-category time budgets: CPU-time accounting + cgroup
+            # freezer enforcement, same 60s cadence as bedtime.
+            budgets.tick_budgets(load_bedtime(), datetime.now())
         except Exception:
             traceback.print_exc()
         time.sleep(60)
@@ -602,6 +610,70 @@ def api_logout():
     return jsonify({'success': True, 'message': 'Session terminated. User logged out.'})
 
 
+@app.route('/api/process-prefs', methods=['POST'])
+def api_process_prefs():
+    """Hide a comm or re-show a default-hidden one.
+
+    Form fields: username, comm, action (hide|show).
+    """
+    username = request.form.get('username', '').strip()
+    comm = request.form.get('comm', '').strip()
+    action = request.form.get('action', '').strip()
+    if not username or not comm:
+        return jsonify({'success': False,
+                        'error': 'username and comm required'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    ok, msg = budgets.set_pref(username, comm, action)
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/budgets', methods=['POST'])
+def api_budgets_set():
+    """Set a per-category daily budget (minutes). 0/empty clears the limit.
+
+    Form fields: username, category, minutes.
+    """
+    username = request.form.get('username', '').strip()
+    category = request.form.get('category', '').strip()
+    minutes = request.form.get('minutes', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    if not minutes:
+        minutes = 0
+    ok, msg = budgets.set_limit(username, category, minutes)
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/budgets/resume', methods=['POST'])
+def api_budgets_resume():
+    """Manually resume a budget-paused category (unfreeze until reset)."""
+    username = request.form.get('username', '').strip()
+    category = request.form.get('category', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    ok, msg = budgets.resume_category(username, category)
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/budgets/<username>')
+def api_budgets_get(username):
+    """JSON budget status (limits, usage, paused flags) for a user."""
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'error': 'Invalid username'}), 400
+    return jsonify(budgets.budget_status(username))
+
+
 @app.route('/user/<username>')
 def user_detail(username):
     """Render the user details page for a specific user."""
@@ -627,33 +699,37 @@ def user_detail(username):
         # Username not found
         return "User not found", 404
     
-    # Get processes owned by this user.
-    # Note: ps exits 1 with header-only output when the user has no
-    # processes (e.g. locked/logged-out account), so treat that as empty
-    # rather than an error.
+    # Get processes owned by this user (read-only ps + /proc cmdline),
+    # filtered through the curated denylist + parent prefs, grouped by
+    # app category for the per-category budget UI.
     processes = []
     try:
-        result = subprocess.run(
-            ['ps', '-u', username, '-o', 'pid,comm,etime'],
-            capture_output=True, text=True, timeout=10
-        )
-        lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
-        for line in lines[1:]:  # skip header
-            parts = line.split(None, 2)  # split on whitespace, maxsplit=2
-            if len(parts) >= 3:
-                pid = parts[0]
-                comm = parts[1]
-                etime = parts[2]
-                processes.append({
-                    'pid': pid,
-                    'comm': comm,
-                    'etime': etime,
-                    'elapsed': format_etime(etime),
-                })
+        processes = budgets.list_user_processes(username)
+        for p in processes:
+            p['elapsed'] = format_etime(p['etime'])
     except Exception as e:
         processes = [{'error': str(e)}]
-    
-    return render_template('user.html', username=username, user=user_data[0] if user_data else None, processes=processes, day_labels=DAY_LABELS)
+
+    if processes and 'error' not in processes[0]:
+        prefs = budgets.load_prefs()
+        visible, hidden = budgets.apply_filter(processes, username, prefs)
+        index = budgets.build_desktop_index(username)
+        groups = budgets.group_by_category(visible, index)
+        # Annotate hidden rows with their category too (shown on toggle).
+        for p in hidden:
+            p['category'] = budgets.categorize(p, index)
+    else:
+        visible, hidden, groups = [], processes, {c: [] for c in budgets.CATEGORIES}
+    budget_state = budgets.budget_status(username)
+
+    return render_template('user.html', username=username,
+                           user=user_data[0] if user_data else None,
+                           processes=processes, visible=visible,
+                           hidden=hidden, groups=groups,
+                           budget_state=budget_state,
+                           category_labels=budgets.CATEGORY_LABELS,
+                           categories=budgets.CATEGORIES,
+                           day_labels=DAY_LABELS)
 
 
 if __name__ == '__main__':
