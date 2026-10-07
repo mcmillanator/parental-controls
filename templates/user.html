@@ -67,7 +67,7 @@
         <p>Bedtime: {{ bedtime.start }} – {{ bedtime.end }}</p>
         <p>Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
         {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
-        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;">
+        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
             <input type="hidden" name="username" value="{{ username }}">
             <p>
                 <strong>Start time:</strong> <input type="time" name="start" value="{{ bedtime.start }}" required style="margin-right: 0.5rem;">
@@ -88,13 +88,13 @@
                 <label><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
             </p>
             <p>
-                <button type="submit" name="save" class="btn-bedtime-save">Save</button>
-                <button type="button" name="clear" class="btn-bedtime-clear" onclick="clearBedtime('{{ username }}')">Clear</button>
+                <button type="button" name="save" class="btn-bedtime-save" onclick="saveBedtime('{{ username }}')">Save</button>
+                <button type="button" class="btn-bedtime-clear" onclick="clearBedtime('{{ username }}')">Clear</button>
             </p>
         </form>
         {% else %}
         <p>No bedtime schedule set</p>
-        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;">
+        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
             <input type="hidden" name="username" value="{{ username }}">
             <p>
                 <strong>Start time:</strong> <input type="time" name="start" required>
@@ -115,9 +115,9 @@
                 <label><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
             </p>
             <p>
-                <button type="submit" name="save" class="btn-bedtime-save">Save</button>
-            </form>
-        </p>
+                <button type="button" class="btn-bedtime-save" onclick="saveBedtime('{{ username }}')">Save</button>
+            </p>
+        </form>
         {% endif %}
     </div>
 
@@ -181,6 +181,27 @@
             toast.className = isError ? 'toast-error' : 'toast-success';
             toast.style.display = 'block';
             setTimeout(() => { toast.style.display = 'none'; }, 4000);
+        }
+
+        async function saveBedtime(username) {
+            const form = document.querySelector('form[action="/api/bedtime"]');
+            if (!form) return;
+            const formData = new FormData(form);
+            try {
+                const resp = await fetch('/api/bedtime', {
+                    method: 'POST',
+                    body: new URLSearchParams(formData)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Bedtime saved for ' + username, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + (data.message || data.error || 'unknown error'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
         }
 
         async function lockUser(username) {
