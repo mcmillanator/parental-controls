@@ -106,7 +106,7 @@
         <tbody>
             {% for user in users %}
             <tr id="row-{{ user.username }}">
-                <td><strong>{{ user.username }}</strong></td>
+                <td><strong><a href="/user/{{ user.username }}" style="color: #e0e0e0; text-decoration: none;">{{ user.username }}</a></strong></td>
                 <td>{{ user.uid }}</td>
                 <td class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
                     {{ user.status_detail }}
