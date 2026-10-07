@@ -334,26 +334,6 @@ def index():
     return render_template('index.html', users=user_data, day_labels=DAY_LABELS)
 
 
-@app.route('/bedtime')
-def bedtime():
-    """Render the dedicated bedtime settings page."""
-    users = get_human_users()
-    bedtime = load_bedtime()
-    user_data = []
-    for u in users:
-        locked, detail = get_lock_status(u['username'])
-        entry = bedtime.get(u['username'], {})
-        user_data.append({
-            'username': u['username'],
-            'uid': u['uid'],
-            'locked': locked,
-            'status_detail': detail,
-            'bedtime': entry,
-            'in_bedtime': is_in_bedtime(entry),
-        })
-    return render_template('bedtime.html', users=user_data, day_labels=DAY_LABELS)
-
-
 @app.route('/api/users')
 def api_users():
     """JSON endpoint returning current user list with lock status."""

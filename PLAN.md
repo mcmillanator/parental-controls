@@ -80,7 +80,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Git repo initialized with worktree structure
 - [x] Web UI built and tested (lock/unlock verified with bluefox)
 - [x] Bedtime schedule feature (start/end times, days of week)
-- [x] Dedicated /bedtime settings page
+- [x] Bedtime settings live on each user's details page (dedicated /bedtime page removed)
 - [x] Immediate lock/unlock on bedtime save/clear
 - [x] Lock Screen button (locks account + screen without logout)
 - [x] Emergency logout endpoint (/api/logout)
