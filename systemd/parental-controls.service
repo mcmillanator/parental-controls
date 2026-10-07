@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=stan
 WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
-ExecStart=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/.venv/bin/python app.py
+ExecStart=/bin/bash -c 'cd /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master && . .venv/bin/activate && exec python app.py'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
