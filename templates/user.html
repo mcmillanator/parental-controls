@@ -48,6 +48,7 @@
         .toast-success { background: #4ecca3; color: #1a1a2e; }
         .toast-error { background: #e94560; color: #fff; }
         .refresh-info { color: #666; font-size: 0.8rem; margin-top: 1rem; }
+        .day-checkbox { margin-right: 0.5rem; }
     </style>
 </head>
 <body>
@@ -64,41 +65,59 @@
         <h3>Bedtime Settings</h3>
         {% if bedtime and bedtime.start %}
         <p>Bedtime: {{ bedtime.start }} – {{ bedtime.end }}</p>
-        <p>Days: {% for d in bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        <p>Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
         {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
         <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;">
             <input type="hidden" name="username" value="{{ username }}">
-            <input type="time" name="start" value="{{ bedtime.start }}" style="margin-right: 0.5rem;">
-            <input type="time" name="end" value="{{ bedtime.end }}" style="margin-left: 0.5rem;">
-            <select name="days" style="margin-left: 0.5rem;">
-                <option value="0"{% if 0 in bedtime.days %}selected{% endif %}>Mon</option>
-                <option value="1"{% if 1 in bedtime.days %}selected{% endif %}>Tue</option>
-                <option value="2"{% if 2 in bedtime.days %}selected{% endif %}>Wed</option>
-                <option value="3"{% if 3 in bedtime.days %}selected{% endif %}>Thu</option>
-                <option value="4"{% if 4 in bedtime.days %}selected{% endif %}>Fri</option>
-                <option value="5"{% if 5 in bedtime.days %}selected{% endif %}>Sat</option>
-                <option value="6"{% if 6 in bedtime.days %}selected{% endif %}>Sun</option>
-            </select>
-            <button type="submit" name="save" class="btn-bedtime-save">Save</button>
-            <button type="submit" name="clear" class="btn-bedtime-clear" onclick="return confirm('Clear this user's bedtime schedule?')">Clear</button>
+            <p>
+                <strong>Start time:</strong> <input type="time" name="start" value="{{ bedtime.start }}" required style="margin-right: 0.5rem;">
+                <strong>End time:</strong> <input type="time" name="end" value="{{ bedtime.end }}" required style="margin-left: 0.5rem;">
+            </p>
+            <p>
+                <strong>Apply to all days:</strong> <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox" style="margin-right: 0.5rem;">
+                <span style="font-size: 0.85rem; color: #888;">Apply this bedtime to every day of the week</span>
+            </p>
+            <p>
+                <strong>Custom days:</strong><br>
+                <label><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} class="day-checkbox"> Mon</label>
+                <label><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} class="day-checkbox"> Tue</label>
+                <label><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} class="day-checkbox"> Wed</label>
+                <label><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} class="day-checkbox"> Thu</label>
+                <label><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} class="day-checkbox"> Fri</label>
+                <label><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sat</label>
+                <label><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
+            </p>
+            <p>
+                <button type="submit" name="save" class="btn-bedtime-save">Save</button>
+                <button type="button" name="clear" class="btn-bedtime-clear" onclick="clearBedtime('{{ username }}')">Clear</button>
+            </p>
         </form>
         {% else %}
         <p>No bedtime schedule set</p>
         <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;">
             <input type="hidden" name="username" value="{{ username }}">
-            <input type="time" name="start" required style="margin-right: 0.5rem;">
-            <input type="time" name="end" required style="margin-left: 0.5rem;">
-            <select name="days" required>
-                <option value="0">Mon</option>
-                <option value="1">Tue</option>
-                <option value="2">Wed</option>
-                <option value="3">Thu</option>
-                <option value="4">Fri</option>
-                <option value="5">Sat</option>
-                <option value="6">Sun</option>
-            </select>
-            <button type="submit" name="save" class="btn-bedtime-save">Save</button>
-        </form>
+            <p>
+                <strong>Start time:</strong> <input type="time" name="start" required>
+                <strong>End time:</strong> <input type="time" name="end" required>
+            </p>
+            <p>
+                <strong>Apply to all days:</strong> <input type="checkbox" name="all_days" id="all_days_checkbox" style="margin-right: 0.5rem;">
+                <span style="font-size: 0.85rem; color: #888;">Apply this bedtime to every day of the week</span>
+            </p>
+            <p>
+                <strong>Custom days:</strong><br>
+                <label><input type="checkbox" name="day_0" class="day-checkbox"> Mon</label>
+                <label><input type="checkbox" name="day_1" class="day-checkbox"> Tue</label>
+                <label><input type="checkbox" name="day_2" class="day-checkbox"> Wed</label>
+                <label><input type="checkbox" name="day_3" class="day-checkbox"> Thu</label>
+                <label><input type="checkbox" name="day_4" class="day-checkbox"> Fri</label>
+                <label><input type="checkbox" name="day_5" class="day-checkbox"> Sat</label>
+                <label><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
+            </p>
+            <p>
+                <button type="submit" name="save" class="btn-bedtime-save">Save</button>
+            </form>
+        </p>
         {% endif %}
     </div>
 
@@ -195,6 +214,26 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Unlocked ' + username, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + data.message, true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function clearBedtime(username) {
+            if (!confirm('Clear "' + username + '"\'s bedtime schedule?')) return;
+            try {
+                const resp = await fetch('/api/bedtime', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username) + '&clear=1'
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Bedtime cleared for ' + username, false);
                     setTimeout(() => location.reload(), 500);
                 } else {
                     showToast('Error: ' + data.message, true);
