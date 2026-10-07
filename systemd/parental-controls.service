@@ -1,0 +1,15 @@
+[Unit]
+Description=Bazzite Parental Controls Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=stan
+WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
+ExecStart=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/.venv/bin/python app.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
