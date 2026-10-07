@@ -90,6 +90,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Clear bedtime button works via AJAX with toast + refresh (no raw JSON page)
 - [x] Auto-refresh pauses while form inputs are focused (no lost form data)
 - [x] Manual override precedence: unlocking during bedtime stays unlocked until manual lock or next bedtime occurs
+- [x] No page auto-refresh: targeted DOM updates every 10s (table rebuild on main page; status/process/budget cells on details page; forms never touched)
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
 - [ ] Notifications before lock (notify-send via systemd-run) (later)
