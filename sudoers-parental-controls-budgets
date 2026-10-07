@@ -1,0 +1,10 @@
+# Per-category app time budgets: allow the parental-controls app to freeze/thaw
+# ONLY its own cgroups (parental-<username>-<category>) and to move PIDs into
+# them. No signals, no SIGKILL anywhere in budget enforcement.
+# Install as /etc/sudoers.d/parental-controls-budgets (mode 0440) and check
+# with `visudo -c`.
+stan ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.freeze
+stan ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.procs
+stan ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.freeze
+stan ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.procs
+stan ALL=(root) NOPASSWD: /usr/bin/mkdir -p /sys/fs/cgroup/parental-*

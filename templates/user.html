@@ -51,6 +51,17 @@
         .btn-unlock { background: #4ecca3; color: #1a1a2e; }
         .btn-bedtime-save { background: #6a4c93; color: #fff; }
         .btn-bedtime-clear { background: #e94560; color: #fff; }
+        .btn-hide { background: #555; color: #fff; }
+        .btn-show-hidden { background: #0f3460; color: #fff; }
+        .badge-paused {
+            display: inline-block;
+            background: #e94560;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
         .process-row { background: #1a1a3e; margin: 0.2rem 0; padding: 0.3rem; border-radius: 4px; }
         .process-name { font-weight: 500; }
         .process-pid { font-size: 0.75rem; color: #888; margin-left: 0.5rem; }
@@ -154,30 +165,97 @@
         </div>
     </div>
 
+    <!-- Time Budgets -->
+    <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
+        <h2>Time Budgets</h2>
+        <p style="color:#888; font-size:0.85rem;">Daily minutes per category, measured in active CPU time (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Limit (min/day)</th>
+                    <th>Used</th>
+                    <th>Left</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cat in categories %}
+                {% set b = budget_state[cat] %}
+                <tr>
+                    <td>{{ category_labels[cat] }}</td>
+                    <td>
+                        <input type="number" min="0" step="1" id="budget-{{ cat }}" value="{{ b.minutes or '' }}" placeholder="—" style="width: 5rem;">
+                        <button type="button" class="btn-bedtime-save" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
+                    </td>
+                    <td>{{ b.used_minutes }} min</td>
+                    <td>{% if b.remaining_minutes is not none %}{{ b.remaining_minutes }} min{% else %}—{% endif %}</td>
+                    <td>
+                        {% if b.paused %}<span class="badge-paused">Paused — out of time</span>
+                        <button type="button" class="btn-unlock" onclick="resumeCategory('{{ username }}', '{{ cat }}')">Resume</button>
+                        {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% else %}OK{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
     <!-- Processes -->
     <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h2>Processes</h2>
-        {% if processes and processes|length > 0 and processes[0]|default('') != 'error' %}
+        {% if visible and visible|length > 0 %}
+        {% for cat in categories %}
+        {% if groups[cat] and groups[cat]|length > 0 %}
+        <h3 style="margin-top: 1rem;">{{ category_labels[cat] }} ({{ groups[cat]|length }})</h3>
         <table>
             <thead>
                 <tr>
                     <th>PID</th>
                     <th>Command</th>
                     <th>Elapsed</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
-                {% for proc in processes %}
+                {% for proc in groups[cat] %}
                 <tr>
                     <td>{{ proc.pid }}</td>
                     <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
                     <td>{{ proc.elapsed or proc.etime }}<br><span class="process-pid">{{ proc.etime }}</span></td>
+                    <td><button type="button" class="btn-hide" onclick="hideProc('{{ username }}', '{{ proc.comm }}')">Hide</button></td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% endif %}
+        {% endfor %}
+        {% elif processes and processes|length > 0 and processes[0]|default('') != 'error' and (processes[0].error is defined) %}
+        <p>Error loading processes: {{ processes[0].error }}</p>
         {% else %}
         <p>No processes found or error loading processes.</p>
+        {% endif %}
+        {% if hidden and hidden|length > 0 %}
+        <p style="margin-top: 1rem;">
+            <button type="button" class="btn-show-hidden" onclick="document.getElementById('hidden-procs').style.display = document.getElementById('hidden-procs').style.display === 'none' ? 'block' : 'none';">Show hidden ({{ hidden|length }})</button>
+        </p>
+        <div id="hidden-procs" style="display: none;">
+            <table>
+                <thead>
+                    <tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr>
+                </thead>
+                <tbody>
+                    {% for proc in hidden %}
+                    <tr>
+                        <td>{{ proc.pid }}</td>
+                        <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
+                        <td>{{ category_labels[proc.category] if proc.category else '—' }}</td>
+                        <td><button type="button" class="btn-show-hidden" onclick="showProc('{{ username }}', '{{ proc.comm }}')">Show</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% endif %}
     </div>
     {% endif %}
@@ -270,6 +348,83 @@
                     setTimeout(() => location.reload(), 500);
                 } else {
                     showToast('Error: ' + data.message, true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function hideProc(username, comm) {
+            try {
+                const resp = await fetch('/api/process-prefs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=hide'
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Hid ' + comm, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function showProc(username, comm) {
+            try {
+                const resp = await fetch('/api/process-prefs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=show'
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Showing ' + comm, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function saveBudget(username, category) {
+            const input = document.getElementById('budget-' + category);
+            try {
+                const resp = await fetch('/api/budgets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category) + '&minutes=' + encodeURIComponent(input.value)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Budget saved for ' + category, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function resumeCategory(username, category) {
+            try {
+                const resp = await fetch('/api/budgets/resume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Resumed ' + category, false);
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
                 }
             } catch (e) {
                 showToast('Error: ' + e.message, true);

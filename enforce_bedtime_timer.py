@@ -17,7 +17,13 @@ if not os.path.exists(os.path.join(APP_DIR, 'app.py')):
 
 sys.path.insert(0, APP_DIR)
 
-from app import enforce_bedtime  # noqa: E402
+from app import enforce_bedtime, load_bedtime  # noqa: E402
+from datetime import datetime  # noqa: E402
+import budgets  # noqa: E402
 
 if __name__ == '__main__':
     enforce_bedtime()
+    try:
+        budgets.tick_budgets(load_bedtime(), datetime.now())
+    except Exception as e:
+        print(f'budget tick failed: {e}')
