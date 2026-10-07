@@ -68,6 +68,16 @@
             font-weight: 600;
             margin-left: 0.5rem;
         }
+        .badge-override {
+            display: inline-block;
+            background: #e67e22;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
         .bedtime-summary { color: #888; font-size: 0.8rem; margin-top: 0.5rem; }
         #toast {
             position: fixed;
@@ -111,6 +121,7 @@
                 <td class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
                     {{ user.status_detail }}
                     {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
+                    {% if user.in_bedtime and user.bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}
                 </td>
                 <td>
                     {% if user.bedtime and user.bedtime.start %}

@@ -136,6 +136,41 @@ def save_bedtime(data):
         json.dump(data, f, indent=2)
 
 
+def note_manual_unlock(username):
+    """Record a manual unlock for bedtime bookkeeping.
+
+    Clears bedtime ownership and, if the user is currently in bedtime,
+    sets a manual override so enforcement does not re-lock until this
+    bedtime window ends or the parent manually locks again.
+    """
+    try:
+        data = load_bedtime()
+        entry = data.get(username)
+        if entry is not None:
+            entry['locked_by_bedtime'] = False
+            if is_in_bedtime(entry):
+                entry['manual_override'] = True
+            save_bedtime(data)
+    except OSError:
+        pass
+
+
+def clear_manual_override(username):
+    """Clear a bedtime manual override after a manual lock.
+
+    A manual lock cancels the override; bedtime ownership
+    (locked_by_bedtime) is left untouched.
+    """
+    try:
+        data = load_bedtime()
+        entry = data.get(username)
+        if entry is not None and entry.get('manual_override'):
+            entry['manual_override'] = False
+            save_bedtime(data)
+    except OSError:
+        pass
+
+
 def _parse_hhmm(value):
     """Parse 'HH:MM' into minutes since midnight. Returns None if invalid."""
     try:
@@ -227,6 +262,10 @@ def enforce_bedtime():
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
 
         if in_bed:
+            if entry.get('manual_override'):
+                # Parent manually unlocked during this bedtime window:
+                # leave the account alone until the window ends.
+                continue
             locked, _detail = get_lock_status(username)
             if locked is False:
                 success, _msg = run_lock_command(username, 'lock')
@@ -242,6 +281,11 @@ def enforce_bedtime():
                 if success:
                     entry['locked_by_bedtime'] = False
                     changed = True
+            if entry.get('manual_override'):
+                # Bedtime window ended: clear the override so the next
+                # bedtime enforces normally again.
+                entry['manual_override'] = False
+                changed = True
 
     if changed:
         save_bedtime(data)
@@ -348,6 +392,9 @@ def api_lock():
     except Exception as e:
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
+    # A manual lock cancels any bedtime manual override.
+    clear_manual_override(username)
+
     # Lock the screen without terminating the session
     try:
         result = subprocess.run(
@@ -389,6 +436,9 @@ def api_lock_screen():
     except Exception as e:
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
+    # A manual lock cancels any bedtime manual override.
+    clear_manual_override(username)
+
     # Lock the screen without terminating the session
     try:
         result = subprocess.run(
@@ -414,6 +464,9 @@ def api_unlock():
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     success, message = run_lock_command(username, 'unlock')
+    if success:
+        # Manual unlock takes precedence over bedtime (see note_manual_unlock).
+        note_manual_unlock(username)
     return jsonify({'success': success, 'message': message})
 
 
@@ -439,7 +492,6 @@ def api_bedtime_set():
     start = request.form.get('start', '').strip()
     end = request.form.get('end', '').strip()
     all_days = 'all_days' in request.form
-    days_raw = request.form.getlist('day_')  # day_0, day_1, ..., day_6
 
     # --- CLEAR HANDLING (absolute priority) ---
     # Checkbox or explicit clear request → always clear the bedtime
@@ -463,10 +515,7 @@ def api_bedtime_set():
     if all_days:
         days = [0, 1, 2, 3, 4, 5, 6]
     else:
-        days = []
-        for i in range(7):
-            if f'day_{i}' in days_raw:
-                days.append(i)
+        days = [i for i in range(7) if f'day_{i}' in request.form]
         if not days:
             return jsonify({'success': False, 'error': 'Select at least one day or check "Apply to all days"'}), 400
 
@@ -483,6 +532,9 @@ def api_bedtime_set():
         'days': days,
         # Preserve locked_by_bedtime if it was already set, otherwise default to False
         'locked_by_bedtime': bool(existing.get('locked_by_bedtime', False)),
+        # Saving a schedule is the latest parent action: clear any override
+        # so the new schedule enforces immediately.
+        'manual_override': False,
     }
     save_bedtime(data)
 
@@ -532,6 +584,9 @@ def api_logout():
             return jsonify({'success': False, 'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')}), 400
     except Exception as e:
         return jsonify({'success': False, 'message': 'usermod -L error: ' + str(e)}), 400
+
+    # A manual lock cancels any bedtime manual override.
+    clear_manual_override(username)
 
     # Terminate the user's sessions
     try:

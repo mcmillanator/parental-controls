@@ -78,7 +78,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Merge feature/screen-lock to master
 - [x] Clear bedtime button works via AJAX with toast + refresh (no raw JSON page)
 - [x] Auto-refresh pauses while form inputs are focused (no lost form data)
-- [ ] Manual override precedence: unlocking during bedtime stays unlocked until manual lock or next bedtime occurs
+- [x] Manual override precedence: unlocking during bedtime stays unlocked until manual lock or next bedtime occurs
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
 - [ ] Notifications before lock (notify-send via systemd-run) (later)
