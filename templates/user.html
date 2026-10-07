@@ -224,7 +224,7 @@
         }
 
         async function clearBedtime(username) {
-            if (!confirm('Clear "' + username + '"\'s bedtime schedule?')) return;
+            if (!confirm('Clear "' + username + '" bedtime schedule?')) return;
             try {
                 const resp = await fetch('/api/bedtime', {
                     method: 'POST',
