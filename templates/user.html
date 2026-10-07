@@ -159,7 +159,7 @@
                 <tr>
                     <td>{{ proc.pid }}</td>
                     <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
-                    <td>{{ proc.etime }}</td>
+                    <td>{{ proc.elapsed or proc.etime }}<br><span class="process-pid">{{ proc.etime }}</span></td>
                 </tr>
                 {% endfor %}
             </tbody>

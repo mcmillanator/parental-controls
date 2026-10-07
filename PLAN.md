@@ -74,7 +74,11 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Lock Screen button (locks account + screen without logout)
 - [x] Emergency logout endpoint (/api/logout)
 - [x] User details page with bedtime settings at top, then account status, then processes (/user/<username>)
+- [x] Process elapsed time shown in minutes/hours on details page
 - [x] Merge feature/screen-lock to master
+- [x] Clear bedtime button works via AJAX with toast + refresh (no raw JSON page)
+- [x] Auto-refresh pauses while form inputs are focused (no lost form data)
+- [ ] Manual override precedence: unlocking during bedtime stays unlocked until manual lock or next bedtime occurs
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
 - [ ] Notifications before lock (notify-send via systemd-run) (later)

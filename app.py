@@ -148,6 +148,38 @@ def _parse_hhmm(value):
     return None
 
 
+def format_etime(etime):
+    """Format ps ETIME (e.g. '21:47:19', '05:23', '1-02:03:04') as '21h 47m'.
+
+    Falls back to the raw string when it cannot be parsed.
+    """
+    try:
+        days = 0
+        rest = etime.strip()
+        if '-' in rest:
+            days_part, rest = rest.split('-', 1)
+            days = int(days_part)
+        fields = [int(f) for f in rest.split(':')]
+        if len(fields) == 3:
+            hours, minutes, seconds = fields
+        elif len(fields) == 2:
+            hours, minutes, seconds = 0, fields[0], fields[1]
+        else:
+            return etime
+        parts = []
+        if days:
+            parts.append(f'{days}d')
+        if hours:
+            parts.append(f'{hours}h')
+        if minutes:
+            parts.append(f'{minutes}m')
+        if not parts:
+            parts.append(f'{seconds}s')
+        return ' '.join(parts)
+    except (ValueError, AttributeError):
+        return etime
+
+
 def is_in_bedtime(entry, now=None):
     """Return True if `now` falls inside the configured bedtime window.
 
@@ -540,21 +572,29 @@ def user_detail(username):
         # Username not found
         return "User not found", 404
     
-    # Get processes owned by this user
+    # Get processes owned by this user.
+    # Note: ps exits 1 with header-only output when the user has no
+    # processes (e.g. locked/logged-out account), so treat that as empty
+    # rather than an error.
     processes = []
     try:
         result = subprocess.run(
             ['ps', '-u', username, '-o', 'pid,comm,etime'],
             capture_output=True, text=True, timeout=10
         )
-        if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.strip().split('\n')[1:]:  # skip header
-                parts = line.split(None, 2)  # split on whitespace, maxsplit=2
-                if len(parts) >= 3:
-                    pid = parts[0]
-                    comm = parts[1]
-                    etime = parts[2]
-                    processes.append({'pid': pid, 'comm': comm, 'etime': etime})
+        lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        for line in lines[1:]:  # skip header
+            parts = line.split(None, 2)  # split on whitespace, maxsplit=2
+            if len(parts) >= 3:
+                pid = parts[0]
+                comm = parts[1]
+                etime = parts[2]
+                processes.append({
+                    'pid': pid,
+                    'comm': comm,
+                    'etime': etime,
+                    'elapsed': format_etime(etime),
+                })
     except Exception as e:
         processes = [{'error': str(e)}]
     
