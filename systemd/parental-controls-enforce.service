@@ -1,0 +1,8 @@
+[Unit]
+Description=Enforce bedtime lock/unlock once
+
+[Service]
+Type=oneshot
+User=stan
+WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
+ExecStart=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/.venv/bin/python /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/enforce_bedtime_timer.py
