@@ -212,7 +212,12 @@
         }
 
         // Auto-refresh every 10 seconds
-        setInterval(() => { location.reload(); }, 10000);
+        setInterval(() => {
+    // Only refresh if no form inputs are focused (so user data isn't lost)
+    if (!document.activeElement || !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        location.reload();
+    }
+}, 10000);
     </script>
 </body>
 </html>
