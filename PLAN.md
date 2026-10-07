@@ -47,6 +47,9 @@ Bazzite (Fedora-based immutable desktop OS)
 - Multi-device support (multiple Bazzite devices)
 - Polished UI/UX
 
+### MVP Scope (not prototype)
+- Responsive design via Bootstrap (add Bootstrap CSS/JS to templates and be done; still prototype phase, so no custom design work)
+
 ## Test User
 
 - Username: `bluefox`
@@ -86,3 +89,4 @@ Bazzite (Fedora-based immutable desktop OS)
 - [ ] Lockout prevention / safeguards (later)
 - [ ] Multi-device support (later)
 - [ ] Polished UI/UX (later)
+- [ ] Responsive design via Bootstrap (MVP, not prototype)
