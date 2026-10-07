@@ -101,7 +101,7 @@
 <body>
     <h1>Parental Controls</h1>
     <p class="subtitle">Manage user account lock status on this Bazzite system</p>
-    <p class="nav-links"><a href="/bedtime" style="color: #4ecca3;">Bedtime Settings →</a> | <a href="/user" style="color: #4ecca3; margin-left: 1rem;" target="_blank">View All Details</a></p>
+    <p class="nav-links"><a href="/bedtime" style="color: #4ecca3;">Bedtime Settings →</a></p>
 
     <table>
         <thead>
@@ -151,17 +151,71 @@
         </tbody>
     </table>
 
-    <p class="refresh-info">Page auto-refreshes every 10 seconds</p>
+    <p class="refresh-info">Status updates automatically every 10 seconds</p>
 
     <div id="toast"></div>
 
     <script>
+        const DAY_LABELS = {{ day_labels|tojson }};
+
         function showToast(msg, isError) {
             const toast = document.getElementById('toast');
             toast.textContent = msg;
             toast.className = isError ? 'toast-error' : 'toast-success';
             toast.style.display = 'block';
             setTimeout(() => { toast.style.display = 'none'; }, 4000);
+        }
+
+        function esc(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function statusClass(locked) {
+            return locked === true ? 'locked' : locked === false ? 'unlocked' : 'unknown';
+        }
+
+        function rowHtml(u) {
+            const badges = (u.in_bedtime ? '<span class="badge-bedtime">In Bedtime</span>' : '') +
+                ((u.in_bedtime && u.bedtime && u.bedtime.manual_override) ? '<span class="badge-override">Override</span>' : '');
+            let bedtimeCell;
+            if (u.bedtime && u.bedtime.start) {
+                const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
+                bedtimeCell = `${esc(u.bedtime.start)} – ${esc(u.bedtime.end)}<br><span class="bedtime-summary">${esc(days)}</span>`;
+            } else {
+                bedtimeCell = '<span class="bedtime-summary">Not set</span>';
+            }
+            let actions = '';
+            if (u.locked !== true) {
+                if (u.in_bedtime) {
+                    actions += '<button type="button" class="btn-lock" style="background: #6a4c93;" disabled>In Bedtime</button>';
+                } else {
+                    actions += `<button type="button" class="btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
+                    actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${esc(u.username)}')">Lock Screen</button>`;
+                }
+            }
+            if (u.locked === true) {
+                actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
+            }
+            actions += `<button class="btn-details" style="background: #4ecca3; color: #1a1a2e; margin-left: 0.5rem;" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
+            return `<tr id="row-${esc(u.username)}">` +
+                `<td><strong><a href="/user/${encodeURIComponent(u.username)}" style="color: #e0e0e0; text-decoration: none;">${esc(u.username)}</a></strong></td>` +
+                `<td>${esc(u.uid)}</td>` +
+                `<td class="status-${statusClass(u.locked)}">${esc(u.status_detail)}${badges}</td>` +
+                `<td>${bedtimeCell}</td>` +
+                `<td class="actions">${actions}</td></tr>`;
+        }
+
+        async function refreshTable() {
+            try {
+                const resp = await fetch('/api/users');
+                const users = await resp.json();
+                document.querySelector('tbody').innerHTML = users.map(rowHtml).join('');
+            } catch (e) {
+                showToast(`Refresh failed: ${e.message}`, true);
+            }
         }
 
         async function lockUser(username) {
@@ -175,7 +229,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast(`Locked ${username}`, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshTable();
                 } else {
                     showToast(`Error: ${data.message}`, true);
                 }
@@ -194,7 +248,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast(data.message || `Screen locked for ${username}`, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshTable();
                 } else {
                     showToast(`Error: ${data.message}`, true);
                 }
@@ -213,7 +267,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast(`Unlocked ${username}`, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshTable();
                 } else {
                     showToast(`Error: ${data.message}`, true);
                 }
@@ -222,13 +276,8 @@
             }
         }
 
-        // Auto-refresh every 10 seconds
-        setInterval(() => {
-    // Only refresh if no form inputs are focused (so user data isn't lost)
-    if (!document.activeElement || !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
-        location.reload();
-    }
-}, 10000);
+        // Targeted refresh: only the table body is re-rendered, every 10s.
+        setInterval(refreshTable, 10000);
     </script>
 </body>
 </html>

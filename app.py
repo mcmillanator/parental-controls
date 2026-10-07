@@ -677,6 +677,26 @@ def api_budgets_get(username):
 @app.route('/user/<username>')
 def user_detail(username):
     """Render the user details page for a specific user."""
+    data = get_user_live(username)
+    if data is None:
+        # Username not found
+        return "User not found", 404
+
+    return render_template('user.html', username=username,
+                           user=data['user'],
+                           processes=data['processes'], visible=data['visible'],
+                           hidden=data['hidden'], groups=data['groups'],
+                           budget_state=data['budget_state'],
+                           category_labels=budgets.CATEGORY_LABELS,
+                           categories=budgets.CATEGORIES,
+                           day_labels=DAY_LABELS)
+
+
+def get_user_live(username):
+    """Gather live data for the details page and the live-refresh endpoint.
+
+    Returns None when the username is not a human user on this system.
+    """
     users = get_human_users()
     bedtime = load_bedtime()
     user_data = []
@@ -696,9 +716,8 @@ def user_detail(username):
             })
             break
     else:
-        # Username not found
-        return "User not found", 404
-    
+        return None
+
     # Get processes owned by this user (read-only ps + /proc cmdline),
     # filtered through the curated denylist + parent prefs, grouped by
     # app category for the per-category budget UI.
@@ -722,14 +741,50 @@ def user_detail(username):
         visible, hidden, groups = [], processes, {c: [] for c in budgets.CATEGORIES}
     budget_state = budgets.budget_status(username)
 
-    return render_template('user.html', username=username,
-                           user=user_data[0] if user_data else None,
-                           processes=processes, visible=visible,
-                           hidden=hidden, groups=groups,
-                           budget_state=budget_state,
-                           category_labels=budgets.CATEGORY_LABELS,
-                           categories=budgets.CATEGORIES,
-                           day_labels=DAY_LABELS)
+    return {
+        'user': user_data[0],
+        'processes': processes,
+        'visible': visible,
+        'hidden': hidden,
+        'groups': groups,
+        'budget_state': budget_state,
+    }
+
+
+@app.route('/api/user/<username>/live')
+def api_user_live(username):
+    """Live status/process/budget data for targeted DOM refresh (no reload)."""
+    if not all(c.isalnum() or c in '_-.' for c in username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    data = get_user_live(username)
+    if data is None:
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+    user = data['user']
+    error = None
+    if data['processes'] and 'error' in data['processes'][0]:
+        error = data['processes'][0].get('error')
+    slim_groups = {
+        cat: [{'pid': p['pid'], 'comm': p['comm'],
+               'elapsed': p.get('elapsed') or p.get('etime', '')}
+              for p in procs]
+        for cat, procs in data['groups'].items()
+    }
+    slim_hidden = [
+        {'pid': p.get('pid'), 'comm': p.get('comm'),
+         'category': p.get('category')}
+        for p in data['hidden'] if 'error' not in p
+    ]
+    return jsonify({
+        'success': True,
+        'locked': user['locked'],
+        'status_detail': user['status_detail'],
+        'in_bedtime': user['in_bedtime'],
+        'manual_override': bool(user['bedtime'].get('manual_override', False)),
+        'groups': slim_groups,
+        'hidden': slim_hidden,
+        'error': error,
+        'budget': data['budget_state'],
+    })
 
 
 if __name__ == '__main__':
