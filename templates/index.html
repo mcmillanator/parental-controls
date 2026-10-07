@@ -124,14 +124,14 @@
                 <td class="actions">
                     {% if user.locked != True %}
                     {% if user.in_bedtime %}
-                    <button class="btn-lock" style="background: #6a4c93;" disabled>In Bedtime</button>
+                    <button type="button" class="btn-lock" style="background: #6a4c93;" disabled>In Bedtime</button>
                     {% else %}
-                    <button class="btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
-                    <button class="btn-screen-lock" onclick="lockScreenUser('{{ user.username }}')">Lock Screen</button>
+                    <button type="button" class="btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
+                    <button type="button" class="btn-screen-lock" onclick="lockScreenUser('{{ user.username }}')">Lock Screen</button>
                     {% endif %}
                     {% endif %}
                     {% if user.locked == True %}
-                    <button class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
+                    <button type="button" class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
                     {% endif %}
                     <button class="btn-details" style="background: #4ecca3; color: #1a1a2e; margin-left: 0.5rem;" onclick="window.location='/user/{{ user.username }}'">Details</button>
                     </td>

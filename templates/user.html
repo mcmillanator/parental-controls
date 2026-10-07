@@ -134,10 +134,10 @@
         
         <div class="actions" style="margin-top: 1rem;">
             {% if user.locked != True %}
-            <button class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
+            <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
             {% endif %}
             {% if user.locked == True %}
-            <button class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
+            <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
             {% endif %}
         </div>
     </div>
