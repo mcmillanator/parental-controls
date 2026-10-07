@@ -168,7 +168,7 @@
     <!-- Time Budgets -->
     <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h2>Time Budgets</h2>
-        <p style="color:#888; font-size:0.85rem;">Daily minutes per category, measured in active CPU time (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
+        <p style="color:#888; font-size:0.85rem;">Daily minutes per category — counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
         <table>
             <thead>
                 <tr>
@@ -222,7 +222,7 @@
                 <tr>
                     <td>{{ proc.pid }}</td>
                     <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
-                    <td>{{ proc.elapsed or proc.etime }}<br><span class="process-pid">{{ proc.etime }}</span></td>
+                    <td>{{ proc.elapsed or proc.etime }}</td>
                     <td><button type="button" class="btn-hide" onclick="hideProc('{{ username }}', '{{ proc.comm }}')">Hide</button></td>
                 </tr>
                 {% endfor %}

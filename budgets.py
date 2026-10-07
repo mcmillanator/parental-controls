@@ -6,15 +6,26 @@ system python3), JSON files like bedtime.json, no DB.
 
 Budget model
 ------------
-Usage is measured in **CPU seconds**, not wall-clock: on every 60s tick we
-read each process's cumulative CPU time (``ps -o time``) and accumulate the
-delta since the previous tick. A process that sits idle contributes ~0, so
-background-idle MUST NOT burn budget.
+Usage is measured in **active wall-clock minutes**, not raw CPU seconds and
+not raw wall-clock: on every 60s tick we read each process's cumulative CPU
+time (``ps -o time``) and compute the delta since the previous tick. If any
+process in a budgeted category was active this tick (delta at or above
+``ACTIVE_THRESHOLD_SECONDS``), the whole tick's wall-clock duration is
+charged to that category; a tick with no active process charges nothing.
+An idle app therefore contributes ~0, so background-idle MUST NOT burn
+budget — while an app in actual use accrues time matching the Elapsed
+column parents see.
 
 **Active threshold:** per-process deltas smaller than
 ``ACTIVE_THRESHOLD_SECONDS`` (1.0 CPU-second per 60s tick, i.e. processes
 averaging under ~1.7% CPU) are treated as background noise and ignored.
-Anything above that burns budget 1:1 in CPU seconds.
+
+**Wall-clock cap:** the charged duration is capped at
+``MAX_TICK_WALL_SECONDS`` (5 minutes) so sleep/downtime gaps never bill a
+burst of phantom hours on the first tick back.
+
+**Display:** all user-facing times are whole minutes only — no seconds are
+ever shown. Internal accounting keeps float seconds to avoid rounding drift.
 
 Budgets reset at **bedtime end** (the True->False transition of the bedtime
 window, detected in the tick loop). Users with no bedtime reset at
@@ -32,6 +43,7 @@ import pwd
 import re
 import shlex
 import subprocess
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROCESS_PREFS_FILE = os.path.join(BASE_DIR, 'process_prefs.json')
@@ -50,6 +62,10 @@ CATEGORY_LABELS = {
 # CPU seconds per 60s tick below which a process counts as background-idle
 # noise and does not burn budget. See module docstring.
 ACTIVE_THRESHOLD_SECONDS = 1.0
+# Upper bound on wall-clock seconds billed for a single tick. Ticks normally
+# land ~60s apart; the cap only bites after sleep/service downtime so the
+# first tick back cannot bill phantom hours.
+MAX_TICK_WALL_SECONDS = 300.0
 TICK_SECONDS = 60
 
 _USERNAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
@@ -535,7 +551,8 @@ def save_budgets(data):
 
 def blank_entry():
     return {'limits': {}, 'day': None, 'used_seconds': {}, 'last_cpu': {},
-            'paused': {}, 'resumed': {}, 'was_in_bedtime': False}
+            'paused': {}, 'resumed': {}, 'was_in_bedtime': False,
+            'last_tick': None}
 
 
 def set_limit(username, category, minutes):
@@ -572,7 +589,8 @@ def set_limit(username, category, minutes):
 
 def budget_status(username, data=None):
     """UI-friendly status: {cat: {minutes, used_minutes, remaining_minutes,
-    paused}} for every category."""
+    paused}} for every category. All displayed times are whole minutes —
+    seconds are never shown."""
     if data is None:
         data = load_budgets()
     entry = data.get(username, {})
@@ -585,8 +603,8 @@ def budget_status(username, data=None):
         used_sec = float(used.get(cat, 0) or 0)
         status[cat] = {
             'minutes': limit_min,
-            'used_minutes': round(used_sec / 60.0, 1),
-            'remaining_minutes': round(max(0.0, limit_min * 60 - used_sec) / 60.0, 1)
+            'used_minutes': int(round(used_sec / 60.0)),
+            'remaining_minutes': int(round(max(0.0, limit_min * 60 - used_sec) / 60.0))
             if limit_min > 0 else None,
             'paused': bool(paused.get(cat, False)),
             'exhausted': bool(limit_min > 0 and used_sec >= limit_min * 60),
@@ -839,6 +857,19 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
 
     deltas, new_last = compute_deltas(entry.get('last_cpu', {}), procs)
     entry['last_cpu'] = new_last
+    # Wall-clock seconds since the previous tick. First tick (or unreadable
+    # timestamp) bills nothing — baselines only. Capped so sleep/downtime
+    # gaps cannot bill phantom hours.
+    prev_iso = entry.get('last_tick')
+    if prev_iso:
+        try:
+            wall = (now - datetime.fromisoformat(prev_iso)).total_seconds()
+        except (ValueError, TypeError):
+            wall = 0.0
+    else:
+        wall = 0.0
+    wall = max(0.0, min(wall, MAX_TICK_WALL_SECONDS))
+    entry['last_tick'] = now.isoformat()
     used = entry.setdefault('used_seconds', {})
     paused = entry.setdefault('paused', {})
     resumed = entry.setdefault('resumed', {})
@@ -852,9 +883,15 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
             continue
         members = freezable_members(procs, username, category, limits,
                                     prefs, index)
-        tick_active = sum(d for p in members for d in [deltas.get(p['pid'], 0.0)]
-                          if d >= ACTIVE_THRESHOLD_SECONDS)
-        used[category] = float(used.get(category, 0.0) or 0.0) + tick_active
+        # An active category burns the whole tick's wall-clock duration;
+        # an idle one burns nothing — so usage tracks the Elapsed time
+        # parents see for apps actually in use.
+        used[category] = float(used.get(category, 0.0) or 0.0)
+        category_active = any(
+            deltas.get(p['pid'], 0.0) >= ACTIVE_THRESHOLD_SECONDS
+            for p in members)
+        if category_active:
+            used[category] += wall
         exhausted = used[category] >= limit_sec
         if exhausted and not paused.get(category) and not resumed.get(category):
             if not act:

@@ -9,7 +9,7 @@ plus synthetic Steam-chain processes.
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -272,7 +272,7 @@ class TestAccounting(unittest.TestCase):
         return e
 
     def test_idle_does_not_burn_budget(self):
-        """Sub-threshold CPU deltas must not accumulate."""
+        """Sub-threshold CPU deltas must not accumulate, even as wall time passes."""
         entry = self._entry()
         procs = [dict(p, cpu_seconds=100.0) for p in STEAM_PROCS[:3]]
         now = datetime(2026, 10, 7, 15, 0)
@@ -282,20 +282,38 @@ class TestAccounting(unittest.TestCase):
         self.assertEqual(entry['used_seconds'].get('games', 0.0), 0.0)
         procs2 = [dict(p, cpu_seconds=p['cpu_seconds'] + 0.2)
                   for p in procs]  # 0.2s each: idle noise
-        account_and_enforce('tester', entry, procs2, None, now,
+        account_and_enforce('tester', entry, procs2, None,
+                            now + timedelta(seconds=60),
                             prefs={}, index={}, act=False)
         self.assertEqual(entry['used_seconds'].get('games', 0.0), 0.0)
 
-    def test_active_burns_budget(self):
+    def test_active_burns_wall_clock(self):
+        """An active tick bills the tick's wall-clock duration, not CPU sum."""
         entry = self._entry()
         procs = [dict(p, cpu_seconds=100.0) for p in STEAM_PROCS[:3]]
         now = datetime(2026, 10, 7, 15, 0)
         account_and_enforce('tester', entry, procs, None, now,
                             prefs={}, index={}, act=False)
         procs2 = [dict(p, cpu_seconds=p['cpu_seconds'] + 30.0) for p in procs]
-        account_and_enforce('tester', entry, procs2, None, now,
+        account_and_enforce('tester', entry, procs2, None,
+                            now + timedelta(seconds=60),
                             prefs={}, index={}, act=False)
-        self.assertAlmostEqual(entry['used_seconds']['games'], 90.0)
+        # 30 CPU-s each proves activity, but only 60 wall seconds are billed.
+        self.assertAlmostEqual(entry['used_seconds']['games'], 60.0)
+
+    def test_wall_clock_capped_after_gap(self):
+        """Sleep/downtime gaps cannot bill phantom hours — capped at 5 min."""
+        entry = self._entry()
+        procs = [dict(p, cpu_seconds=100.0) for p in STEAM_PROCS[:3]]
+        now = datetime(2026, 10, 7, 15, 0)
+        account_and_enforce('tester', entry, procs, None, now,
+                            prefs={}, index={}, act=False)
+        procs2 = [dict(p, cpu_seconds=p['cpu_seconds'] + 5000.0)
+                  for p in procs]
+        account_and_enforce('tester', entry, procs2, None,
+                            now + timedelta(days=1),
+                            prefs={}, index={}, act=False)
+        self.assertAlmostEqual(entry['used_seconds']['games'], 300.0)
 
     def test_exhaust_marks_paused_dry_run(self):
         entry = self._entry()
@@ -305,12 +323,23 @@ class TestAccounting(unittest.TestCase):
         account_and_enforce('tester', entry, procs, None, now,
                             prefs={}, index={}, act=False)
         procs2 = [dict(p, cpu_seconds=p['cpu_seconds'] + 30.0) for p in procs]
-        summary = account_and_enforce('tester', entry, procs2, None, now,
+        summary = account_and_enforce('tester', entry, procs2, None,
+                                      now + timedelta(seconds=60),
                                       prefs={}, index={}, act=False)
         self.assertTrue(entry['paused'].get('games'))
         self.assertTrue(summary['froze'])
         status = budget_status('tester', {'tester': entry})
         self.assertTrue(status['games']['exhausted'])
+
+    def test_status_reports_whole_minutes(self):
+        """Displays never show seconds: used/remaining are whole minutes."""
+        entry = self._entry()
+        entry['limits'] = {'games': 10}
+        entry['used_seconds'] = {'games': 150.0}  # 2.5 min
+        status = budget_status('tester', {'tester': entry})
+        self.assertEqual(status['games']['used_minutes'], 2)
+        self.assertEqual(status['games']['remaining_minutes'], 8)
+        self.assertIsInstance(status['games']['used_minutes'], int)
 
     def test_threshold_value_documented(self):
         self.assertEqual(ACTIVE_THRESHOLD_SECONDS, 1.0)
