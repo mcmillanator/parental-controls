@@ -91,7 +91,7 @@
 <body>
     <h1>Parental Controls</h1>
     <p class="subtitle">Manage user account lock status on this Bazzite system</p>
-    <p class="nav-links"><a href="/bedtime" style="color: #4ecca3;">Bedtime Settings →</a> | <a href="/user" style="color: #4ecca3; margin-left: 1rem;" target="_blank">View User Details</a></p>
+    <p class="nav-links"><a href="/bedtime" style="color: #4ecca3;">Bedtime Settings →</a> | <a href="/user" style="color: #4ecca3; margin-left: 1rem;" target="_blank">View All Details</a></p>
 
     <table>
         <thead>
@@ -133,7 +133,8 @@
                     {% if user.locked == True %}
                     <button class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
                     {% endif %}
-                </td>
+                    <button class="btn-details" style="background: #4ecca3; color: #1a1a2e; margin-left: 0.5rem;" onclick="window.location='/user/{{ user.username }}'">Details</button>
+                    </td>
             </tr>
             {% endfor %}
         </tbody>
