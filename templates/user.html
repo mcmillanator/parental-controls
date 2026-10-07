@@ -162,13 +162,6 @@
             <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
             {% endif %}
         </div>
-            {% if user.locked != True %}
-            <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
-            {% endif %}
-            {% if user.locked == True %}
-            <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
-            {% endif %}
-        </div>
     </div>
 
     <!-- Time Budgets -->
