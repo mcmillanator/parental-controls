@@ -149,13 +149,19 @@
         <p>UID: {{ user.uid }}</p>
         <p>Shell: {{ user.shell }}</p>
         <p>Home: {{ user.home }}</p>
-        <p class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
-            Status: {{ user.status_detail }}
-            {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
-            {% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}
+        <p id="account-status" class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
+            Status: <span id="account-status-text">{{ user.status_detail }}</span>
+            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}</span>
         </p>
         
-        <div class="actions" style="margin-top: 1rem;">
+        <div class="actions" id="account-actions" style="margin-top: 1rem;">
+            {% if user.locked != True %}
+            <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
+            {% endif %}
+            {% if user.locked == True %}
+            <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
+            {% endif %}
+        </div>
             {% if user.locked != True %}
             <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
             {% endif %}
@@ -188,9 +194,9 @@
                         <input type="number" min="0" step="1" id="budget-{{ cat }}" value="{{ b.minutes or '' }}" placeholder="—" style="width: 5rem;">
                         <button type="button" class="btn-bedtime-save" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
                     </td>
-                    <td>{{ b.used_minutes }} min</td>
-                    <td>{% if b.remaining_minutes is not none %}{{ b.remaining_minutes }} min{% else %}—{% endif %}</td>
-                    <td>
+                    <td id="budget-used-{{ cat }}">{{ b.used_minutes }} min</td>
+                    <td id="budget-left-{{ cat }}">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes }} min{% else %}—{% endif %}</td>
+                    <td id="budget-status-{{ cat }}">
                         {% if b.paused %}<span class="badge-paused">Paused — out of time</span>
                         <button type="button" class="btn-unlock" onclick="resumeCategory('{{ username }}', '{{ cat }}')">Resume</button>
                         {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% else %}OK{% endif %}
@@ -202,7 +208,7 @@
     </div>
 
     <!-- Processes -->
-    <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
+    <div id="process-section" style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h2>Processes</h2>
         {% if visible and visible|length > 0 %}
         {% for cat in categories %}
@@ -260,17 +266,132 @@
     </div>
     {% endif %}
 
-    <p class="refresh-info">Page auto-refreshes every 10 seconds</p>
+    <p class="refresh-info">Status updates automatically every 10 seconds</p>
 
     <div id="toast"></div>
 
     <script>
+        const PAGE_USERNAME = {{ username|tojson }};
+        const CATEGORIES = {{ categories|tojson }};
+        const CATEGORY_LABELS = {{ category_labels|tojson }};
+
         function showToast(msg, isError) {
             const toast = document.getElementById('toast');
             toast.textContent = msg;
             toast.className = isError ? 'toast-error' : 'toast-success';
             toast.style.display = 'block';
             setTimeout(() => { toast.style.display = 'none'; }, 4000);
+        }
+
+        function esc(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function renderAccount(data) {
+            const p = document.getElementById('account-status');
+            if (!p) return;
+            p.className = 'status-' + (data.locked === true ? 'locked' : data.locked === false ? 'unlocked' : 'unknown');
+            document.getElementById('account-status-text').textContent = data.status_detail;
+            let badges = '';
+            if (data.in_bedtime) badges += '<span class="badge-bedtime">In Bedtime</span>';
+            if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override">Override</span>';
+            document.getElementById('account-badges').innerHTML = badges;
+            let actions = '';
+            if (data.locked !== true) {
+                actions += `<button type="button" class="btn-lock" onclick="lockUser('${PAGE_USERNAME}')">Lock</button>`;
+            }
+            if (data.locked === true) {
+                actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
+            }
+            document.getElementById('account-actions').innerHTML = actions;
+        }
+
+        function renderProcesses(data) {
+            const section = document.getElementById('process-section');
+            if (!section) return;
+            const hiddenEl = document.getElementById('hidden-procs');
+            const wasOpen = !!hiddenEl && hiddenEl.style.display === 'block';
+            let html = '<h2>Processes</h2>';
+            if (data.error) {
+                html += `<p>Error loading processes: ${esc(data.error)}</p>`;
+            } else {
+                const cats = CATEGORIES.filter(c => data.groups[c] && data.groups[c].length > 0);
+                if (cats.length === 0) {
+                    html += '<p>No processes found or error loading processes.</p>';
+                }
+                for (const cat of cats) {
+                    const procs = data.groups[cat];
+                    html += `<h3 style="margin-top: 1rem;">${esc(CATEGORY_LABELS[cat])} (${procs.length})</h3>` +
+                        '<table><thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
+                    for (const p of procs) {
+                        html += `<tr><td>${esc(p.pid)}</td>` +
+                            `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
+                            `<td>${esc(p.elapsed)}</td>` +
+                            `<td><button type="button" class="btn-hide" onclick="hideProc('${PAGE_USERNAME}', '${p.comm}')">Hide</button></td></tr>`;
+                    }
+                    html += '</tbody></table>';
+                }
+            }
+            if (data.hidden && data.hidden.length > 0) {
+                html += `<p style="margin-top: 1rem;"><button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden (${data.hidden.length})</button></p>` +
+                    `<div id="hidden-procs" style="display: ${wasOpen ? 'block' : 'none'};">` +
+                    '<table><thead><tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
+                for (const p of data.hidden) {
+                    html += `<tr><td>${esc(p.pid)}</td>` +
+                        `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
+                        `<td>${esc((p.category && CATEGORY_LABELS[p.category]) || '—')}</td>` +
+                        `<td><button type="button" class="btn-show-hidden" onclick="showProc('${PAGE_USERNAME}', '${p.comm}')">Show</button></td></tr>`;
+                }
+                html += '</tbody></table></div>';
+            }
+            section.innerHTML = html;
+        }
+
+        function toggleHidden() {
+            const el = document.getElementById('hidden-procs');
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function renderBudgets(data) {
+            if (!data.budget) return;
+            for (const cat of CATEGORIES) {
+                const b = data.budget[cat];
+                if (!b) continue;
+                const usedEl = document.getElementById('budget-used-' + cat);
+                const leftEl = document.getElementById('budget-left-' + cat);
+                const statusEl = document.getElementById('budget-status-' + cat);
+                if (usedEl) usedEl.textContent = `${b.used_minutes} min`;
+                if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? `${b.remaining_minutes} min` : '—';
+                if (statusEl) {
+                    if (b.paused) {
+                        statusEl.innerHTML = `<span class="badge-paused">Paused — out of time</span> ` +
+                            `<button type="button" class="btn-unlock" onclick="resumeCategory('${PAGE_USERNAME}', '${cat}')">Resume</button>`;
+                    } else if (b.exhausted) {
+                        statusEl.innerHTML = '<span class="badge-paused">Exhausted</span>';
+                    } else {
+                        statusEl.textContent = 'OK';
+                    }
+                }
+            }
+        }
+
+        async function refreshUserLive() {
+            try {
+                const resp = await fetch('/api/user/' + encodeURIComponent(PAGE_USERNAME) + '/live');
+                const data = await resp.json();
+                if (!data.success) {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                    return;
+                }
+                renderAccount(data);
+                renderProcesses(data);
+                renderBudgets(data);
+            } catch (e) {
+                showToast(`Refresh failed: ${e.message}`, true);
+            }
         }
 
         async function saveBedtime(username) {
@@ -285,7 +406,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Bedtime saved for ' + username, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.message || data.error || 'unknown error'), true);
                 }
@@ -305,7 +426,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Locked ' + username, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
                 }
@@ -325,7 +446,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Unlocked ' + username, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
                 }
@@ -345,7 +466,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Bedtime cleared for ' + username, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
                 }
@@ -364,7 +485,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Hid ' + comm, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.error || 'unknown'), true);
                 }
@@ -383,7 +504,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Showing ' + comm, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.error || 'unknown'), true);
                 }
@@ -403,7 +524,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Budget saved for ' + category, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.error || 'unknown'), true);
                 }
@@ -422,7 +543,7 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast('Resumed ' + category, false);
-                    setTimeout(() => location.reload(), 500);
+                    refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.error || 'unknown'), true);
                 }
@@ -431,13 +552,9 @@
             }
         }
 
-        // Auto-refresh every 10 seconds
-        setInterval(() => {
-    // Only refresh if no form inputs are focused (so user data isn't lost)
-    if (!document.activeElement || !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
-        location.reload();
-    }
-}, 10000);
+        // Targeted refresh: only status, processes, and budget cells update.
+        // Bedtime and budget-limit inputs are never touched. Every 10s.
+        setInterval(refreshUserLive, 10000);
     </script>
 </body>
 </html>
