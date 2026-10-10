@@ -11,10 +11,13 @@ app time budgets on Bazzite.
 - Unlock button: runs `sudo usermod -U <user>`
 - Emergency logout button: locks the account AND terminates all sessions
 - Per-user details pages: bedtime schedule, account status, processes grouped
-  by app category with Hide/Show-hidden filtering
+  by app category with Hide/Show-hidden filtering; duplicate processes
+  grouped into one expandable row per command with a count badge
 - Per-category daily time budgets enforced with the cgroup freezer
   (pause-not-kill, auto-resume at reset)
-- Bedtime windows with pre-lock warnings and manual-override precedence
+- Bedtime windows with pre-lock warnings and manual-override precedence;
+  parent-granted bonus time (one-click shortcuts + custom minutes) keeps the
+  account unlocked past bedtime until the bonus expires, then re-locks
 - Status/process/budget cells update in place every 10 seconds (no page reloads;
   forms are never touched); errors display as toasts
 
@@ -199,3 +202,9 @@ Notes:
   the running service on `:5000`.
 - They're slow on purpose (every live test locks/unlocks the throwaway account
   through the real stack).
+
+## License
+
+SPDX-License-Identifier: MIT
+
+MIT License — see `LICENSE`. Copyright (c) 2026 mcmillanator.
