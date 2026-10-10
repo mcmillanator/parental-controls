@@ -159,16 +159,34 @@ class TestBedtimeWheelSkip(unittest.TestCase):
 
 @unittest.skipUnless(HAS_FLASK, 'Flask not installed')
 class TestConfirmUI(unittest.TestCase):
+    def _admin_patches(self):
+        """Fake a logged-in wheel admin session (MVP auth gates pages)."""
+        import app
+        store = {'users': {'boss': {'hash': 'x', 'must_change': False,
+                                   'locked': False}}}
+        sess = {'username': 'boss', 'csrf': 'test-csrf', 'created': 0,
+                'last_seen': 0}
+        return (
+            mock.patch.object(app.auth, 'get_session',
+                              return_value=dict(sess)),
+            mock.patch.object(app.auth, 'load_store', return_value=store),
+            mock.patch.object(app.auth, 'is_wheel_member', return_value=True),
+            mock.patch.object(app.auth, 'is_system_user', return_value=True),
+        )
+
     def test_index_buttons_carry_confirms(self):
         import app
         fake_users = [{'username': 'kid', 'uid': 1001,
                        'home': '/home/kid', 'shell': '/bin/bash'}]
+        patches = self._admin_patches()
         with mock.patch.object(app, 'get_human_users',
                                return_value=fake_users), \
              mock.patch.object(app, 'get_lock_status',
                                return_value=(False, 'Unlocked')), \
-             mock.patch.object(app, 'load_bedtime', return_value={}):
+             mock.patch.object(app, 'load_bedtime', return_value={}), \
+             patches[0], patches[1], patches[2], patches[3]:
             client = app.app.test_client()
+            client.set_cookie('pc_sid', 'fake-test-session')
             resp = client.get('/')
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
@@ -189,8 +207,11 @@ class TestConfirmUI(unittest.TestCase):
             'budget_state': budgets.budget_status(
                 'kid', {'kid': blank_entry()}),
         }
-        with mock.patch.object(app, 'get_user_live', return_value=live):
+        with mock.patch.object(app, 'get_user_live', return_value=live), \
+             self._admin_patches()[0], self._admin_patches()[1], \
+             self._admin_patches()[2], self._admin_patches()[3]:
             client = app.app.test_client()
+            client.set_cookie('pc_sid', 'fake-test-session')
             resp = client.get('/user/kid')
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)

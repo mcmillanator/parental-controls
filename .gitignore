@@ -26,3 +26,5 @@ Thumbs.db
 bedtime.json
 budgets.json
 process_prefs.json
+auth.json
+.auth-*

@@ -14,8 +14,32 @@ A lightweight Flask web UI for managing user account lock/unlock on Bazzite.
 ## Requirements
 
 - Python 3
-- Flask
+- Flask, argon2-cffi, waitress (see `requirements.txt`)
 - sudo access (the app runs `usermod` and `loginctl` via sudo)
+
+## Authentication (MVP)
+
+Two admin tiers, both with **app passwords only** (never Linux passwords;
+no PAM anywhere). `wheel` members are admins automatically once they have
+a login row; app-only admins have no system account. Child accounts can
+never log in. Full design: `AUTH_DESIGN.md`.
+
+First run bootstraps the store (`/etc/parental-controls/auth.json`, or
+`$PARENTAL_CONTROLS_AUTH` for dev/test): if the invoking user is a wheel
+member, a one-time initial password is printed to stdout (change it at
+first login — the app forces this). Otherwise add an admin via the CLI:
+
+```bash
+sudo parental-controls unlock <username>      # unlock a non-wheel account
+sudo parental-controls unfreeze-all           # thaw every frozen cgroup
+sudo parental-controls reset-password <admin> # new generated password, once
+sudo parental-controls add-admin <username>   # app-only admin (or wheel row)
+sudo parental-controls remove-admin <username>
+```
+
+The CLI is `cli.py` (install as `/usr/local/bin/parental-controls`).
+Sessions are server-side (30-min idle / 12-h absolute); every POST needs
+the `X-CSRF-Token` header or `csrf_token` form field.
 
 ## Setup
 
@@ -36,15 +60,18 @@ python3 -m venv .venv
 ./run.sh
 ```
 
-This creates a venv (if needed), installs dependencies, and starts the app.
+This creates a venv (if needed), installs dependencies, and starts the app
+via waitress on `127.0.0.1:5000` (localhost + SSH tunnel, no TLS in MVP).
+Pass `./run.sh --allow-lan` to bind `0.0.0.0` explicitly.
 
 ### Manual
 
 ```bash
-.venv/bin/python app.py
+.venv/bin/waitress-serve --host=127.0.0.1 --port=5000 wsgi:application
+# dev server with the same bind default: .venv/bin/python app.py [--allow-lan]
 ```
 
-The app listens on `0.0.0.0:5000`.
+The app listens on `127.0.0.1:5000` by default.
 
 ## Usage
 
@@ -53,8 +80,11 @@ lock status and buttons to lock or unlock each account.
 
 ## Security Note
 
-This is a prototype with **no authentication**. Anyone with network access can
-lock/unlock accounts. Do not expose this on untrusted networks.
+MVP authentication is enforced: every page and API route requires an
+admin session (`@require_admin`), wheel admins can never be locked or
+removed, and the service binds localhost only. LAN exposure needs the
+explicit opt-in flag, and cookies travel in the clear until TLS lands
+(post-MVP).
 
 ## API Endpoints
 

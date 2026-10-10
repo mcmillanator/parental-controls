@@ -10,15 +10,24 @@ import pwd
 import html
 import os
 import json
+import secrets
 import threading
 import time
 import traceback
+import functools
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify
+from flask import (Flask, render_template, request, jsonify, redirect,
+                   url_for, g, make_response)
 
+import auth
 import budgets
 
 app = Flask(__name__)
+
+# MVP: no TLS on localhost, so Secure cookies are opt-in for the day a
+# TLS-terminating setup exists (PARENTAL_TLS=1). HttpOnly + SameSite=Lax
+# are always set; CSRF tokens are the primary cross-site defense.
+app.config['SECURE_COOKIES'] = os.environ.get('PARENTAL_TLS', '') == '1'
 
 MIN_UID = 1000
 MAX_UID = 60000
@@ -456,10 +465,113 @@ def bedtime_loop():
 
 
 # ---------------------------------------------------------------------------
+# Authentication & authorization (MVP, see AUTH_DESIGN.md + auth.py)
+# ---------------------------------------------------------------------------
+
+def _is_api_request():
+    return request.path.startswith('/api/')
+
+
+def _auth_cookie_response(response, sid):
+    response.set_cookie(auth.SESSION_COOKIE, sid, httponly=True,
+                        samesite='Lax',
+                        secure=app.config['SECURE_COOKIES'])
+    return response
+
+
+def _clear_auth_cookie(response):
+    response.delete_cookie(auth.SESSION_COOKIE)
+    return response
+
+
+# Endpoints reachable while must_change is set (login/logout/change-pw).
+_MUST_CHANGE_EXEMPT = {'login', 'change_password', 'logout', 'static'}
+
+
+def require_admin(view):
+    """Gate every page and API route (AUTH_DESIGN.md "Request handling").
+
+    1. No valid session -> 302 /login (pages) or 401 JSON (/api/*).
+    2. Session user not currently an admin (revoked wheel member, child
+       account, deleted row) -> 403, session destroyed.
+    3. Locked admin -> session destroyed, 403 with CLI recovery hint.
+    4. must_change set -> everything but login/change-pw/logout redirects.
+    5. POST/PUT/PATCH/DELETE without a valid CSRF token -> 403.
+    """
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        sid = request.cookies.get(auth.SESSION_COOKIE, '')
+        sess = auth.get_session(sid)
+        if sess is None:
+            if _is_api_request():
+                return jsonify({'success': False,
+                                'error': 'Authentication required'}), 401
+            return redirect(url_for('login', next=request.path))
+        try:
+            store = auth.load_store()
+        except auth.AuthStoreError as e:
+            print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+            if _is_api_request():
+                return jsonify({'success': False,
+                                'error': 'Authentication unavailable'}), 500
+            return 'Authentication unavailable', 500
+        username = sess.get('username', '')
+        if auth.is_locked_admin(username, store):
+            auth.destroy_session(sid)
+            msg = 'Admin account is locked. ' + auth.RECOVERY_HINT
+            if _is_api_request():
+                return jsonify({'success': False, 'error': msg}), 403
+            return msg, 403
+        tier = auth.classify_admin(username, store)
+        if tier is None:
+            # Revoked (removed from wheel), removed app-only admin, or a
+            # non-admin who somehow holds a session: refuse, kill session.
+            auth.destroy_session(sid)
+            if _is_api_request():
+                return jsonify({'success': False,
+                                'error': 'Forbidden'}), 403
+            return redirect(url_for('login'))
+        if (auth.is_must_change(username, store)
+                and request.endpoint not in _MUST_CHANGE_EXEMPT):
+            if _is_api_request():
+                return jsonify({'success': False,
+                                'error': 'Password change required',
+                                'must_change': True}), 403
+            return redirect(url_for('change_password'))
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            if not auth.validate_csrf(sess.get('csrf'), request):
+                if _is_api_request():
+                    return jsonify(
+                        {'success': False,
+                         'error': 'Missing or invalid CSRF token'}), 403
+                return 'Missing or invalid CSRF token', 403
+        g.admin = username
+        g.tier = tier
+        g.csrf_token = sess.get('csrf', '')
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def _wheel_target_refused(username):
+    """Refuse lock/remove-style actions targeting a wheel admin.
+
+    Returns a 403 JSON response when `username` is a wheel member,
+    else None. Enforced in the handler, never just hidden in the UI.
+    """
+    if auth.is_wheel_member(username):
+        return jsonify({
+            'success': False,
+            'error': (f'Refused: {username} is a wheel admin and can '
+                      'never be locked, terminated, or removed.')}), 403
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @app.route('/')
+@require_admin
 def index():
     """Render the main page with user list."""
     users = get_human_users()
@@ -482,6 +594,7 @@ def index():
 
 
 @app.route('/api/users')
+@require_admin
 def api_users():
     """JSON endpoint returning current user list with lock status."""
     users = get_human_users()
@@ -502,6 +615,7 @@ def api_users():
 
 
 @app.route('/api/lock', methods=['POST'])
+@require_admin
 def api_lock():
     """Lock a user account and screen without terminating the session.
 
@@ -514,6 +628,11 @@ def api_lock():
         return jsonify({'success': False, 'error': 'No username provided'}), 400
     if not all(c.isalnum() or c in '_-.' for c in username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    # Wheel admins can never be locked — refused here, not just in the UI.
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
 
     # Lock the account
     try:
@@ -546,6 +665,7 @@ def api_lock():
 
 
 @app.route('/api/lock-screen', methods=['POST'])
+@require_admin
 def api_lock_screen():
     """Lock the user's screen and account without terminating the session.
 
@@ -558,6 +678,11 @@ def api_lock_screen():
         return jsonify({'success': False, 'error': 'No username provided'}), 400
     if not all(c.isalnum() or c in '_-.' for c in username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    # Wheel admins can never be locked — refused here, not just in the UI.
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
 
     # Lock the account (without terminating the session)
     try:
@@ -590,6 +715,7 @@ def api_lock_screen():
 
 
 @app.route('/api/unlock', methods=['POST'])
+@require_admin
 def api_unlock():
     """Unlock a user account."""
     username = request.form.get('username', '').strip()
@@ -606,12 +732,14 @@ def api_unlock():
 
 
 @app.route('/api/bedtime', methods=['GET'])
+@require_admin
 def api_bedtime_get():
     """Return all bedtime settings."""
     return jsonify(load_bedtime())
 
 
 @app.route('/api/bedtime', methods=['POST'])
+@require_admin
 def api_bedtime_set():
     """Set bedtime for a user.
 
@@ -708,6 +836,7 @@ def api_bedtime_set():
 
 
 @app.route('/api/logout', methods=['POST'])
+@require_admin
 def api_logout():
     """Emergency logout — terminates the user's session.
 
@@ -720,6 +849,12 @@ def api_logout():
         return jsonify({'success': False, 'error': 'No username provided'}), 400
     if not all(c.isalnum() or c in '_-.' for c in username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
+
+    # Terminating a wheel admin's sessions is a lock-equivalent action:
+    # refused here, not just in the UI.
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
 
     # Lock the account
     try:
@@ -750,6 +885,7 @@ def api_logout():
 
 
 @app.route('/api/process-prefs', methods=['POST'])
+@require_admin
 def api_process_prefs():
     """Hide a comm or re-show a default-hidden one.
 
@@ -770,6 +906,7 @@ def api_process_prefs():
 
 
 @app.route('/api/budgets', methods=['POST'])
+@require_admin
 def api_budgets_set():
     """Set a per-category daily budget (minutes). 0/empty clears the limit.
 
@@ -791,6 +928,7 @@ def api_budgets_set():
 
 
 @app.route('/api/budgets/resume', methods=['POST'])
+@require_admin
 def api_budgets_resume():
     """Manually resume a budget-paused category (unfreeze until reset)."""
     username = request.form.get('username', '').strip()
@@ -806,6 +944,7 @@ def api_budgets_resume():
 
 
 @app.route('/api/budgets/<username>')
+@require_admin
 def api_budgets_get(username):
     """JSON budget status (limits, usage, paused flags) for a user."""
     if not all(c.isalnum() or c in '_-.' for c in username):
@@ -814,6 +953,7 @@ def api_budgets_get(username):
 
 
 @app.route('/user/<username>')
+@require_admin
 def user_detail(username):
     """Render the user details page for a specific user."""
     data = get_user_live(username)
@@ -891,6 +1031,7 @@ def get_user_live(username):
 
 
 @app.route('/api/user/<username>/live')
+@require_admin
 def api_user_live(username):
     """Live status/process/budget data for targeted DOM refresh (no reload)."""
     if not all(c.isalnum() or c in '_-.' for c in username):
@@ -926,7 +1067,278 @@ def api_user_live(username):
     })
 
 
+# ---------------------------------------------------------------------------
+# Login, logout, password change, admin management
+# ---------------------------------------------------------------------------
+
+MIN_PASSWORD_LENGTH = 12
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Admin login (app passwords only — never system passwords)."""
+    if request.method == 'GET':
+        sid = request.cookies.get(auth.SESSION_COOKIE, '')
+        if auth.get_session(sid) is not None:
+            target = request.args.get('next', '/') or '/'
+            if not target.startswith('/') or target.startswith('//'):
+                target = '/'
+            return redirect(target)
+        return render_template('login.html', next=request.args.get('next', '/'))
+
+    ip = request.remote_addr or 'unknown'
+    wait = auth.login_backoff_remaining(ip)
+    if wait > 0:
+        resp = make_response(
+            render_template('login.html', next=request.form.get('next', '/'),
+                            error='Too many failed attempts. Try again soon.'),
+            429)
+        resp.headers['Retry-After'] = str(int(wait) + 1)
+        return resp
+
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    next_url = request.form.get('next', '/') or '/'
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = '/'
+
+    def _fail():
+        auth.record_login_failure(ip)
+        return render_template('login.html', next=next_url,
+                               error='Invalid username or password.'), 401
+
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 'Authentication unavailable', 500
+
+    if not auth.valid_admin_username(username):
+        return _fail()
+    row = store.get('users', {}).get(username)
+    if not isinstance(row, dict):
+        return _fail()
+    if auth.classify_admin(username, store) is None:
+        # Unknown tier, revoked, or a system non-admin (child): one
+        # generic answer, no oracle for account enumeration.
+        return _fail()
+    if auth.is_locked_admin(username, store):
+        auth.record_login_failure(ip)
+        return render_template(
+            'login.html', next=next_url,
+            error='This admin account is locked. ' + auth.RECOVERY_HINT), 403
+    if not auth.verify_password(row.get('hash'), password):
+        return _fail()
+
+    auth.record_login_success(ip)
+    sid, _csrf = auth.create_session(username)
+    if auth.is_must_change(username, store):
+        resp = make_response(redirect(url_for('change_password')))
+    else:
+        resp = make_response(redirect(next_url))
+    return _auth_cookie_response(resp, sid)
+
+
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    """Destroy the admin's web session (NOT the emergency user logout;
+    that lives at /api/logout and stays behind @require_admin)."""
+    auth.destroy_session(request.cookies.get(auth.SESSION_COOKIE, ''))
+    resp = make_response(redirect(url_for('login')))
+    return _clear_auth_cookie(resp)
+
+
+@app.route('/change-password', methods=['GET', 'POST'])
+def change_password():
+    """Forced password change (first login) + voluntary rotation."""
+    sid = request.cookies.get(auth.SESSION_COOKIE, '')
+    sess = auth.get_session(sid)
+    if sess is None:
+        return redirect(url_for('login', next='/change-password'))
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 'Authentication unavailable', 500
+    username = sess.get('username', '')
+    if (auth.classify_admin(username, store) is None
+            or auth.is_locked_admin(username, store)):
+        auth.destroy_session(sid)
+        resp = make_response(redirect(url_for('login')))
+        return _clear_auth_cookie(resp)
+    forced = auth.is_must_change(username, store)
+
+    if request.method == 'GET':
+        return render_template('change_password.html', username=username,
+                               forced=forced, csrf_token=sess.get('csrf', ''))
+
+    if not auth.validate_csrf(sess.get('csrf'), request):
+        return render_template('change_password.html', username=username,
+                               forced=forced,
+                               csrf_token=sess.get('csrf', ''),
+                               error='Missing or invalid CSRF token.'), 403
+    current = request.form.get('current', '')
+    new = request.form.get('new', '')
+    confirm = request.form.get('confirm', '')
+    row = store['users'][username]
+    if not auth.verify_password(row.get('hash'), current):
+        return render_template('change_password.html', username=username,
+                               forced=forced,
+                               csrf_token=sess.get('csrf', ''),
+                               error='Current password is incorrect.'), 403
+    if len(new) < MIN_PASSWORD_LENGTH:
+        return render_template(
+            'change_password.html', username=username, forced=forced,
+            csrf_token=sess.get('csrf', ''),
+            error=f'New password must be at least {MIN_PASSWORD_LENGTH} '
+                  'characters.'), 400
+    if new != confirm:
+        return render_template('change_password.html', username=username,
+                               forced=forced,
+                               csrf_token=sess.get('csrf', ''),
+                               error='New passwords do not match.'), 400
+    row['hash'] = auth.hash_password(new)
+    row['must_change'] = False
+    try:
+        auth.save_store(store)
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 'Authentication unavailable', 500
+    return redirect(url_for('index'))
+
+
+@app.route('/api/admins', methods=['GET'])
+@require_admin
+def api_admins_list():
+    """List admin accounts with live tier resolution."""
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    admins = []
+    for username, row in store.get('users', {}).items():
+        if not isinstance(row, dict):
+            continue
+        admins.append({
+            'username': username,
+            'tier': auth.classify_admin(username, store),
+            'locked': bool(row.get('locked', False)),
+            'must_change': bool(row.get('must_change', False)),
+            'system_user': auth.is_system_user(username),
+        })
+    admins.sort(key=lambda a: a['username'])
+    return jsonify({'success': True, 'admins': admins,
+                    'self': g.admin, 'tier': g.tier})
+
+
+@app.route('/api/admins', methods=['POST'])
+@require_admin
+def api_admins_add():
+    """Create an admin account. Wheel admins only.
+
+    Accepts a wheel member (gives them a login row) or a non-system
+    username (app-only admin). Refuses non-wheel system accounts: that
+    would hand a login to a regular local user (e.g. the child). The
+    password is generated server-side and returned ONCE in the response.
+    """
+    if g.tier != 'wheel':
+        return jsonify({'success': False,
+                        'error': 'Only wheel admins can add admins.'}), 403
+    username = request.form.get('username', '').strip()
+    if not auth.valid_admin_username(username):
+        return jsonify({'success': False,
+                        'error': 'Invalid username.'}), 400
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    if username in store.get('users', {}):
+        return jsonify({'success': False,
+                        'error': 'Admin already exists.'}), 400
+    if auth.is_system_user(username) and not auth.is_wheel_member(username):
+        return jsonify({
+            'success': False,
+            'error': (f'Refused: {username} is a non-admin system account '
+                      'and can never authenticate.')}), 403
+    generated = secrets.token_urlsafe(24)
+    store['users'][username] = {
+        'hash': auth.hash_password(generated),
+        'must_change': True,
+        'locked': False,
+    }
+    try:
+        auth.save_store(store)
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    return jsonify({'success': True,
+                    'message': f'Admin {username} created. This password is '
+                               'shown ONCE and must be changed at first login.',
+                    'password': generated})
+
+
+@app.route('/api/admins/remove', methods=['POST'])
+@require_admin
+def api_admins_remove():
+    """Remove an app-only admin. Wheel admins only; wheel targets never."""
+    if g.tier != 'wheel':
+        return jsonify({'success': False,
+                        'error': 'Only wheel admins can remove admins.'}), 403
+    username = request.form.get('username', '').strip()
+    if not auth.valid_admin_username(username):
+        return jsonify({'success': False,
+                        'error': 'Invalid username.'}), 400
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    # Re-check after loading the live store: a wheel member is never
+    # removable even if their row looks app-only (belt and braces).
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+    if username not in store.get('users', {}):
+        return jsonify({'success': False,
+                        'error': 'No such admin.'}), 404
+    del store['users'][username]
+    try:
+        auth.save_store(store)
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    return jsonify({'success': True,
+                    'message': f'Admin {username} removed.'})
+
+
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Parental Controls Web UI')
+    parser.add_argument('--allow-lan', action='store_true',
+                        help='Bind 0.0.0.0 (default: 127.0.0.1 only; '
+                             'localhost + SSH tunnel, no TLS in MVP)')
+    parser.add_argument('--port', type=int, default=5000)
+    args = parser.parse_args()
+    try:
+        auth.ensure_hash_backend()
+        auth.init_store()
+    except auth.AuthStoreError as e:
+        print(f'FATAL: {e}', flush=True)
+        raise SystemExit(1)
+    host = '0.0.0.0' if args.allow_lan else '127.0.0.1'
+    if args.allow_lan:
+        print('WARNING: --allow-lan: bound to all interfaces without TLS; '
+              'session cookies travel in the clear.', flush=True)
     t = threading.Thread(target=bedtime_loop, daemon=True)
     t.start()
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host=host, port=args.port, debug=False)
