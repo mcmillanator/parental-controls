@@ -34,6 +34,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app
+import auth
 
 Result = namedtuple('Result', ['returncode', 'stdout', 'stderr'])
 
@@ -57,6 +58,65 @@ def _run_side_effect(results):
 WINDOW = {'start': '03:00', 'end': '04:00', 'days': [0, 1, 2, 3, 4, 5, 6]}
 IN_WINDOW = datetime(2026, 10, 10, 3, 30)
 OUT_WINDOW = datetime(2026, 10, 10, 12, 0)
+
+
+class _AdminSessionMixin:
+    """Log in a mocked wheel admin so HTTP tests pass @require_admin + CSRF.
+
+    Mirrors tests/test_auth.py's harness: temp auth store, mocked wheel
+    membership, real login over the test client. Argon2 hashing happens
+    once per class (deliberately slow). Cooperative setUp/tearDown chain
+    with mixins such as _BedtimeFileMixin via super().
+    """
+
+    ADMIN_USER = 'qaadmin'
+    ADMIN_PW = 'Qa-Admin-Test-Pass-123'
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._admin_hash = auth.hash_password(cls.ADMIN_PW)
+
+    def setUp(self):
+        super().setUp()
+        self._auth_tmp = tempfile.TemporaryDirectory()
+        self._auth_path = os.path.join(self._auth_tmp.name, 'auth.json')
+        with open(self._auth_path, 'w') as f:
+            json.dump({'users': {self.ADMIN_USER: {
+                'hash': self._admin_hash, 'must_change': False,
+                'locked': False}}}, f)
+        os.chmod(self._auth_path, 0o600)
+        os.environ['PARENTAL_CONTROLS_AUTH'] = self._auth_path
+        auth.clear_sessions()
+        auth.clear_login_failures()
+        app.app.config['TESTING'] = True
+        patcher_w = mock.patch.object(auth, 'is_wheel_member',
+                                      side_effect=lambda u: u == self.ADMIN_USER)
+        patcher_s = mock.patch.object(auth, 'is_system_user',
+                                      side_effect=lambda u: u == self.ADMIN_USER)
+        self.addCleanup(patcher_w.stop)
+        self.addCleanup(patcher_s.stop)
+        patcher_w.start()
+        patcher_s.start()
+        self.client = app.app.test_client()
+        resp = self.client.post('/login', data={'username': self.ADMIN_USER,
+                                                'password': self.ADMIN_PW})
+        assert resp.status_code == 302, \
+            f'setup login failed: {resp.status_code}'
+        sid = resp.headers.get('Set-Cookie', '').split('pc_sid=')[1].split(';')[0]
+        self.csrf_headers = {'X-CSRF-Token': auth._sessions[sid]['csrf']}
+
+    def tearDown(self):
+        os.environ.pop('PARENTAL_CONTROLS_AUTH', None)
+        auth.clear_sessions()
+        auth.clear_login_failures()
+        self._auth_tmp.cleanup()
+        super().tearDown()
+
+    def authed_post(self, path, data=None):
+        """POST with session cookie + CSRF, like the real UI does."""
+        return self.client.post(path, data=data or {},
+                                headers=self.csrf_headers)
 
 KID = 'kidaccount'
 
@@ -355,7 +415,8 @@ class TestLockStatusReadBack(unittest.TestCase):
 # THE regression: manual lock must survive the bedtime timer
 # ---------------------------------------------------------------------------
 
-class TestManualLockOwnership(_BedtimeFileMixin, unittest.TestCase):
+class TestManualLockOwnership(_AdminSessionMixin, _BedtimeFileMixin,
+                              unittest.TestCase):
     """A manual lock transfers ownership away from bedtime.
 
     Before the fix these failed: the manual-lock endpoints left
@@ -404,11 +465,10 @@ class TestManualLockOwnership(_BedtimeFileMixin, unittest.TestCase):
         """Clearing the bedtime schedule must not unlock a manual lock."""
         self.write_bedtime(self._bedtime_locked_entry())
         app.note_manual_lock(KID)
-        client = app.app.test_client()
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')) as lock_cmd:
-            resp = client.post('/api/bedtime',
-                               data={'username': KID, 'clear': '1'})
+            resp = self.authed_post('/api/bedtime',
+                                    data={'username': KID, 'clear': '1'})
         self.assertEqual(resp.status_code, 200)
         unlocked = [c.args for c in lock_cmd.call_args_list
                     if len(c.args) > 1 and c.args[1] == 'unlock']
@@ -598,7 +658,7 @@ class TestLockUserSessions(unittest.TestCase):
 # The lock endpoints call usermod with the right flags and username
 # ---------------------------------------------------------------------------
 
-class TestLockEndpoints(unittest.TestCase):
+class TestLockEndpoints(_AdminSessionMixin, unittest.TestCase):
     def _post(self, path, data=None, **patches):
         defaults = {
             'run_lock_command': mock.DEFAULT,
@@ -607,8 +667,7 @@ class TestLockEndpoints(unittest.TestCase):
             'subprocess.run': mock.DEFAULT,
         }
         defaults.update(patches)
-        client = app.app.test_client()
-        return client.post(path, data=data or {'username': KID})
+        return self.authed_post(path, data=data or {'username': KID})
 
     def test_api_lock_locks_the_account(self):
         calls = []
@@ -619,8 +678,8 @@ class TestLockEndpoints(unittest.TestCase):
 
         with mock.patch.object(app, 'note_manual_lock'), \
              mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
-            resp = app.app.test_client().post('/api/lock',
-                                              data={'username': KID})
+            resp = self.authed_post('/api/lock',
+                                      data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
         # must NOT terminate the session (that is Lock's documented job)
@@ -635,7 +694,7 @@ class TestLockEndpoints(unittest.TestCase):
 
         with mock.patch.object(app, 'note_manual_lock'), \
              mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
-            resp = app.app.test_client().post('/api/lock-screen',
+            resp = self.authed_post('/api/lock-screen',
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
@@ -649,7 +708,7 @@ class TestLockEndpoints(unittest.TestCase):
 
         with mock.patch.object(app, 'note_manual_lock'), \
              mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
-            resp = app.app.test_client().post('/api/logout',
+            resp = self.authed_post('/api/logout',
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
@@ -659,7 +718,7 @@ class TestLockEndpoints(unittest.TestCase):
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')) as lock, \
              mock.patch.object(app, 'note_manual_unlock'):
-            resp = app.app.test_client().post('/api/unlock',
+            resp = self.authed_post('/api/unlock',
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.get_json()['success'])
@@ -674,7 +733,7 @@ class TestLockEndpoints(unittest.TestCase):
                                    return_value=(True, 'OK')), \
                  mock.patch.object(app.subprocess, 'run',
                                    return_value=_result(0, stdout='')):
-                app.app.test_client().post(path, data={'username': KID})
+                self.authed_post(path, data={'username': KID})
             nml.assert_called_once_with(KID)
 
     def test_lock_fails_loudly_when_usermod_fails(self):
@@ -682,7 +741,7 @@ class TestLockEndpoints(unittest.TestCase):
              mock.patch.object(app.subprocess, 'run',
                                return_value=_result(1,
                                                     stderr='usermod: error')):
-            resp = app.app.test_client().post('/api/lock',
+            resp = self.authed_post('/api/lock',
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()['success'])
@@ -691,7 +750,7 @@ class TestLockEndpoints(unittest.TestCase):
         with mock.patch.object(app, 'note_manual_lock'), \
              mock.patch.object(app.subprocess, 'run',
                                side_effect=app.subprocess.TimeoutExpired('x', 15)):
-            resp = app.app.test_client().post('/api/lock',
+            resp = self.authed_post('/api/lock',
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.get_json()['success'])
@@ -701,7 +760,7 @@ class TestLockEndpoints(unittest.TestCase):
         with mock.patch.object(app, 'note_manual_lock') as nml, \
              mock.patch.object(app.subprocess, 'run',
                                return_value=_result(1, stderr='error')):
-            app.app.test_client().post('/api/lock', data={'username': KID})
+            self.authed_post('/api/lock', data={'username': KID})
         nml.assert_not_called()
 
     def test_invalid_username_rejected(self):
@@ -716,7 +775,7 @@ class TestLockEndpoints(unittest.TestCase):
                 with self.subTest(username=bad):
                     for path in ('/api/lock', '/api/lock-screen',
                                  '/api/unlock', '/api/logout'):
-                        resp = app.app.test_client().post(
+                        resp = self.authed_post(
                             path, data={'username': bad})
                         self.assertEqual(resp.status_code, 400, path)
 
@@ -727,7 +786,7 @@ class TestLockEndpoints(unittest.TestCase):
                                return_value=_result(0, stdout='')) as run:
             for path in ('/api/lock', '/api/lock-screen', '/api/unlock',
                          '/api/logout'):
-                app.app.test_client().post(path, data={'username': '-U'})
+                self.authed_post(path, data={'username': '-U'})
         for call in run.call_args_list:
             self.assertNotIn('-U', call.args[0][1:],
                              f'leading-dash name reached {call.args[0]}')
@@ -749,7 +808,7 @@ class TestLockEndpoints(unittest.TestCase):
 
         with mock.patch.object(app, 'note_manual_lock'), \
              mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
-            app.app.test_client().post('/api/lock', data={'username': KID})
+            self.authed_post('/api/lock', data={'username': KID})
         for cmd, kwargs in calls:
             self.assertFalse(kwargs.get('shell', False))
             self.assertIsInstance(cmd, list)
