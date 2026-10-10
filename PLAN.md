@@ -100,4 +100,5 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
 - [x] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
+- [x] Bedtime lock ownership: flag set when usermod succeeds regardless of terminate-user result (offline users auto-unlock correctly)
 - [x] Pre-lock warnings: 15-min bedtime warning + lock-time notice, budget low/pause warnings via notify-send (feature/notifications)
