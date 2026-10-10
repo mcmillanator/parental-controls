@@ -197,8 +197,24 @@ echo "== 7/8 enable + start =="
 run systemctl daemon-reload
 run systemctl enable --now parental-controls.service
 run systemctl enable --now parental-controls-enforce.timer
-if [ "$UNITS_CHANGED" -eq 1 ]; then
-    echo "Unit files changed — restarting service to pick up the new configuration."
+# Restart when the configuration changed. Two cases: the rendered units
+# differ from the installed ones, or the installed units are newer than the
+# running process (left over by an installer run without restart support).
+NEED_RESTART="$UNITS_CHANGED"
+if [ "$NEED_RESTART" -eq 0 ] \
+   && [ "$DRY_RUN" -eq 0 ] \
+   && systemctl is-active -q parental-controls.service; then
+    UNIT_MTIME=$(stat -c %Y /etc/systemd/system/parental-controls.service)
+    START_EPOCH=$(date -d "$(systemctl show -p ActiveEnterTimestamp \
+        --value parental-controls.service)" +%s)
+    if [ "$UNIT_MTIME" -gt "$START_EPOCH" ]; then
+        echo "Installed units are newer than the running service — restarting."
+        NEED_RESTART=1
+    fi
+fi
+if [ "$NEED_RESTART" -eq 1 ]; then
+    [ "$UNITS_CHANGED" -eq 1 ] && \
+        echo "Unit files changed — restarting service to pick up the new configuration."
     run systemctl restart parental-controls.service
 else
     echo "(units unchanged — service left running)"

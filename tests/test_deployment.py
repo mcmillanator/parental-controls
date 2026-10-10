@@ -133,6 +133,11 @@ class TestBindOptions(unittest.TestCase):
         self.assertIn('systemctl restart parental-controls.service', script)
         self.assertIn('units unchanged', script.lower())
 
+    def test_stale_process_detected_via_mtime(self):
+        script = read('install.sh')
+        self.assertIn('ActiveEnterTimestamp', script)
+        self.assertIn('NEED_RESTART', script)
+
     def test_lan_verify_hints_at_firewall(self):
         script = read('install.sh')
         self.assertIn('--open-firewall', script)
