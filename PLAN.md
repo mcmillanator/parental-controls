@@ -18,8 +18,8 @@ Bazzite (Fedora-based immutable desktop OS)
 
 ## Development Workflow
 
-- `master` branch: project metadata only (README, PLAN, .gitignore)
-- Feature worktrees under `.worktrees/` for isolated development
+- `master` branch: the app code (app under master/ is the build target)
+- Feature worktrees are sibling directories in the project root (`<name>/`), one per branch, merged back to `master` when complete
 - Agents work in feature branch/worktrees, merge back when complete
 
 ## Prototype Scope (Current Phase)
@@ -103,7 +103,6 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 | `README.md` | Project overview |
 | `PLAN.md` | This file |
 | `.gitignore` | Ignores worktrees, Python artifacts |
-| `.worktrees/webui/` | Feature worktree for web UI development |
 
 ## Status
 
@@ -137,3 +136,5 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - [x] Sudoers least-privilege repair: installer replaces `@SERVICE_USER@`, sbin+bin paths for all binaries, `passwd` scoped to `-S` (was masked by stan-nopasswd blanket on dev)
 - [x] Lock Screen targets graphical user sessions only (manager/tty sessions report "no lockable session" instead of failing)
 - [x] Unlocked accounts in bedtime show manual Lock/Lock Screen buttons (no dead-end disabled button)
+- [x] Parent-granted bonus time past bedtime: 5 one-click shortcuts (15/30/60/90/120 min) + custom entry, stacks up to a 180-min cap, tracked in `bedtime.json` with a capped audit trail; suppresses the bedtime lock until expiry then re-locks in-window; manual lock cancels, revoke re-locks inline (`feature/bonus-time`, `BONUS_TIME_PLAN.md`)
+- [x] Duplicate processes grouped into one expandable row per category with a count badge and max elapsed; click toggles individual PIDs; expand state survives the 10s refresh; per-comm Hide at group level (`feature/process-grouping`, `PROCESS_GROUPING_PLAN.md`)
