@@ -3,8 +3,12 @@
 # them. No signals, no SIGKILL anywhere in budget enforcement.
 # Install as /etc/sudoers.d/parental-controls-budgets (mode 0440) and check
 # with `visudo -c`.
-@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.freeze
-@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.procs
-@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.freeze
-@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.procs
-@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/mkdir -p /sys/fs/cgroup/parental-*
+#
+# Both /usr/sbin and /usr/bin are listed: the code invokes bare names
+# (`sudo tee`, `sudo cat`, `sudo mkdir`) and sudo resolves them via
+# secure_path (sbin first). sudo matches on the path string.
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee /sys/fs/cgroup/parental-*/cgroup.freeze, /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.freeze
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee /sys/fs/cgroup/parental-*/cgroup.procs, /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.procs
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/cat /sys/fs/cgroup/parental-*/cgroup.freeze, /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.freeze
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/cat /sys/fs/cgroup/parental-*/cgroup.procs, /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.procs
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/mkdir -p /sys/fs/cgroup/parental-*, /usr/bin/mkdir -p /sys/fs/cgroup/parental-*

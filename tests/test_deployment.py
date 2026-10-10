@@ -125,6 +125,12 @@ class TestSudoersTemplates(unittest.TestCase):
             if 'passwd' in line and not line.strip().startswith('#'):
                 self.assertIn('passwd -S', line)
 
+    def test_budget_rules_cover_resolved_sbin_and_bin_paths(self):
+        body = read('sudoers-parental-controls-budgets')
+        for binary in ('tee', 'cat', 'mkdir'):
+            self.assertIn(f'/usr/sbin/{binary}', body)
+            self.assertIn(f'/usr/bin/{binary}', body)
+
 
 if __name__ == '__main__':
     unittest.main()
