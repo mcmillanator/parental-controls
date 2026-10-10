@@ -81,6 +81,55 @@ def get_lock_status(username):
         return None, str(e)
 
 
+def valid_username(username):
+    """True when `username` is safe to pass as a literal usermod/loginctl
+    argument.
+
+    Beyond the usual charset check this rejects a leading '-': usernames
+    are interpolated as a bare argv element, and a name like '-x' is
+    parsed by usermod as an option rather than a login (verified:
+    `usermod -U -x` -> "invalid option"). No real account can begin with
+    '-', so rejecting one costs nothing and closes an argument-injection
+    path into a command that runs as root.
+    """
+    return bool(username) and not username.startswith('-') and all(
+        c.isalnum() or c in '_-.' for c in username
+    )
+
+
+def lock_user_sessions(username):
+    """Screen-lock every active session belonging to `username`.
+
+    `loginctl lock-session` with no session ID locks the session of the
+    *caller* -- which is the parent running this app, not the target
+    child. That both fails to lock the child and (worse) locks the
+    parent's own screen. So resolve the target's session IDs first.
+
+    Returns a short human-readable note describing what happened.
+    Never raises; screen lock is best-effort and must not fail a lock.
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
+             '--value'],
+            capture_output=True, text=True, timeout=15
+        )
+        session_ids = result.stdout.split() if result.returncode == 0 else []
+        if not session_ids:
+            return 'no active session'
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'lock-session'] + session_ids,
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return f'loginctl lock-session: {result.stderr.strip() or "failed"}'
+        return f'{len(session_ids)} session(s) locked'
+    except subprocess.TimeoutExpired:
+        return 'screen lock timed out'
+    except Exception as e:
+        return f'screen lock error: {e}'
+
+
 def run_lock_command(username, action):
     """Run lock or unlock commands for a user.
 
@@ -184,16 +233,51 @@ def note_manual_unlock(username):
 
 
 def clear_manual_override(username):
-    """Clear a bedtime manual override after a manual lock.
+    """Clear a bedtime manual override.
 
-    A manual lock cancels the override; bedtime ownership
-    (locked_by_bedtime) is left untouched.
+    Only clears the override flag; see note_manual_lock for the full
+    manual-lock bookkeeping.
     """
     try:
         data = load_bedtime()
         entry = data.get(username)
         if entry is not None and entry.get('manual_override'):
             entry['manual_override'] = False
+            save_bedtime(data)
+    except OSError:
+        pass
+
+
+def note_manual_lock(username):
+    """Record a manual (parent-issued) lock for bedtime bookkeeping.
+
+    A manual lock transfers ownership away from bedtime: it clears
+    locked_by_bedtime so the bedtime timer will not later treat the
+    account as "locked by bedtime" and silently `usermod -U` it when the
+    window ends -- which would undo a deliberate parental lock and let a
+    locked account authenticate again.
+
+    It also clears any manual override, since that flag means "parent
+    unlocked during the current bedtime window" and a new lock
+    supersedes it.
+
+    Called only by the HTTP lock endpoints. Bedtime auto-locks
+    (enforce_bedtime) set locked_by_bedtime directly and must not call
+    this, or bedtime would lose its own ownership.
+    """
+    try:
+        data = load_bedtime()
+        entry = data.get(username)
+        if entry is None:
+            return
+        changed = False
+        if entry.get('locked_by_bedtime'):
+            entry['locked_by_bedtime'] = False
+            changed = True
+        if entry.get('manual_override'):
+            entry['manual_override'] = False
+            changed = True
+        if changed:
             save_bedtime(data)
     except OSError:
         pass
@@ -425,6 +509,17 @@ def enforce_bedtime(now=None):
                 entry.pop('warned_for', None)
                 changed = True
             if locked_by_bedtime:
+                # Re-read ownership from disk immediately before unlocking.
+                # `data` is a snapshot taken at the top of this pass, and
+                # the systemd timer runs in a *separate process* from the
+                # web UI -- a manual lock written since the snapshot must
+                # win, or we would usermod -U an account the parent just
+                # deliberately locked. Never unlock on a stale snapshot.
+                current = load_bedtime().get(username, {})
+                if not current.get('locked_by_bedtime', False):
+                    entry['locked_by_bedtime'] = False
+                    changed = True
+                    continue
                 success, _msg = run_lock_command(username, 'unlock')
                 if success:
                     entry['locked_by_bedtime'] = False
@@ -512,7 +607,7 @@ def api_lock():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account
@@ -527,20 +622,12 @@ def api_lock():
     except Exception as e:
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
-    # A manual lock cancels any bedtime manual override.
-    clear_manual_override(username)
+    # A manual lock takes ownership away from bedtime so the bedtime
+    # timer cannot later auto-unlock it (see note_manual_lock).
+    note_manual_lock(username)
 
     # Lock the screen without terminating the session
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'lock-session'],
-            capture_output=True, text=True, timeout=10
-        )
-        screen_msg = result.stderr.strip() or 'Screen locked'
-        if result.returncode != 0:
-            screen_msg = f'loginctl lock-session: {result.stderr.strip() or "failed"}'
-    except Exception as e:
-        screen_msg = f'loginctl lock-session error: {e}'
+    screen_msg = lock_user_sessions(username)
 
     return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
 
@@ -556,7 +643,7 @@ def api_lock_screen():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account (without terminating the session)
@@ -571,20 +658,12 @@ def api_lock_screen():
     except Exception as e:
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
-    # A manual lock cancels any bedtime manual override.
-    clear_manual_override(username)
+    # A manual lock takes ownership away from bedtime so the bedtime
+    # timer cannot later auto-unlock it (see note_manual_lock).
+    note_manual_lock(username)
 
     # Lock the screen without terminating the session
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'lock-session'],
-            capture_output=True, text=True, timeout=10
-        )
-        screen_msg = result.stderr.strip() or 'Screen locked'
-        if result.returncode != 0:
-            screen_msg = f'loginctl lock-session: {result.stderr.strip() or "failed"}'
-    except Exception as e:
-        screen_msg = f'loginctl lock-session error: {e}'
+    screen_msg = lock_user_sessions(username)
 
     return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
 
@@ -595,7 +674,7 @@ def api_unlock():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     success, message = run_lock_command(username, 'unlock')
@@ -621,7 +700,7 @@ def api_bedtime_set():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     start = request.form.get('start', '').strip()
@@ -718,7 +797,7 @@ def api_logout():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account
@@ -732,8 +811,9 @@ def api_logout():
     except Exception as e:
         return jsonify({'success': False, 'message': 'usermod -L error: ' + str(e)}), 400
 
-    # A manual lock cancels any bedtime manual override.
-    clear_manual_override(username)
+    # A manual lock takes ownership away from bedtime so the bedtime
+    # timer cannot later auto-unlock it (see note_manual_lock).
+    note_manual_lock(username)
 
     # Terminate the user's sessions
     try:
@@ -761,7 +841,7 @@ def api_process_prefs():
     if not username or not comm:
         return jsonify({'success': False,
                         'error': 'username and comm required'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     ok, msg = budgets.set_pref(username, comm, action)
     if not ok:
@@ -780,7 +860,7 @@ def api_budgets_set():
     minutes = request.form.get('minutes', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     if not minutes:
         minutes = 0
@@ -797,7 +877,7 @@ def api_budgets_resume():
     category = request.form.get('category', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     ok, msg = budgets.resume_category(username, category)
     if not ok:
@@ -808,7 +888,7 @@ def api_budgets_resume():
 @app.route('/api/budgets/<username>')
 def api_budgets_get(username):
     """JSON budget status (limits, usage, paused flags) for a user."""
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'error': 'Invalid username'}), 400
     return jsonify(budgets.budget_status(username))
 
@@ -893,7 +973,7 @@ def get_user_live(username):
 @app.route('/api/user/<username>/live')
 def api_user_live(username):
     """Live status/process/budget data for targeted DOM refresh (no reload)."""
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     data = get_user_live(username)
     if data is None:
