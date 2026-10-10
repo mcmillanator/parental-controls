@@ -126,6 +126,18 @@ class TestBindOptions(unittest.TestCase):
         self.assertIn("Invalid --port", script)
         self.assertIn("Invalid --bind", script)
 
+    def test_service_restarts_only_on_unit_change(self):
+        script = read('install.sh')
+        self.assertIn('UNITS_CHANGED=0', script)
+        self.assertIn('UNITS_CHANGED=1', script)
+        self.assertIn('systemctl restart parental-controls.service', script)
+        self.assertIn('units unchanged', script.lower())
+
+    def test_lan_verify_hints_at_firewall(self):
+        script = read('install.sh')
+        self.assertIn('--open-firewall', script)
+        self.assertIn('re-run with --open-firewall', script)
+
 
 class TestSudoersTemplates(unittest.TestCase):
     def test_templates_use_placeholder_not_a_real_user(self):

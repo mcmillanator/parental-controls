@@ -143,6 +143,9 @@ bind = `127.0.0.1:5000`, no firewall change. What it does:
 `--bind`/`--port` render into the service unit (`--bind 0.0.0.0` listens on
 all interfaces). A non-localhost bind prints a warning: the MVP has no TLS,
 so session cookies travel in the clear — prefer the SSH tunnel.
+Re-running the installer is the update mechanism: if a rendered unit differs
+from the installed one, the service restarts to pick it up; identical
+re-installs leave the running service alone.
 
 Then finish setup:
 

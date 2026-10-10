@@ -132,11 +132,20 @@ as_user "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
 echo "== 3/8 systemd units (bind $BIND_HOST:$BIND_PORT) =="
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
+# Track whether any unit actually changed: a changed unit needs a service
+# restart to take effect (`enable --now` never restarts a running service,
+# which silently left a new --bind unlistened). Unchanged re-installs leave
+# the running service alone.
+UNITS_CHANGED=0
 for unit in parental-controls.service parental-controls-enforce.service parental-controls-enforce.timer; do
     [ -f "$TEMPLATE_DIR/systemd/$unit" ] || { echo "Missing $TEMPLATE_DIR/systemd/$unit" >&2; exit 1; }
     sed -e "s|@APP_DIR@|$INSTALL_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
         -e "s|@BIND_HOST@|$BIND_HOST|g" -e "s|@BIND_PORT@|$BIND_PORT|g" \
         "$TEMPLATE_DIR/systemd/$unit" > "$TMPD/$unit"
+    if [ ! -f /etc/systemd/system/"$unit" ] \
+       || ! cmp -s "$TMPD/$unit" /etc/systemd/system/"$unit"; then
+        UNITS_CHANGED=1
+    fi
     echo "--- rendered $unit ---"
     grep -E "^(User|WorkingDirectory|ExecStart)=" "$TMPD/$unit" || true
     run cp "$TMPD/$unit" /etc/systemd/system/"$unit"
@@ -188,6 +197,12 @@ echo "== 7/8 enable + start =="
 run systemctl daemon-reload
 run systemctl enable --now parental-controls.service
 run systemctl enable --now parental-controls-enforce.timer
+if [ "$UNITS_CHANGED" -eq 1 ]; then
+    echo "Unit files changed — restarting service to pick up the new configuration."
+    run systemctl restart parental-controls.service
+else
+    echo "(units unchanged — service left running)"
+fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run complete — nothing was changed."
@@ -201,10 +216,22 @@ PROBE_HOST="$BIND_HOST"
 [ "$PROBE_HOST" = "0.0.0.0" ] && PROBE_HOST="127.0.0.1"
 code=$(curl -s -o /dev/null -w "%{http_code}" "http://${PROBE_HOST}:${BIND_PORT}/" || true)
 echo "GET / -> $code (302 login redirect expected)"
-[ "$code" = "302" ] || { echo "WARNING: unexpected status; check journalctl -u parental-controls.service" >&2; }
+if [ "$code" != "302" ]; then
+    echo "WARNING: unexpected status; check journalctl -u parental-controls.service" >&2
+    case "$BIND_HOST" in
+        127.0.0.1|localhost|::1) ;;
+        *) echo "HINT: for a LAN bind, an unreachable probe can also mean the host" >&2
+           echo "firewall is blocking ${BIND_PORT}/tcp — re-run with --open-firewall." >&2 ;;
+    esac
+fi
 
 echo
 echo "Installed into $INSTALL_DIR (listening on ${BIND_HOST}:${BIND_PORT}). Next steps:"
 echo "  1. Get the one-time admin credential: journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'"
-echo "  2. From your machine: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>, open http://localhost:${BIND_PORT}"
+case "$BIND_HOST" in
+    127.0.0.1|localhost|::1)
+        echo "  2. From your machine: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>, open http://localhost:${BIND_PORT}" ;;
+    *)
+        echo "  2. Open http://${BIND_HOST}:${BIND_PORT} from a machine on the LAN" ;;
+esac
 echo "  3. Log in and change the password immediately (forced on first login)."
