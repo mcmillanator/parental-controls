@@ -107,12 +107,17 @@ def valid_username(username):
 
 
 def lock_user_sessions(username):
-    """Screen-lock every active session belonging to `username`.
+    """Screen-lock every graphical session belonging to `username`.
 
     `loginctl lock-session` with no session ID locks the session of the
     *caller* -- which is the parent running this app, not the target
     child. That both fails to lock the child and (worse) locks the
     parent's own screen. So resolve the target's session IDs first.
+
+    Only graphical (`wayland`/`x11`) sessions of class `user` are locked:
+    manager/greeter/tty sessions reject the call with "Session does not
+    support lock screen", which previously surfaced as a Lock Screen
+    failure even when a lockable session existed.
 
     Returns a short human-readable note describing what happened.
     Never raises; screen lock is best-effort and must not fail a lock.
@@ -126,17 +131,47 @@ def lock_user_sessions(username):
         session_ids = result.stdout.split() if result.returncode == 0 else []
         if not session_ids:
             return 'no active session'
+        lockable = [sid for sid in session_ids
+                    if _session_supports_lock(sid)]
+        if not lockable:
+            return 'no lockable (graphical) session'
         result = subprocess.run(
-            ['sudo', 'loginctl', 'lock-session'] + session_ids,
+            ['sudo', 'loginctl', 'lock-session'] + lockable,
             capture_output=True, text=True, timeout=15
         )
         if result.returncode != 0:
             return f'loginctl lock-session: {result.stderr.strip() or "failed"}'
-        return f'{len(session_ids)} session(s) locked'
+        return f'{len(lockable)} session(s) locked'
     except subprocess.TimeoutExpired:
         return 'screen lock timed out'
     except Exception as e:
         return f'screen lock error: {e}'
+
+
+def _session_supports_lock(session_id):
+    """True when a session is a graphical user session logind can lock.
+
+    Anything else (manager/greeter sessions, tty logins, vanished
+    sessions) is skipped: locking those fails with "Session does not
+    support lock screen". Never raises.
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'show-session', session_id,
+             '-p', 'Class', '-p', 'Type'],
+            capture_output=True, text=True, timeout=15
+        )
+    except (subprocess.TimeoutExpired, Exception):
+        return False
+    if result.returncode != 0:
+        return False
+    props = {}
+    for line in result.stdout.splitlines():
+        if '=' in line:
+            key, _, value = line.partition('=')
+            props[key.strip()] = value.strip()
+    return (props.get('Class') == 'user'
+            and props.get('Type') in ('wayland', 'x11'))
 
 
 def run_lock_command(username, action):
