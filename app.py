@@ -256,10 +256,19 @@ def is_in_bedtime(entry, now=None):
 # ---------------------------------------------------------------------------
 
 def enforce_bedtime():
-    """Lock users whose bedtime started; unlock only those bedtime locked."""
+    """Lock users whose bedtime started; unlock only those bedtime locked.
+
+    Wheel members (admins) are never auto-locked: skipped with a logged
+    note so a parent cannot bedtime-lock themselves out.
+    """
     data = load_bedtime()
     changed = False
     for username, entry in list(data.items()):
+        if budgets.is_admin_protected(username):
+            print(f'skipped bedtime enforcement for {username}: '
+                  f'{budgets.ADMIN_GROUP} member (admin self-protection)',
+                  flush=True)
+            continue
         in_bed = is_in_bedtime(entry)
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
 
@@ -531,6 +540,14 @@ def api_bedtime_set():
     if is_in_bedtime(entry):
         # Only lock if not already manually unlocked
         if not entry.get('locked_by_bedtime'):
+            if budgets.is_admin_protected(username):
+                # Saving a schedule must not auto-lock an admin out.
+                print(f'skipped bedtime auto-lock for {username}: '
+                      f'{budgets.ADMIN_GROUP} member (admin self-protection)',
+                      flush=True)
+                return jsonify({'success': True,
+                                'message': 'Bedtime saved (auto-lock skipped: admin user)',
+                                'locked': False})
             success, message = run_lock_command(username, 'lock')
             if success:
                 entry['locked_by_bedtime'] = True

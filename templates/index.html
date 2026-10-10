@@ -218,7 +218,7 @@
         }
 
         async function lockUser(username) {
-            // TODO: add confirmation dialog during MVP phase
+            if (!confirm('Lock account for "' + username + '"? They will be unable to log in until unlocked.')) return;
             try {
                 const resp = await fetch('/api/lock', {
                     method: 'POST',
@@ -238,6 +238,7 @@
         }
 
         async function lockScreenUser(username) {
+            if (!confirm('Lock screen for "' + username + '"? Their session stays running.')) return;
             try {
                 const resp = await fetch('/api/lock-screen', {
                     method: 'POST',
@@ -257,6 +258,7 @@
         }
 
         async function unlockUser(username) {
+            if (!confirm('Unlock account for "' + username + '"?')) return;
             try {
                 const resp = await fetch('/api/unlock', {
                     method: 'POST',
