@@ -10,6 +10,7 @@ import pwd
 import html
 import os
 import json
+import re
 import secrets
 import threading
 import time
@@ -23,6 +24,11 @@ import auth
 import budgets
 
 app = Flask(__name__)
+
+# Detail-row id sanitizer used by the server-rendered expand/collapse
+# markup (mirrored by the JS detailId() helper in templates/user.html).
+app.jinja_env.filters['slugify_id'] = (
+    lambda value: re.sub(r'[^A-Za-z0-9_.-]', '-', str(value)))
 
 # MVP: no TLS on localhost, so Secure cookies are opt-in for the day a
 # TLS-terminating setup exists (PARENTAL_TLS=1). HttpOnly + SameSite=Lax
@@ -1128,11 +1134,18 @@ def get_user_live(username):
         visible, hidden = budgets.apply_filter(processes, username, prefs)
         index = budgets.build_desktop_index(username)
         groups = budgets.group_by_category(visible, index)
-        # Annotate hidden rows with their category too (shown on toggle).
+        # Group duplicate comms inside each category bucket: each bucket
+        # becomes [{comm, count, members, max_elapsed, ...}] group dicts.
+        groups = {cat: budgets.group_by_comm(procs)
+                  for cat, procs in groups.items()}
+        # Annotate hidden rows with their category, then group across
+        # categories (members keep per-member categories for the Mixed
+        # label when the group spans categories).
         for p in hidden:
             p['category'] = budgets.categorize(p, index)
+        hidden = budgets.group_by_comm(hidden)
     else:
-        visible, hidden, groups = [], processes, {c: [] for c in budgets.CATEGORIES}
+        visible, hidden, groups = [], [], {c: [] for c in budgets.CATEGORIES}
     budget_state = budgets.budget_status(username)
 
     return {
@@ -1159,15 +1172,25 @@ def api_user_live(username):
     if data['processes'] and 'error' in data['processes'][0]:
         error = data['processes'][0].get('error')
     slim_groups = {
-        cat: [{'pid': p['pid'], 'comm': p['comm'],
-               'elapsed': p.get('elapsed') or p.get('etime', '')}
-              for p in procs]
+        cat: [{'comm': g['comm'], 'count': g['count'],
+               'elapsed': g.get('max_elapsed') or '',
+               'members': [
+                   {'pid': m['pid'], 'comm': m['comm'],
+                    'elapsed': m.get('elapsed') or m.get('etime', '')}
+                   for m in g['members']]}
+              for g in procs]
         for cat, procs in data['groups'].items()
     }
     slim_hidden = [
-        {'pid': p.get('pid'), 'comm': p.get('comm'),
-         'category': p.get('category')}
-        for p in data['hidden'] if 'error' not in p
+        {'comm': g['comm'], 'count': g['count'],
+         'categories': g.get('categories', []),
+         'uniform_category': g.get('uniform_category', True),
+         'members': [
+             {'pid': m.get('pid'), 'comm': m.get('comm'),
+              'category': m.get('category'),
+              'elapsed': m.get('elapsed') or m.get('etime', '')}
+             for m in g['members']]}
+        for g in data['hidden'] if 'error' not in g
     ]
     return jsonify({
         'success': True,
