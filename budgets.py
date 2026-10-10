@@ -67,6 +67,9 @@ ACTIVE_THRESHOLD_SECONDS = 1.0
 # first tick back cannot bill phantom hours.
 MAX_TICK_WALL_SECONDS = 300.0
 TICK_SECONDS = 60
+# Remaining budget seconds at or below which a "minutes left" warning is
+# sent (once per day per category).
+LOW_WARN_SECONDS = 300.0
 
 _USERNAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
 
@@ -532,6 +535,7 @@ def compute_deltas(last_cpu, procs):
 # Shape: {username: {"limits": {cat: minutes}, "day": "YYYY-MM-DD",
 #   "used_seconds": {cat: float}, "last_cpu": {pid: {comm, cpu}},
 #   "paused": {cat: bool}, "resumed": {cat: bool},
+#   "warned_low": {cat: "YYYY-MM-DD"}, "warned_paused": {cat: "YYYY-MM-DD"},
 #   "was_in_bedtime": bool}}
 # ---------------------------------------------------------------------------
 
@@ -551,7 +555,8 @@ def save_budgets(data):
 
 def blank_entry():
     return {'limits': {}, 'day': None, 'used_seconds': {}, 'last_cpu': {},
-            'paused': {}, 'resumed': {}, 'was_in_bedtime': False,
+            'paused': {}, 'resumed': {}, 'warned_low': {},
+            'warned_paused': {}, 'was_in_bedtime': False,
             'last_tick': None}
 
 
@@ -823,18 +828,34 @@ def freezable_members(procs, username, category, limits, prefs=None,
 # ---------------------------------------------------------------------------
 
 def account_and_enforce(username, entry, procs, bedtime_entry, now,
-                        prefs=None, index=None, act=True):
+                        prefs=None, index=None, act=True, notify=None):
     """One budget tick for a single user. Mutates `entry` in place.
 
-    Returns a summary dict {reset, froze: [...], note}. With act=False no
-    privileged cgroup operations are performed (used by unit tests).
+    Returns a summary dict {reset, froze: [...], notified: [...], note}.
+    With act=False no privileged cgroup operations are performed (used by
+    unit tests). notify, when given, is a callable
+    ``notify(username, title, body)`` used for best-effort "minutes left"
+    and "paused" warnings — every call is guarded so a notification
+    failure never blocks enforcement.
     """
     today_str = now.date().isoformat()
     has_bedtime = bool(bedtime_entry and bedtime_entry.get('start'))
     now_in = bool(bedtime_entry and _in_bedtime(bedtime_entry, now))
     was_in = bool(entry.get('was_in_bedtime', False))
     summary = {'user': username, 'reset': False, 'froze': [],
-               'unfroze': [], 'note': ''}
+               'unfroze': [], 'notified': [], 'note': ''}
+
+    def _warn(title, body, tag):
+        """Best-effort notification; records tag in summary, never raises."""
+        if notify is None:
+            return
+        try:
+            notify(username, title, body)
+            summary['notified'].append(tag)
+        except Exception as e:
+            summary['note'] = 'notify failed: %s' % e
+            return False
+        return True
 
     if entry.get('day') is None:
         entry['day'] = today_str
@@ -843,6 +864,8 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         entry['used_seconds'] = {}
         entry['paused'] = {}
         entry['resumed'] = {}
+        entry['warned_low'] = {}
+        entry['warned_paused'] = {}
         entry['day'] = today_str
         summary['reset'] = True
         if act:
@@ -873,6 +896,18 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     used = entry.setdefault('used_seconds', {})
     paused = entry.setdefault('paused', {})
     resumed = entry.setdefault('resumed', {})
+    warned_low = entry.setdefault('warned_low', {})
+    warned_paused = entry.setdefault('warned_paused', {})
+
+    def _note_paused(category):
+        """'Out of time' notification, once per day per category."""
+        if warned_paused.get(category) == today_str:
+            return
+        label = CATEGORY_LABELS.get(category, category)
+        if _warn('%s paused \u2014 out of time' % label,
+                 'Your %s time is up for today.' % label,
+                 category + ' (paused)'):
+            warned_paused[category] = today_str
 
     for category, limit_min in list(limits.items()):
         try:
@@ -893,10 +928,19 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         if category_active:
             used[category] += wall
         exhausted = used[category] >= limit_sec
+        remaining = limit_sec - used[category]
+        if (not exhausted and 0 < remaining <= LOW_WARN_SECONDS
+                and warned_low.get(category) != today_str):
+            label = CATEGORY_LABELS.get(category, category)
+            if _warn('%s: 5 minutes left' % label,
+                     'Less than 5 minutes of %s time left today.' % label,
+                     category + ' (low)'):
+                warned_low[category] = today_str
         if exhausted and not paused.get(category) and not resumed.get(category):
             if not act:
                 paused[category] = True
                 summary['froze'].append(category + ' (dry-run)')
+                _note_paused(category)
                 continue
             ok, msg = ensure_cgroup(username, category)
             if not ok:
@@ -912,6 +956,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
                 continue
             if not members and not current:
                 paused[category] = True  # exhausted, nothing running yet
+                _note_paused(category)
                 continue
             if not members:
                 summary['note'] = (f'freeze aborted for {category}: '
@@ -921,6 +966,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
             if ok:
                 paused[category] = True
                 summary['froze'].append(category)
+                _note_paused(category)
             else:
                 summary['note'] = f'freeze failed for {category}: {msg}'
         elif exhausted and paused.get(category) and members and act:
@@ -959,11 +1005,13 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
 
 
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
-                 index=None, act=True):
+                 index=None, act=True, notify=None):
     """Run one budget tick for every user in budgets.json.
 
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
     procs_provider: callable(username) -> procs (default: live ps snapshot).
+    notify: optional callable ``notify(username, title, body)`` for
+    best-effort "minutes left" / "paused" warnings.
     Returns a list of per-user summary dicts.
     """
     data = load_budgets()
@@ -974,7 +1022,8 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     for username, entry in list(data.items()):
         if not valid_username(username):
             continue
-        for key in ('limits', 'used_seconds', 'last_cpu', 'paused', 'resumed'):
+        for key in ('limits', 'used_seconds', 'last_cpu', 'paused', 'resumed',
+                    'warned_low', 'warned_paused'):
             entry.setdefault(key, {})
         if procs_provider is not None:
             procs = procs_provider(username)
@@ -982,7 +1031,7 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             procs = list_user_processes(username)
         summaries.append(account_and_enforce(
             username, entry, procs, (bedtime_map or {}).get(username),
-            now, prefs, index, act))
+            now, prefs, index, act, notify))
     if changed:
         try:
             save_budgets(data)
