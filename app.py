@@ -673,21 +673,23 @@ def enforce_bedtime(now=None):
             continue
 
         # --- Bonus time tick ---
-        # A live bonus (bonus_until in the future) suspends bedtime
-        # enforcement for this user entirely: they stay unlocked past
-        # their window until the bonus expires. An expired bonus behaves
-        # as no bonus (enforcement below resumes and re-locks if the
-        # user is still inside a window).
+        # A live bonus (bonus_until in the future) suppresses the lock
+        # only: the account stays unlocked past its window until the
+        # bonus expires (warnings/auto-unlock bookkeeping still run, per
+        # BONUS_TIME_PLAN.md §2). An expired bonus behaves as no bonus
+        # (enforcement below resumes and re-locks if still in-window).
         bonus_until = _parse_bonus_until(entry)
         bonus_expired_this_pass = False
+        bonus_active = False
         if bonus_until is not None:
             if bonus_until > now:
-                continue
-            _append_bonus_history(entry, 'expire', entry.get('bonus_minutes'),
-                                  entry.get('bonus_until'), 'system')
-            bonus_expired_this_pass = True
-            changed = True
-            _drop_bonus_keys(entry)
+                bonus_active = True
+            else:
+                _append_bonus_history(entry, 'expire', entry.get('bonus_minutes'),
+                                      entry.get('bonus_until'), 'system')
+                bonus_expired_this_pass = True
+                changed = True
+                _drop_bonus_keys(entry)
 
         in_bed = is_in_bedtime(entry, now)
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
@@ -696,6 +698,11 @@ def enforce_bedtime(now=None):
             if entry.get('manual_override'):
                 # Parent manually unlocked during this bedtime window:
                 # leave the account alone until the window ends.
+                continue
+            if bonus_active:
+                # Bonus time overrides the lock only — the account stays
+                # unlocked past bedtime until the bonus expires. Nothing
+                # else to do for an in-window user this pass.
                 continue
             locked, _detail = get_lock_status(username)
             if locked is False:
@@ -732,13 +739,15 @@ def enforce_bedtime(now=None):
                 # drop the flag so the next window warns again.
                 entry.pop('warned_for', None)
                 changed = True
-            if locked_by_bedtime:
+            if locked_by_bedtime and not bonus_active:
                 # Re-read ownership from disk immediately before unlocking.
                 # `data` is a snapshot taken at the top of this pass, and
                 # the systemd timer runs in a *separate process* from the
                 # web UI -- a manual lock written since the snapshot must
                 # win, or we would usermod -U an account the parent just
                 # deliberately locked. Never unlock on a stale snapshot.
+                # (While a bonus is active, skip this bookkeeping entirely:
+                # the grant owns the unlock state.)
                 current = load_bedtime().get(username, {})
                 if not current.get('locked_by_bedtime', False):
                     entry['locked_by_bedtime'] = False
