@@ -1475,8 +1475,19 @@ def get_user_live(username):
 
     if processes and 'error' not in processes[0]:
         prefs = budgets.load_prefs()
-        visible, hidden = budgets.apply_filter(processes, username, prefs)
+        try:
+            home = pwd.getpwnam(username).pw_dir
+        except KeyError:
+            home = None
         index = budgets.build_desktop_index(username)
+        # Auto-hide: flag explicitly user-started processes first; the
+        # filter below hides everything else unless the parent re-shows
+        # it via shown_comm. Absent flags default to visible so callers
+        # passing unmarked snapshots behave as before.
+        budgets.mark_user_apps(processes, index, home)
+        visible, hidden = budgets.apply_filter(processes, username, prefs)
+        budgets.annotate_display_names(
+            processes, budgets.build_desktop_names(username))
         groups = budgets.group_by_category(visible, index)
         # Group duplicate comms inside each category bucket: each bucket
         # becomes [{comm, count, members, max_elapsed, ...}] group dicts.
@@ -1516,21 +1527,27 @@ def api_user_live(username):
     if data['processes'] and 'error' in data['processes'][0]:
         error = data['processes'][0].get('error')
     slim_groups = {
-        cat: [{'comm': g['comm'], 'count': g['count'],
+        cat: [{'comm': g['comm'],
+               'display_name': g.get('display_name') or g['comm'],
+               'count': g['count'],
                'elapsed': g.get('max_elapsed') or '',
                'members': [
                    {'pid': m['pid'], 'comm': m['comm'],
+                    'display_name': m.get('display_name') or m.get('comm', ''),
                     'elapsed': m.get('elapsed') or m.get('etime', '')}
                    for m in g['members']]}
               for g in procs]
         for cat, procs in data['groups'].items()
     }
     slim_hidden = [
-        {'comm': g['comm'], 'count': g['count'],
+        {'comm': g['comm'],
+         'display_name': g.get('display_name') or g['comm'],
+         'count': g['count'],
          'categories': g.get('categories', []),
          'uniform_category': g.get('uniform_category', True),
          'members': [
              {'pid': m.get('pid'), 'comm': m.get('comm'),
+              'display_name': m.get('display_name') or m.get('comm', ''),
               'category': m.get('category'),
               'elapsed': m.get('elapsed') or m.get('etime', '')}
              for m in g['members']]}

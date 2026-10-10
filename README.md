@@ -13,6 +13,9 @@ app time budgets on Bazzite.
 - Per-user details pages: bedtime schedule, account status, processes grouped
   by app category with Hide/Show-hidden filtering; duplicate processes
   grouped into one expandable row per command with a count badge
+- Processes table auto-hides everything not explicitly user-started
+  (background plumbing hides by default; real apps stay visible) and shows
+  human-friendly app names from installed `.desktop` files where known
 - Per-category daily time budgets enforced with the cgroup freezer
   (pause-not-kill, auto-resume at reset)
 - Bedtime windows with pre-lock warnings and manual-override precedence;

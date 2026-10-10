@@ -280,7 +280,15 @@ def set_pref(username, comm, action):
 
 
 def apply_filter(procs, username, prefs=None):
-    """Split procs into (visible, hidden) honoring defaults + user prefs."""
+    """Split procs into (visible, hidden) honoring defaults + user prefs.
+
+    Effective hidden = (default_hidden | auto_hidden | hidden_comm) -
+    shown_comm, where auto_hidden covers anything not explicitly
+    user-started (proc['user_app'] False, set by mark_user_apps; an
+    absent flag defaults to True so unmarked snapshots behave exactly
+    as before). Hidden never means unmanaged: budgets/freezer matching
+    is untouched.
+    """
     if prefs is None:
         prefs = load_prefs()
     entry = prefs.get(username, {}) if isinstance(prefs, dict) else {}
@@ -289,7 +297,7 @@ def apply_filter(procs, username, prefs=None):
     visible, hidden = [], []
     for proc in procs:
         comm = proc.get('comm', '')
-        default = is_default_hidden(proc)
+        default = is_default_hidden(proc) or not proc.get('user_app', True)
         if (default or comm in user_hidden) and comm not in user_shown:
             hidden.append(proc)
         else:
@@ -372,9 +380,20 @@ def _desktop_category(categories_value):
 
 
 def parse_desktop_file(path):
-    """Parse one .desktop file -> (keys, category) or None."""
+    """Parse one .desktop file -> (keys, category, name) or None.
+
+    keys: executable-basename lookup keys from Exec= (including
+    flatpak app-id parts). category: our games/browsers/media/chat
+    bucket, or None when the file carries no mapped Categories=.
+    name: the human-friendly Name= value, or None when absent.
+    Returns None only when the file has no usable Exec= line
+    (nothing to key on) or is unreadable — entries without a mapped
+    category still yield keys + name so display-name lookup covers
+    every installed app, not just categorized ones.
+    """
     category = None
     exec_value = None
+    name = None
     try:
         with open(path, 'r', errors='ignore') as f:
             in_entry = False
@@ -390,11 +409,13 @@ def parse_desktop_file(path):
                         category = _desktop_category(line[len('Categories='):])
                     elif line.startswith('Exec='):
                         exec_value = line[len('Exec='):]
+                    elif line.startswith('Name=') and name is None:
+                        name = line[len('Name='):].strip() or None
     except OSError:
         return None
-    if not exec_value or not category:
+    if not exec_value:
         return None
-    return list(_exec_candidates(exec_value)), category
+    return list(_exec_candidates(exec_value)), category, name
 
 
 def desktop_dirs_for(username=None):
@@ -417,9 +438,12 @@ def desktop_dirs_for(username=None):
     return dirs
 
 
-def build_desktop_index(username=None):
-    """Map executable-basename -> category from installed .desktop files."""
-    index = {}
+def _scan_desktop_files(username=None):
+    """Yield (keys, category, name) per .desktop file with an Exec= line.
+
+    Single shared scan pass behind build_desktop_index (categorized
+    entries only) and build_desktop_names (every entry with a Name=).
+    """
     for d in desktop_dirs_for(username):
         try:
             files = glob.glob(os.path.join(d, '*.desktop'))
@@ -427,13 +451,123 @@ def build_desktop_index(username=None):
             continue
         for path in files:
             parsed = parse_desktop_file(path)
-            if not parsed:
-                continue
-            keys, category = parsed
-            for key in keys:
-                # First file wins; games-relevant entries rarely collide.
-                index.setdefault(key, category)
+            if parsed:
+                yield parsed
+
+
+def build_desktop_index(username=None):
+    """Map executable-basename -> category from installed .desktop files."""
+    index = {}
+    for keys, category, _name in _scan_desktop_files(username):
+        if not category:
+            continue
+        for key in keys:
+            # First file wins; games-relevant entries rarely collide.
+            index.setdefault(key, category)
     return index
+
+
+def build_desktop_names(username=None):
+    """Map executable-basename -> human-friendly app Name=.
+
+    Covers ALL entries with an Exec= line, even those without a mapped
+    category (display names are not limited to budgeted categories).
+    First file wins, mirroring build_desktop_index.
+    """
+    names = {}
+    for keys, _category, name in _scan_desktop_files(username):
+        if not name:
+            continue
+        for key in keys:
+            names.setdefault(key, name)
+    return names
+
+
+def _flatpak_appid_parts(cmdline):
+    """Dot-parts of a `flatpak run <appid>` cmdline (lowercased).
+
+    Bare registry/TLD-ish parts (org/com/io/net) and generic suffixes
+    (desktop/app) are dropped, mirroring _exec_candidates. Returns []
+    when the cmdline is not a flatpak invocation.
+    """
+    if not cmdline or 'flatpak' not in cmdline.lower():
+        return []
+    try:
+        tokens = shlex.split(cmdline)
+    except ValueError:
+        tokens = cmdline.split()
+    low = [t.lower() for t in tokens]
+    for i, tok in enumerate(low):
+        if os.path.basename(tok) == 'flatpak' \
+                and i + 2 < len(tokens) and low[i + 1] == 'run':
+            appid = tokens[i + 2]
+            if appid.startswith('-'):
+                continue
+            return [p.lower() for p in appid.split('.')
+                    if p and p.lower() not in
+                    ('org', 'com', 'io', 'net', 'desktop', 'app')]
+    return []
+
+
+def is_user_app(proc, app_index=None, home=None):
+    """True if a proc looks explicitly user-started (not background plumbing).
+
+    Any rule wins: argv[0]-basename or comm is a known installed app
+    (app_index from build_desktop_index); a CATEGORY_OVERRIDES
+    whole-word match on comm+cmdline (covers the Steam chain,
+    browsers, media, chat — the same match categorize() uses);
+    argv[0] is an absolute path under the user's home dir (their own
+    scripts/binaries); or flatpak app-id dot-parts from the cmdline
+    match the app index.
+    """
+    index = app_index or {}
+    comm = (proc.get('comm') or '').lower()
+    cmdline = proc.get('cmdline') or proc.get('args') or ''
+    base = _argv0_basename(cmdline)
+    if base and base in index:
+        return True
+    if comm and comm in index:
+        return True
+    haystack = (comm + ' ' + cmdline).lower()
+    for cat in CATEGORIES:
+        if cat == 'other':
+            continue
+        for rx in _OVERRIDE_RES[cat]:
+            if rx.search(haystack):
+                return True
+    if home:
+        argv0 = cmdline.split(None, 1)[0] if cmdline else ''
+        h = home.rstrip('/')
+        if argv0 and h and (argv0 == h or argv0.startswith(h + '/')):
+            return True
+    for part in _flatpak_appid_parts(cmdline):
+        if part in index:
+            return True
+    return False
+
+
+def mark_user_apps(procs, app_index=None, home=None):
+    """Set proc['user_app'] on every proc via is_user_app (in place)."""
+    for proc in procs:
+        proc['user_app'] = is_user_app(proc, app_index, home)
+    return procs
+
+
+def annotate_display_names(procs, names=None):
+    """Set proc['display_name'] to the friendly .desktop Name= (in place).
+
+    Lookup is argv[0]-basename first, then comm; anything without a
+    known friendly name falls back to its comm so callers can render
+    `display_name` unconditionally.
+    """
+    names = names or {}
+    for proc in procs:
+        cmdline = proc.get('cmdline') or proc.get('args') or ''
+        base = _argv0_basename(cmdline)
+        comm = proc.get('comm') or ''
+        proc['display_name'] = (
+            names.get(base) or names.get(comm.lower()) or comm)
+    return procs
 
 
 def categorize(proc, index=None):
@@ -524,8 +658,12 @@ def group_by_comm(procs):
     for visible procs; app.py annotates hidden procs before grouping).
 
     Output (non-empty groups only, sorted by comm for determinism):
-      {comm, count, members (sorted by pid asc), max_minutes,
-       max_elapsed, categories, uniform_category}
+      {comm, display_name, count, members (sorted by pid asc),
+       max_minutes, max_elapsed, categories, uniform_category}
+
+    display_name is the first (lowest-PID) member's annotated
+    display_name, falling back to the comm when members carry none —
+    so group rows render a friendly app name where one is known.
 
     max_minutes is the max over members of etime_to_minutes(etime) —
     computed from raw minutes, never by string-comparing formatted time.
@@ -547,6 +685,7 @@ def group_by_comm(procs):
                        if m.get('category')})
         out.append({
             'comm': comm,
+            'display_name': members[0].get('display_name') or comm,
             'count': len(members),
             'members': members,
             'max_minutes': max_minutes,

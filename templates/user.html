@@ -308,7 +308,7 @@
                             title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
                             onclick="toggleGroup(this, '{{ cat }}')"><span class="group-chevron">▶</span></button>
                     </td>
-                    <td><span class="process-name">{{ group.comm }}</span>
+                    <td><span class="process-name">{{ group.display_name or group.comm }}</span>
                         {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
                         <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                     </td>
@@ -346,7 +346,7 @@
                                 title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
                                 onclick="toggleGroup(this, 'hidden')"><span class="group-chevron">▶</span></button>
                         </td>
-                        <td><span class="process-name">{{ group.comm }}</span>
+                        <td><span class="process-name">{{ group.display_name or group.comm }}</span>
                             {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
                             <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                         </td>
@@ -418,7 +418,7 @@
                     label = CATEGORY_LABELS[cat] || cat;
                 }
                 rows += '<tr><td>' + esc(m.pid) + '</td>' +
-                    '<td><span class="process-name">' + esc(m.comm) + '</span></td>' +
+                    '<td><span class="process-name">' + esc(m.display_name || m.comm) + '</span></td>' +
                     '<td>' + esc(m.elapsed || '—') + '</td>' +
                     '<td>' + esc(label) + '</td></tr>';
             }
@@ -447,12 +447,15 @@
                 ? '<button type="button" class="btn-show-hidden" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
                 : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>';
             let middle;
+            // Friendly app name where known; keys, buttons, and titles
+            // below stay on comm so Hide/PIDs/expand behavior is unchanged.
+            const name = esc(group.display_name || group.comm);
             if (cat === 'hidden') {
                 const uniform = group.uniform_category && group.categories && group.categories.length > 0;
-                middle = '<td><span class="process-name">' + esc(group.comm) + '</span>' + badge + countNote + '</td>' +
+                middle = '<td><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
                     '<td>' + (uniform ? esc(CATEGORY_LABELS[group.categories[0]]) : 'Mixed') + '</td>';
             } else {
-                middle = '<td><span class="process-name">' + esc(group.comm) + '</span>' + badge + countNote + '</td>' +
+                middle = '<td><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
                     '<td>' + esc(group.elapsed || '—') + '</td>';
             }
             return '<tr class="group-row" data-group-cat="' + esc(cat) + '" data-group-comm="' + esc(group.comm) + '">' +

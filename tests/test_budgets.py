@@ -150,7 +150,7 @@ class TestCategorize(unittest.TestCase):
                         'Exec=/opt/mygame/mygame.bin %U\n'
                         'Categories=Game;\n')
             parsed = parse_desktop_file(p)
-            self.assertEqual(parsed, (['mygame.bin'], 'games'))
+            self.assertEqual(parsed, (['mygame.bin'], 'games', 'MyGame'))
             idx = {'mygame.bin': 'games'}
             self.assertEqual(
                 categorize({'comm': 'mygame.bin',
@@ -165,8 +165,9 @@ class TestCategorize(unittest.TestCase):
                 f.write('[Desktop Entry]\nName=Chat\n'
                         'Exec=/usr/bin/flatpak run --branch=stable org.example.ChatApp\n'
                         'Categories=Chat;\n')
-            keys, cat = parse_desktop_file(p)
+            keys, cat, name = parse_desktop_file(p)
             self.assertEqual(cat, 'chat')
+            self.assertEqual(name, 'Chat')
             self.assertIn('chatapp', keys)
 
     def test_real_desktop_index_has_firefox(self):
