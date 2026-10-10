@@ -3,6 +3,14 @@
 # by the app ([A-Za-z0-9_.-]+, must exist in /etc/passwd).
 # Install as /etc/sudoers.d/parental-controls (mode 0440) and check
 # with `visudo -c`.
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/usermod -L *, /usr/bin/usermod -U *, /usr/bin/loginctl terminate-user *
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/loginctl show-user *, /usr/bin/loginctl lock-session *
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/loginctl show-session *
+#
+# Both /usr/sbin and /usr/bin are listed because the app invokes bare names
+# (`sudo usermod`, `sudo loginctl`, `sudo passwd`) and sudo resolves them via
+# secure_path (sbin first). The pairs are hardlinks to the same files, but
+# sudo matches on the path string, so only the resolved path authorizes.
+# `passwd` is scoped to `-S` (read-only status check) — never password changes.
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/usermod -L *, /usr/bin/usermod -L *, /usr/sbin/usermod -U *, /usr/bin/usermod -U *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl terminate-user *, /usr/bin/loginctl terminate-user *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl show-user *, /usr/bin/loginctl show-user *, /usr/sbin/loginctl lock-session *, /usr/bin/loginctl lock-session *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl show-session *, /usr/bin/loginctl show-session *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/passwd -S *, /usr/bin/passwd -S *

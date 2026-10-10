@@ -122,7 +122,10 @@ echo "== 4/7 sudoers (visudo-validated) =="
 for f in sudoers-parental-controls sudoers-parental-controls-budgets; do
     [ -f "$TEMPLATE_DIR/$f" ] || { echo "Missing $TEMPLATE_DIR/$f" >&2; exit 1; }
     target="/etc/sudoers.d/${f#sudoers-}"
-    sed -e "s|^stan |${SERVICE_USER} |" "$TEMPLATE_DIR/$f" > "$TMPD/$f"
+    # Templates use @SERVICE_USER@; also accept a legacy leading "stan " so
+    # hand-written files keep working.
+    sed -e "s|@SERVICE_USER@|${SERVICE_USER}|g" -e "s|^stan |${SERVICE_USER} |" \
+        "$TEMPLATE_DIR/$f" > "$TMPD/$f"
     run cp "$TMPD/$f" "$target"
     run chmod 440 "$target"
 done
