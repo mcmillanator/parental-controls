@@ -6,10 +6,35 @@ After=network.target
 Type=simple
 User=stan
 WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
-ExecStart=/bin/bash -c 'cd /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master && . .venv/bin/activate && exec python app.py'
+ExecStart=/bin/bash -c 'cd /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master && . .venv/bin/activate && exec waitress-serve --host=127.0.0.1 --port=5000 wsgi:application'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+# Auth store location (0600; owned by the service user so password changes,
+# lockouts and revocations can persist — root can always read it).
+Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json
+
+# Filesystem hardening. The app dir holds writable JSON state; the auth
+# store dir must stay writable for password changes/lockouts/revocation
+# (startup refuses to run otherwise — fail closed).
+ProtectSystem=strict
+ReadWritePaths=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master /etc/parental-controls
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectHostname=true
+ProtectClock=true
+LockPersonality=true
+
+# DELIBERATELY ABSENT (documented, not an oversight):
+# - NoNewPrivileges / RestrictSUIDSGID: the app enforces locks/freezes via
+#   passwordless sudo children (usermod, loginctl, tee); either option
+#   breaks setuid and would silently disable all enforcement.
+# - ProtectControlGroups: budget enforcement writes cgroup.freeze via sudo
+#   tee; masking the cgroup fs read-only would break freezing.
+# Real confinement of those paths lives in the sudoers allowlist, which is
+# scoped to exact binaries + parental-* cgroup paths (see
+# sudoers-parental-controls-budgets; least-privilege sudoers review below).
 
 [Install]
 WantedBy=multi-user.target
