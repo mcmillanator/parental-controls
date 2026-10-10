@@ -8,12 +8,15 @@ background thread behave identically.
 import os
 import sys
 
-APP_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-)
-# Fall back to the canonical master checkout if the script lives elsewhere.
+# Locate the app relative to this script — the systemd unit runs the copy
+# that lives alongside app.py in the install dir, so no checkout path is
+# ever baked in. Fail loudly rather than silently importing the wrong code.
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if not os.path.exists(os.path.join(APP_DIR, 'app.py')):
-    APP_DIR = '/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master'
+    sys.stderr.write(
+        f'FATAL: app.py not found next to {__file__} (looked in {APP_DIR}); '
+        f'this script must run from the installed app directory.\n')
+    raise SystemExit(1)
 
 sys.path.insert(0, APP_DIR)
 

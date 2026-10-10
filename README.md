@@ -50,11 +50,11 @@ the `X-CSRF-Token` header or `csrf_token` form field.
 
 ## Setup
 
-```bash
-# Clone or navigate to the project directory (this folder)
-cd bazzite-parental-controls-2/master
+The checkout is only for development; `install.sh` stages a copy into a
+system location, so the checkout path is never baked into the running service.
 
-# Create venv and install dependencies
+```bash
+# From this folder (the app checkout)
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -116,23 +116,26 @@ Every POST needs the `X-CSRF-Token` header or `csrf_token` form field.
 
 ## Deploying to a real machine
 
-One command (as root, from the project directory). Idempotent — safe to re-run:
+One command (as root, from the app checkout). Idempotent — safe to re-run:
 
 ```bash
-sudo ./install.sh [--app-dir DIR] [--user USER] [--dry-run]
+sudo ./install.sh [--install-dir DIR] [--user USER] [--dry-run]
 ```
 
-Defaults: app dir = the directory `install.sh` lives in, service user = the
-invoking sudo user. What it does:
+The app is **staged into a system path** so the deployed systemd units never
+reference the checkout (e.g. a home directory). Defaults: install dir =
+`/opt/parental-controls`, service user = the invoking sudo user. What it does:
 
-1. Creates the venv and installs `requirements.txt` (as the service user)
-2. Renders `systemd/*.service|timer` with the real paths/user and installs them
-3. Renders both `sudoers-*` files and installs to `/etc/sudoers.d/` (validated
+1. Stages a copy of the app into the install dir (code only; existing runtime
+   state is preserved, and a first run seeds `*.json` state from the checkout)
+2. Creates the venv and installs `requirements.txt` (as the service user)
+3. Renders `systemd/*.service|timer` against the install dir and installs them
+4. Renders both `sudoers-*` files and installs to `/etc/sudoers.d/` (validated
    with `visudo -c`)
-4. Creates `/etc/parental-controls` (0700, owned by the service user) for the
+5. Creates `/etc/parental-controls` (0700, owned by the service user) for the
    auth store
-5. Enables + starts the app service and the enforcement timer
-6. Verifies: service active, `GET /` returns the login redirect
+6. Enables + starts the app service and the enforcement timer
+7. Verifies: service active, `GET /` returns the login redirect
 
 Then finish setup:
 
