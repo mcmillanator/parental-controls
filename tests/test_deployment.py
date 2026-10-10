@@ -28,16 +28,20 @@ def read(rel):
 
 
 class TestUnitSandbox(unittest.TestCase):
-    def test_protect_system_is_full_not_strict(self):
+    def test_protect_system_is_strict(self):
         unit = read(os.path.join('systemd', 'parental-controls.service'))
         directives = [l for l in unit.splitlines()
                       if l.startswith('ProtectSystem=')]
-        self.assertEqual(directives, ['ProtectSystem=full'],
-                         'the only ProtectSystem directive must be "full"')
+        self.assertEqual(directives, ['ProtectSystem=strict'],
+                         'the only ProtectSystem directive must be "strict"')
 
-    def test_etc_dirs_writable_for_usermod(self):
+    def test_etc_is_writable_for_usermod(self):
         unit = read(os.path.join('systemd', 'parental-controls.service'))
-        self.assertIn('ReadWritePaths=@APP_DIR@ /etc/parental-controls', unit)
+        # /etc (directory level) is required: per-file ReadWritePaths for
+        # /etc/shadow and /etc/gshadow (mode 0000) fails namespace setup
+        # (SELinux denies mounton on shadow_t; unit exits 226/NAMESPACE).
+        self.assertIn('ReadWritePaths=@APP_DIR@ /etc/parental-controls /etc',
+                      unit)
 
 
 class TestNoHardcodedPaths(unittest.TestCase):

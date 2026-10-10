@@ -18,13 +18,15 @@ Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json
 # store dir must stay writable for password changes/lockouts/revocation
 # (startup refuses to run otherwise — fail closed).
 #
-# ProtectSystem=full (NOT strict): /usr, /boot and /efi are read-only, but
-# /etc stays writable because the app locks/unlocks accounts through
-# `sudo usermod`, which writes /etc/passwd, /etc/shadow and /etc/.pwd.lock.
-# Under ProtectSystem=strict those writes fail with "usermod: cannot lock
-# /etc/passwd; try again later." (observed 2026-10-10).
-ProtectSystem=full
-ReadWritePaths=@APP_DIR@ /etc/parental-controls
+# ProtectSystem=strict with /etc explicitly writable. Facts (observed
+# 2026-10-10): ProtectSystem=full ALSO mounts /etc read-only on this system,
+# so usermod still fails with "cannot lock /etc/passwd; try again later."
+# Per-file ReadWritePaths for /etc/shadow and /etc/gshadow is impossible:
+# both are mode 0000 and SELinux denies systemd's bind mount (init_t denied
+# mounton on shadow_t), aborting the unit at the NAMESPACE step (exit 226).
+# Directory-level /etc is therefore required for `sudo usermod` lock/unlock.
+ProtectSystem=strict
+ReadWritePaths=@APP_DIR@ /etc/parental-controls /etc
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
