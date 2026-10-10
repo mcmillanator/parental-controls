@@ -46,6 +46,17 @@
             font-weight: 600;
             margin-left: 0.5rem;
         }
+        .badge-bonus {
+            display: inline-block;
+            background: #4ecca3;
+            color: #1a1a2e;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .btn-bonus { background: #4ecca3; color: #1a1a2e; }
         button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; margin: 0.2rem; }
         button:hover { opacity: 0.85; }
         button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -135,6 +146,30 @@
                 <button type="button" class="btn-bedtime-clear" onclick="clearBedtime('{{ username }}')">Clear</button>
             </p>
         </form>
+        <!-- Bonus Time: one-click shortcuts + a custom minutes entry -->
+        <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #2a3a5e;">
+            <h4 style="margin-bottom: 0.4rem;">Bonus Time</h4>
+            <p id="bonus-status" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
+                {% if user.bonus and user.bonus.active %}
+                <span class="badge-bonus">Bonus active</span>
+                {{ user.bonus.remaining_minutes }} min left (until {{ user.bonus.until[11:16] }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
+                <button type="button" class="btn-lock" onclick="revokeBonus('{{ username }}')">Revoke</button>
+                {% else %}
+                No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
+                {% endif %}
+            </p>
+            <p>
+                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 15)">+15m</button>
+                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 30)">+30m</button>
+                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 60)">+1h</button>
+                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 90)">+1h30</button>
+                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 120)">+2h</button>
+            </p>
+            <p style="margin-bottom: 0;">
+                <input type="number" id="bonus-minutes" min="1" max="480" placeholder="minutes" style="width: 6rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
+                <button type="button" class="btn-bonus" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
+            </p>
+        </div>
         {% else %}
         <p>No bedtime schedule set</p>
         <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
@@ -172,7 +207,7 @@
         <p>Home: {{ user.home }}</p>
         <p id="account-status" class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
             Status: <span id="account-status-text">{{ user.status_detail }}</span>
-            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}</span>
+            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus">Bonus ({{ user.bonus.remaining_minutes }}m)</span>{% endif %}</span>
         </p>
         
         <div class="actions" id="account-actions" style="margin-top: 1rem;">
@@ -321,6 +356,7 @@
             let badges = '';
             if (data.in_bedtime) badges += '<span class="badge-bedtime">In Bedtime</span>';
             if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override">Override</span>';
+            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus">Bonus (${data.bonus.remaining_minutes}m)</span>`;
             document.getElementById('account-badges').innerHTML = badges;
             let actions = '';
             if (data.locked !== true) {
@@ -402,6 +438,22 @@
             }
         }
 
+        function renderBonus(data) {
+            const el = document.getElementById('bonus-status');
+            if (!el) return;
+            const b = data.bonus;
+            if (b && b.active) {
+                let html = '<span class="badge-bonus">Bonus active</span> ' +
+                    esc(b.remaining_minutes) + ' min left' +
+                    (b.until ? ' (until ' + esc(b.until.slice(11, 16)) + ')' : '') +
+                    (b.granted_by ? ', granted by ' + esc(b.granted_by) : '') +
+                    `<button type="button" class="btn-lock" onclick="revokeBonus('${PAGE_USERNAME}')">Revoke</button>`;
+                el.innerHTML = html;
+            } else {
+                el.textContent = 'No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.';
+            }
+        }
+
         async function refreshUserLive() {
             try {
                 const resp = await fetch('/api/user/' + encodeURIComponent(PAGE_USERNAME) + '/live');
@@ -411,6 +463,7 @@
                     return;
                 }
                 renderAccount(data);
+                renderBonus(data);
                 renderProcesses(data);
                 renderBudgets(data);
             } catch (e) {
@@ -515,6 +568,57 @@
                     refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function grantBonus(username, minutes) {
+            // One-click shortcut grants are deliberate parent actions — no confirm.
+            try {
+                const resp = await fetch('/api/bonus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: 'username=' + encodeURIComponent(username) + '&minutes=' + encodeURIComponent(minutes)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`Granted ${minutes} min bonus to ${username}`, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        function grantCustomBonus(username) {
+            const input = document.getElementById('bonus-minutes');
+            const minutes = parseInt(input.value, 10);
+            if (!minutes || minutes < 1 || minutes > 480) {
+                showToast('Enter minutes between 1 and 480', true);
+                return;
+            }
+            if (!confirm(`Grant ${minutes} minutes of bonus time to "${username}"? They will stay unlocked past bedtime until the bonus ends.`)) return;
+            grantBonus(username, minutes);
+        }
+
+        async function revokeBonus(username) {
+            if (!confirm(`Revoke bonus time for "${username}"? They will be locked again if it is still bedtime.`)) return;
+            try {
+                const resp = await fetch('/api/bonus/revoke', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: 'username=' + encodeURIComponent(username)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Bonus time revoked for ' + username, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
                 }
             } catch (e) {
                 showToast('Error: ' + e.message, true);

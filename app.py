@@ -36,6 +36,17 @@ BEDTIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bedtime
 
 DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+# Bonus time (parent-granted extra minutes past bedtime). The five
+# one-click shortcuts are 15/30/60/90/120; the custom entry accepts up to
+# BONUS_CUSTOM_MAX. A new grant stacks onto any active bonus but cannot
+# push the total beyond BONUS_MAX_STACK_MINUTES from now. Ceilings are
+# the BONUS_TIME_PLAN.md §7 recommendations and are easy to change here
+# until the parent confirms them.
+BONUS_SHORTCUTS = (15, 30, 60, 90, 120)
+BONUS_CUSTOM_MAX = 480
+BONUS_MAX_STACK_MINUTES = 180
+BONUS_HISTORY_CAP = 20
+
 
 def get_human_users():
     """Return a list of human users (UID >= MIN_UID, not system accounts)."""
@@ -292,6 +303,137 @@ def clear_manual_override(username):
         pass
 
 
+# ---------------------------------------------------------------------------
+# Bonus time (parent-granted extra minutes past bedtime)
+# ---------------------------------------------------------------------------
+#
+# Live state is stored inside the user's bedtime.json entry (no new file,
+# no migration):
+#   bonus_until     ISO timestamp when the grant expires
+#   bonus_minutes   minutes granted by the most recent grant
+#   bonus_granted_by  admin who granted it
+#   bonus_granted_at  when
+#   bonus_history   capped audit trail feeding the Phase-3 audit log
+
+BONUS_KEYS = ('bonus_until', 'bonus_minutes', 'bonus_granted_by',
+              'bonus_granted_at')
+
+
+def _parse_bonus_until(entry):
+    """DateTime of entry['bonus_until'], or None when absent/unparseable.
+
+    Fail closed: a corrupt value is treated as *no bonus*, so bedtime
+    enforcement never trusts garbage state (it will simply lock again).
+    """
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get('bonus_until')
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _append_bonus_history(entry, kind, minutes, until, by):
+    """Append a bonus audit entry, keeping only the newest BONUS_HISTORY_CAP."""
+    if not isinstance(entry.get('bonus_history'), list):
+        entry['bonus_history'] = []
+    entry['bonus_history'].append({
+        'at': datetime.now().isoformat(timespec='seconds'),
+        'by': by or 'system',
+        'minutes': minutes,
+        'until': until,
+        'kind': kind,
+    })
+    del entry['bonus_history'][:-BONUS_HISTORY_CAP]
+
+
+def _drop_bonus_keys(entry):
+    """Remove live bonus state (history is kept for the audit trail)."""
+    for key in BONUS_KEYS:
+        entry.pop(key, None)
+
+
+def compute_bonus_until(entry, minutes, now=None):
+    """The grant's new bonus_until (stacking onto an active grant).
+
+    Returns (until, kind) where kind is 'grant' or 'extend', or None when
+    the grant would push the total past BONUS_MAX_STACK_MINUTES from now.
+    """
+    now = now or datetime.now()
+    existing = _parse_bonus_until(entry)
+    base = max(now, existing) if existing is not None else now
+    until = base + timedelta(minutes=minutes)
+    if (until - now).total_seconds() / 60.0 > BONUS_MAX_STACK_MINUTES:
+        return None
+    kind = 'extend' if existing is not None and existing > now else 'grant'
+    return until, kind
+
+
+def note_bonus_grant(username, minutes, grantor=None, now=None):
+    """Record a bonus grant for `username`.
+
+    Clears manual_override (a bonus is bounded, an override is not) and
+    clears locked_by_bedtime so the bonus actually means "stays
+    unlocked". Returns the until datetime, or None when the user has no
+    entry or the grant would exceed the stacked cap. The account itself
+    is unlocked by the caller (mirrors api_unlock → note_manual_unlock).
+    """
+    now = now or datetime.now()
+    data = load_bedtime()
+    entry = data.get(username)
+    if entry is None:
+        return None
+    result = compute_bonus_until(entry, minutes, now)
+    if result is None:
+        return None
+    until, kind = result
+    entry['bonus_until'] = until.isoformat(timespec='seconds')
+    entry['bonus_minutes'] = minutes
+    entry['bonus_granted_by'] = grantor or 'admin'
+    entry['bonus_granted_at'] = now.isoformat(timespec='seconds')
+    entry['manual_override'] = False
+    entry['locked_by_bedtime'] = False
+    _append_bonus_history(entry, kind, minutes, entry['bonus_until'],
+                          entry['bonus_granted_by'])
+    save_bedtime(data)
+    return until
+
+
+def note_bonus_revoke(username, by=None):
+    """Cancel active bonus time; returns True if one existed and was removed."""
+    data = load_bedtime()
+    entry = data.get(username)
+    if entry is None or _parse_bonus_until(entry) is None:
+        return False
+    _append_bonus_history(entry, 'revoke', entry.get('bonus_minutes'),
+                          entry.get('bonus_until'), by or 'admin')
+    _drop_bonus_keys(entry)
+    save_bedtime(data)
+    return True
+
+
+def bonus_state(entry, now=None):
+    """Summary dict for the UI/live payload.
+
+    {'active', 'until', 'remaining_minutes', 'granted_by', 'last_minutes'}
+    """
+    now = now or datetime.now()
+    until = _parse_bonus_until(entry)
+    if until is None:
+        return {'active': False, 'until': None, 'remaining_minutes': None,
+                'granted_by': None, 'last_minutes': None}
+    return {
+        'active': until > now,
+        'until': until.isoformat(),
+        'remaining_minutes': max(0, int((until - now).total_seconds() // 60)),
+        'granted_by': entry.get('bonus_granted_by'),
+        'last_minutes': entry.get('bonus_minutes'),
+    }
+
+
 def note_manual_lock(username):
     """Record a manual (parent-issued) lock for bedtime bookkeeping.
 
@@ -320,6 +462,14 @@ def note_manual_lock(username):
             changed = True
         if entry.get('manual_override'):
             entry['manual_override'] = False
+            changed = True
+        # A manual lock also cancels any active bonus time: the parent's
+        # lock is the strongest signal and must win over a timer grant.
+        if _parse_bonus_until(entry) is not None:
+            _append_bonus_history(entry, 'lock_cancelled',
+                                  entry.get('bonus_minutes'),
+                                  entry.get('bonus_until'), 'manual')
+            _drop_bonus_keys(entry)
             changed = True
         if changed:
             save_bedtime(data)
@@ -515,6 +665,24 @@ def enforce_bedtime(now=None):
                   f'{budgets.ADMIN_GROUP} member (admin self-protection)',
                   flush=True)
             continue
+
+        # --- Bonus time tick ---
+        # A live bonus (bonus_until in the future) suspends bedtime
+        # enforcement for this user entirely: they stay unlocked past
+        # their window until the bonus expires. An expired bonus behaves
+        # as no bonus (enforcement below resumes and re-locks if the
+        # user is still inside a window).
+        bonus_until = _parse_bonus_until(entry)
+        bonus_expired_this_pass = False
+        if bonus_until is not None:
+            if bonus_until > now:
+                continue
+            _append_bonus_history(entry, 'expire', entry.get('bonus_minutes'),
+                                  entry.get('bonus_until'), 'system')
+            bonus_expired_this_pass = True
+            changed = True
+            _drop_bonus_keys(entry)
+
         in_bed = is_in_bedtime(entry, now)
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
 
@@ -530,10 +698,16 @@ def enforce_bedtime(now=None):
                     entry['locked_by_bedtime'] = True
                     changed = True
                     # Warn again at lock time (best-effort, never blocks).
-                    _safe_notify(username, 'Locked for bedtime',
-                                 'Good night! The device unlocks at '
-                                 f'{entry.get("end")} '
-                                 'unless a parent changes it.')
+                    if bonus_expired_this_pass:
+                        _safe_notify(username, 'Bonus time ended',
+                                     f'The device unlocks at '
+                                     f'{entry.get("end")} '
+                                     'unless a parent changes it.')
+                    else:
+                        _safe_notify(username, 'Locked for bedtime',
+                                     'Good night! The device unlocks at '
+                                     f'{entry.get("end")} '
+                                     'unless a parent changes it.')
         else:
             # Pre-warning: bedtime starts soon, warn once per window.
             window_id = bedtime_window_id(entry)
@@ -719,6 +893,7 @@ def index():
             'status_detail': detail,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
+            'bonus': bonus_state(entry),
         })
     return render_template('index.html', users=user_data, day_labels=DAY_LABELS)
 
@@ -740,6 +915,7 @@ def api_users():
             'status_detail': detail,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
+            'bonus': bonus_state(entry),
         })
     return jsonify(user_data)
 
@@ -845,6 +1021,115 @@ def api_unlock():
     return jsonify({'success': success, 'message': message})
 
 
+@app.route('/api/bonus', methods=['POST'])
+@require_admin
+def api_bonus_grant():
+    """Grant bonus time: keep a user's account unlocked past bedtime.
+
+    Form fields: username, minutes (one of the shortcut values or a
+    custom 1..BONUS_CUSTOM_MAX entry; the server re-validates).
+    Grants stack onto an active bonus and are capped in total from now.
+    A grant is a bounded manual unlock: it clears manual_override.
+    """
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+
+    try:
+        minutes = int(request.form.get('minutes', '').strip())
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Invalid minutes'}), 400
+    if minutes < 1 or minutes > BONUS_CUSTOM_MAX:
+        return jsonify({'success': False, 'error':
+                        f'minutes must be 1..{BONUS_CUSTOM_MAX}'}), 400
+
+    entry = load_bedtime().get(username) or {}
+    if not entry.get('start') or not entry.get('end') or not entry.get('days'):
+        return jsonify({'success': False,
+                        'error': 'No bedtime schedule set for this user'}), 400
+
+    # Fail closed: refuse the grant *before* touching the account when it
+    # would exceed the stacked cap or is otherwise not recordable.
+    now = datetime.now()
+    if compute_bonus_until(entry, minutes, now) is None:
+        return jsonify({'success': False, 'error':
+                        'Too much bonus time: max '
+                        f'{BONUS_MAX_STACK_MINUTES} minutes total from now',
+                        'locked': None}), 400
+
+    # Unlock first so the bonus is immediately usable, then record it
+    # (mirrors api_unlock → note_manual_unlock ordering).
+    success, message = run_lock_command(username, 'unlock')
+    if not success:
+        return jsonify({'success': False, 'message': message,
+                        'locked': True}), 400
+    until = note_bonus_grant(username, minutes, grantor=g.admin, now=now)
+    if until is None:
+        # Should not happen (cap was validated above); leave the account
+        # usable rather than double-locking.
+        return jsonify({'success': False, 'error':
+                        'Too much bonus time: max '
+                        f'{BONUS_MAX_STACK_MINUTES} minutes total from now',
+                        'locked': False}), 400
+    _safe_notify(username, 'Bonus time granted',
+                 f'{minutes} minutes — device stays unlocked until '
+                 f'{until.strftime("%H:%M")}.')
+    return jsonify({'success': True,
+                    'message': f'Granted {minutes} minutes of bonus time',
+                    'locked': False,
+                    'bonus_until': until.isoformat(),
+                    'remaining_minutes': bonus_state(
+                        load_bedtime().get(username, {}), now)['remaining_minutes']})
+
+
+@app.route('/api/bonus/revoke', methods=['POST'])
+@require_admin
+def api_bonus_revoke():
+    """Cancel bonus time immediately; re-lock now if still in bedtime.
+
+    Form fields: username. Revoking drops the bonus and re-runs this
+    user's enforcement inline (locks at once when in window) instead of
+    waiting up to 60s for the next enforce tick.
+    """
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+
+    if not note_bonus_revoke(username, by=g.admin):
+        return jsonify({'success': False, 'error': 'No active bonus time'}), 400
+
+    # Re-run this user's enforcement inline: lock at once if in bedtime
+    # and not manually overridden.
+    now = datetime.now()
+    data = load_bedtime()
+    entry = data.get(username, {})
+    locked_now = bool(get_lock_status(username)[0])
+    if (is_in_bedtime(entry, now)
+            and not entry.get('manual_override')
+            and not locked_now):
+        success, _msg = run_lock_command(username, 'lock')
+        if success:
+            entry['locked_by_bedtime'] = True
+            save_bedtime(data)
+            locked_now = True
+            _safe_notify(username, 'Locked for bedtime',
+                         'Good night! The device unlocks at '
+                         f'{entry.get("end")} '
+                         'unless a parent changes it.')
+    return jsonify({'success': True, 'message': 'Bonus time revoked',
+                    'locked': locked_now})
+
+
 @app.route('/api/bedtime', methods=['GET'])
 @require_admin
 def api_bedtime_get():
@@ -913,10 +1198,22 @@ def api_bedtime_set():
         # so the new schedule enforces immediately.
         'manual_override': False,
     }
+    # Preserve any live bonus-plus-term state across schedule edits (a
+    # saved window must not silently eat an active bonus grant).
+    for key in BONUS_KEYS + ('bonus_history',):
+        if key in existing:
+            data[username][key] = existing[key]
     save_bedtime(data)
 
     # Immediately enforce the new bedtime for this user
     entry = data[username]
+    # An active bonus-plus-term keeps the account unlocked: the saved
+    # schedule must not contradict the parent's explicit grant.
+    if _parse_bonus_until(entry) is not None and _parse_bonus_until(entry) > datetime.now():
+        return jsonify({'success': True,
+                        'message': 'Bedtime saved (bonus time active — '
+                                   'lock suppressed until bonus ends)',
+                        'locked': bool(get_lock_status(username)[0])})
     if is_in_bedtime(entry):
         # Only lock if not already manually unlocked
         if not entry.get('locked_by_bedtime'):
@@ -1107,6 +1404,7 @@ def get_user_live(username):
                 'status_detail': detail,
                 'bedtime': entry,
                 'in_bedtime': is_in_bedtime(entry),
+                'bonus': bonus_state(entry),
             })
             break
     else:
@@ -1175,6 +1473,7 @@ def api_user_live(username):
         'status_detail': user['status_detail'],
         'in_bedtime': user['in_bedtime'],
         'manual_override': bool(user['bedtime'].get('manual_override', False)),
+        'bonus': user['bonus'],
         'groups': slim_groups,
         'hidden': slim_hidden,
         'error': error,
