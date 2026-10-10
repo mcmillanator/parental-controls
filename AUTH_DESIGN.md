@@ -30,15 +30,18 @@ parent's session from their own machine. Prototype accepted this; MVP cannot.
 6. **localhost + SSH tunnel** for now. No LAN binding, no TLS in MVP.
 7. **Force a password change on first login**, including for the generated
    initial credential.
-8. **Wheel admins may authenticate with their system password, if that can be done
-   securely.** Analysis below — it can, with one caveat.
+8. **SUPERSEDED (2026-10-09): system-password auth is rejected.** Wheel admins do
+   **not** log in with their Linux password. See "System-password auth — rejected"
+   below. All admins — wheel and app-only — authenticate with app credentials.
+9. **The PAM helper is excluded from every version of this project** — MVP and all
+   later phases. Not deferred, not on any roadmap.
 
 ## Two tiers of admin
 
 | | Wheel admin | App-only admin |
 |---|---|---|
 | Source | Member of system `wheel` group | Row in `auth.json` with no Linux UID |
-| Credential | System password (PAM) **or** app password | App password only |
+| Credential | App password only | App password only |
 | Can lock/terminate/freeze any non-wheel user | Yes | Yes |
 | Can lock a wheel admin | **Never** | Never |
 | Can edit another admin's account | No | No |
@@ -62,42 +65,38 @@ must not depend on the web UI — see CLI recovery below.
 LAN from the brute-force surface; only someone with a shell on the box can reach
 the app at all.
 
-## System-password auth (decision 8): the finding
+## System-password auth — REJECTED (decided 2026-10-09)
 
-**It can be done securely, but not from a `stan`-running Python process.**
+**Wheel admins will not log in with their Linux/system password.** Every admin,
+regardless of tier, authenticates with an app credential. There is no PAM helper in
+this project, in MVP, or in any later phase.
 
-PAM requires reading `/etc/shadow`, i.e. root. The app runs as `stan`, and we
-will not run it as root — that would put the whole HTTP surface, its templates,
-and its parsing paths one bug away from full root.
+The analysis below is retained as the record of *why*, so this is not re-litigated.
 
-The secure approach is the one `unix_chkpwd` has used for decades: **a tiny,
-separately-audited root-owned helper** that calls `pam_authenticate()` for a named
-service and returns **exit status only** — never the password, never any response
-body. The web app pipes the password to the helper's stdin and branches on the exit
-code.
+PAM requires reading `/etc/shadow`, i.e. root. The app runs as `stan`, and running
+it as root would put the entire HTTP surface, its templates, and its parsing paths
+one bug away from full root. The only technically-secure route was `unix_chkpwd`-
+style: a tiny, separately-audited root-owned helper calling `pam_authenticate()`,
+returning exit status only. That is a new security-sensitive setuid binary living
+outside the app's release cadence — a permanent, if small, privilege surface on a
+machine whose whole job is to hand out privilege carefully.
 
 | Approach | Verdict |
 |---|---|
-| `pamela` / python PAM bindings | **Rejected** — needs root in the app process |
-| Run the app as root | **Rejected** — unacceptable blast radius |
-| Sudo-gated password check | Doesn't exist; sudo authenticates the *operator*, not an arbitrary target user |
-| **Minimal setuid helper calling `pam_authenticate()`** | **Recommended** — least privilege, established pattern |
+| `pamela` / python PAM bindings | Rejected — needs root in the app process |
+| Run the app as root | Rejected — unacceptable blast radius |
+| Sudo-gated password check | Not a thing; sudo authenticates the operator, not an arbitrary target user |
+| Minimal setuid PAM helper | **Rejected by owner 2026-10-09 — excluded from all versions** |
 
-Because the app binds `127.0.0.1`, the helper is reachable only from local
-processes, so the brute-force surface that PAM auth normally introduces is
-eliminated in this deployment.
+Cost/benefit did not favour shipping and maintaining a setuid binary forever. The
+simplicity of one uniform credential model (app password for everyone) is worth
+more here than reusing the system password.
 
-Costs, stated honestly: it is a new security-sensitive binary (needs review and a
-careful coding standard — no dynamic allocation on the password path, fixed buffer
-handling, no password ever logged or echoed), and it must be kept separate from
-the web app's release cadence.
+**Consequence to accept:** a wheel admin now has two passwords — their Linux one
+and an app one. This is the same trade-off as a hardware key or a separate admin
+account, and it is the standard shape for self-hosted control panels.
 
-**Recommendation:** build app-only credentials + the wheel group in the first MVP
-change, ship it, then add the PAM helper as a second MVP change. That way the app
-is never unauthenticated *and* the helper gets reviewed on its own. If you want it
-in one change instead, say so.
-
-Brute-force protection regardless of credential source: exponential backoff per
+Brute-force protection: exponential backoff per
 source address, plus a lockout-with-notification after repeated failures.
 
 ## Credential model (app-password tier)
@@ -157,7 +156,7 @@ This ships in the same change as auth.
 | Scenario | Behavior |
 |---|---|
 | Credential file missing/corrupt | Fail closed, refuse to start, log clearly |
-| PAM helper missing or not setuid | Wheel auth disabled and reported loudly; app-only admins still work |
+| Wheel admin forgets the app password | CLI `reset-password`; their Linux account is unaffected |
 | App restart | Sessions invalidated, re-login required |
 | Admin's own account locked by the app | Cannot happen (wheel admins are exempt); if it somehow occurs, CLI recovery applies |
 | Admin removed from `wheel` | Access ends on the next request |
@@ -173,7 +172,6 @@ This ships in the same change as auth.
 6. CLI recovery command
 7. gunicorn/waitress + systemd hardening
 8. Freezer watchdog
-9. *(separate change)* PAM helper for wheel-admin system passwords
-10. Tests: every denial path — unauthenticated, child account, app-only admin
-    attempting privileged actions, tampered session, missing CSRF, revoked wheel
-    member, lock/remove of a wheel admin
+9. Tests: every denial path — unauthenticated, child account, app-only admin
+   attempting privileged actions, tampered session, missing CSRF, revoked wheel
+   member, lock/remove of a wheel admin

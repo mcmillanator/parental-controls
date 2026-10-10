@@ -40,9 +40,10 @@ account or kill any session.
 
 - [ ] Authentication / authorization: parent login with server-side sessions; child
       accounts get no access to the UI or API (design: `AUTH_DESIGN.md`)
-      - Two admin tiers: `wheel` members (may also use their system password via a
-        minimal PAM helper; **cannot be locked or removed**) and app-only admins
-        (**removable by wheel admins**; cannot act on wheel admins)
+      - Two admin tiers, both authenticating with app passwords (system-password/PAM
+        auth **rejected — no PAM helper in any version**): `wheel` members
+        (**cannot be locked or removed**) and app-only admins (**removable by wheel
+        admins**; cannot act on wheel admins)
       - Child accounts never authenticate — not even read-only
       - CLI recovery command ships in the same change, so a lost password can never
         lock a parent out of their own machine
