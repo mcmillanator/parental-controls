@@ -178,7 +178,6 @@
         <div class="actions" id="account-actions" style="margin-top: 1rem;">
             {% if user.locked != True %}
             <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
-            <button type="button" class="btn-screen-lock" onclick="lockScreenUser('{{ username }}')">Lock Screen</button>
             {% endif %}
             {% if user.locked == True %}
             <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
@@ -326,7 +325,6 @@
             let actions = '';
             if (data.locked !== true) {
                 actions += `<button type="button" class="btn-lock" onclick="lockUser('${PAGE_USERNAME}')">Lock</button>`;
-                actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${PAGE_USERNAME}')">Lock Screen</button>`;
             }
             if (data.locked === true) {
                 actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
@@ -456,26 +454,6 @@
                     refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function lockScreenUser(username) {
-            if (!confirm('Lock screen for "' + username + '"? Their session stays running.')) return;
-            try {
-                const resp = await fetch('/api/lock-screen', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast(data.message || ('Screen locked for ' + username), false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
                 }
             } catch (e) {
                 showToast('Error: ' + e.message, true);

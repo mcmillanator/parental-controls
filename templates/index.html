@@ -155,7 +155,6 @@
                 <td class="actions">
                     {% if user.locked != True %}
                     <button type="button" class="btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
-                    <button type="button" class="btn-screen-lock" onclick="lockScreenUser('{{ user.username }}')">Lock Screen</button>
                     {% endif %}
                     {% if user.locked == True %}
                     <button type="button" class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
@@ -220,7 +219,6 @@
             let actions = '';
             if (u.locked !== true) {
                 actions += `<button type="button" class="btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
-                actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${esc(u.username)}')">Lock Screen</button>`;
             }
             if (u.locked === true) {
                 actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
@@ -255,26 +253,6 @@
                 const data = await resp.json();
                 if (data.success) {
                     showToast(`Locked ${username}`, false);
-                    refreshTable();
-                } else {
-                    showToast(`Error: ${data.message}`, true);
-                }
-            } catch (e) {
-                showToast(`Error: ${e.message}`, true);
-            }
-        }
-
-        async function lockScreenUser(username) {
-            if (!confirm('Lock screen for "' + username + '"? Their session stays running.')) return;
-            try {
-                const resp = await fetch('/api/lock-screen', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: `username=${encodeURIComponent(username)}`
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast(data.message || `Screen locked for ${username}`, false);
                     refreshTable();
                 } else {
                     showToast(`Error: ${data.message}`, true);
