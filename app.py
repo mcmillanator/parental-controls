@@ -13,7 +13,7 @@ import json
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify
 
 import budgets
@@ -252,15 +252,107 @@ def is_in_bedtime(entry, now=None):
 
 
 # ---------------------------------------------------------------------------
+# Desktop notifications (best-effort warnings before automatic locks)
+# ---------------------------------------------------------------------------
+
+def notify_user(username, title, body):
+    """Send a desktop notification to a user's running session.
+
+    Runs:
+      systemd-run --machine=<user>@.host --user \
+        notify-send -u critical <title> <body>
+
+    Best-effort: fails silently (logs only, returns False) when the user
+    has no active session. Never raises. Warnings are additive — a failed
+    notification never blocks a lock.
+    """
+    try:
+        if not username or not all(
+                c.isalnum() or c in '_-.' for c in str(username)):
+            print(f'notify_user: invalid username {username!r}')
+            return False
+        result = subprocess.run(
+            ['systemd-run', f'--machine={username}@.host', '--user',
+             'notify-send', '-u', 'critical', str(title), str(body)],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            print(f'notify_user: no active session for {username}: '
+                  f'{result.stderr.strip() or "systemd-run failed"}')
+            return False
+        return True
+    except Exception as e:
+        print(f'notify_user: {username}: {e}')
+        return False
+
+
+# Warn once when a bedtime window starts within this many minutes.
+BEDTIME_WARN_MINUTES = 15
+
+
+def _safe_notify(username, title, body):
+    """notify_user that can never raise (belt and braces: notify_user
+    already swallows its own errors, but enforcement must not depend on
+    any notifier — warnings are additive, never block a lock)."""
+    try:
+        notify_user(username, title, body)
+    except Exception as e:
+        print(f'notify (suppressed): {e}')
+
+
+def bedtime_window_id(entry):
+    """Stable id for a bedtime schedule, e.g. '21:00-08:00'.
+
+    Used to track warned state per window so the 60s loop doesn't spam.
+    """
+    try:
+        return f"{entry.get('start')}-{entry.get('end')}"
+    except AttributeError:
+        return ''
+
+
+def minutes_until_bedtime(entry, now=None):
+    """Minutes until the next bedtime window starts (float).
+
+    Returns 0 when currently inside a window, None when the entry has no
+    valid schedule. Pure function of (entry, now) — unit-tested with fake
+    times.
+    """
+    if not entry:
+        return None
+    start = _parse_hhmm(entry.get('start', ''))
+    end = _parse_hhmm(entry.get('end', ''))
+    try:
+        days = {int(d) for d in entry.get('days', [])}
+    except (ValueError, TypeError):
+        return None
+    if start is None or end is None or not days or start == end:
+        return None
+    now = now or datetime.now()
+    if is_in_bedtime(entry, now):
+        return 0
+    for offset in range(8):
+        day = now + timedelta(days=offset)
+        if day.weekday() not in days:
+            continue
+        candidate = datetime(day.year, day.month, day.day,
+                             start // 60, start % 60)
+        if candidate > now:
+            return (candidate - now).total_seconds() / 60.0
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Bedtime enforcement (background thread)
 # ---------------------------------------------------------------------------
 
-def enforce_bedtime():
+def enforce_bedtime(now=None):
     """Lock users whose bedtime started; unlock only those bedtime locked.
 
     Wheel members (admins) are never auto-locked: skipped with a logged
     note so a parent cannot bedtime-lock themselves out.
     """
+    now = now or datetime.now()
     data = load_bedtime()
     changed = False
     for username, entry in list(data.items()):
@@ -269,7 +361,7 @@ def enforce_bedtime():
                   f'{budgets.ADMIN_GROUP} member (admin self-protection)',
                   flush=True)
             continue
-        in_bed = is_in_bedtime(entry)
+        in_bed = is_in_bedtime(entry, now)
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
 
         if in_bed:
@@ -283,10 +375,29 @@ def enforce_bedtime():
                 if success:
                     entry['locked_by_bedtime'] = True
                     changed = True
-            elif locked is None and not locked_by_bedtime:
-                # Couldn't determine status; try to lock anyway on next pass
-                pass
+                    # Warn again at lock time (best-effort, never blocks).
+                    _safe_notify(username, 'Locked for bedtime',
+                                 'Good night! The device unlocks at '
+                                 f'{entry.get("end")} '
+                                 'unless a parent changes it.')
         else:
+            # Pre-warning: bedtime starts soon, warn once per window.
+            window_id = bedtime_window_id(entry)
+            mins = minutes_until_bedtime(entry, now)
+            if (mins is not None and 0 < mins <= BEDTIME_WARN_MINUTES
+                    and entry.get('warned_for') != window_id):
+                _safe_notify(username, 'Bedtime in 15 minutes',
+                             f'Bedtime starts at {entry.get("start")}. '
+                             'Finish up — the device will lock.')
+                entry['warned_for'] = window_id
+                changed = True
+            elif (entry.get('warned_for') is not None
+                    and (mins is None or mins <= 0
+                         or mins > BEDTIME_WARN_MINUTES)):
+                # Window ended, schedule cleared, or next window far away:
+                # drop the flag so the next window warns again.
+                entry.pop('warned_for', None)
+                changed = True
             if locked_by_bedtime:
                 success, _msg = run_lock_command(username, 'unlock')
                 if success:
@@ -311,7 +422,8 @@ def bedtime_loop():
         try:
             # Per-category time budgets: CPU-time accounting + cgroup
             # freezer enforcement, same 60s cadence as bedtime.
-            budgets.tick_budgets(load_bedtime(), datetime.now())
+            budgets.tick_budgets(load_bedtime(), datetime.now(),
+                                 notify=notify_user)
         except Exception:
             traceback.print_exc()
         time.sleep(60)
@@ -552,6 +664,10 @@ def api_bedtime_set():
             if success:
                 entry['locked_by_bedtime'] = True
                 save_bedtime(data)
+                _safe_notify(username, 'Locked for bedtime',
+                             'Good night! The device unlocks at '
+                             f'{entry.get("end")} '
+                             'unless a parent changes it.')
                 return jsonify({'success': True, 'message': 'Locked', 'locked': True})
         return jsonify({'success': True, 'message': 'Already locked by bedtime', 'locked': True})
     else:

@@ -93,7 +93,6 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] No page auto-refresh: targeted DOM updates every 10s (table rebuild on main page; status/process/budget cells on details page; forms never touched)
 - [ ] Systemd service for auto-start (later)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
-- [ ] Notifications before lock (notify-send via systemd-run) (later)
 - [ ] Authentication / authorization (later)
 - [x] Lockout prevention / safeguards: confirm dialogs on destructive buttons, Emergency logout button, wheel admins never auto-locked/auto-frozen
 - [ ] Multi-device support (later)
@@ -101,3 +100,4 @@ Bazzite (Fedora-based immutable desktop OS)
 - [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
 - [x] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
+- [x] Pre-lock warnings: 15-min bedtime warning + lock-time notice, budget low/pause warnings via notify-send (feature/notifications)
