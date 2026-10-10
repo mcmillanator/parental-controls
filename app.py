@@ -81,6 +81,22 @@ def get_lock_status(username):
         return None, str(e)
 
 
+def valid_username(username):
+    """True when `username` is safe to pass as a literal usermod/loginctl
+    argument.
+
+    Beyond the usual charset check this rejects a leading '-': usernames
+    are interpolated as a bare argv element, and a name like '-x' is
+    parsed by usermod as an option rather than a login (verified:
+    `usermod -U -x` -> "invalid option"). No real account can begin with
+    '-', so rejecting one costs nothing and closes an argument-injection
+    path into a command that runs as root.
+    """
+    return bool(username) and not username.startswith('-') and all(
+        c.isalnum() or c in '_-.' for c in username
+    )
+
+
 def lock_user_sessions(username):
     """Screen-lock every active session belonging to `username`.
 
@@ -591,7 +607,7 @@ def api_lock():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account
@@ -627,7 +643,7 @@ def api_lock_screen():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account (without terminating the session)
@@ -658,7 +674,7 @@ def api_unlock():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     success, message = run_lock_command(username, 'unlock')
@@ -684,7 +700,7 @@ def api_bedtime_set():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     start = request.form.get('start', '').strip()
@@ -781,7 +797,7 @@ def api_logout():
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
     # Lock the account
@@ -825,7 +841,7 @@ def api_process_prefs():
     if not username or not comm:
         return jsonify({'success': False,
                         'error': 'username and comm required'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     ok, msg = budgets.set_pref(username, comm, action)
     if not ok:
@@ -844,7 +860,7 @@ def api_budgets_set():
     minutes = request.form.get('minutes', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     if not minutes:
         minutes = 0
@@ -861,7 +877,7 @@ def api_budgets_resume():
     category = request.form.get('category', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     ok, msg = budgets.resume_category(username, category)
     if not ok:
@@ -872,7 +888,7 @@ def api_budgets_resume():
 @app.route('/api/budgets/<username>')
 def api_budgets_get(username):
     """JSON budget status (limits, usage, paused flags) for a user."""
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'error': 'Invalid username'}), 400
     return jsonify(budgets.budget_status(username))
 
@@ -957,7 +973,7 @@ def get_user_live(username):
 @app.route('/api/user/<username>/live')
 def api_user_live(username):
     """Live status/process/budget data for targeted DOM refresh (no reload)."""
-    if not all(c.isalnum() or c in '_-.' for c in username):
+    if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     data = get_user_live(username)
     if data is None:
