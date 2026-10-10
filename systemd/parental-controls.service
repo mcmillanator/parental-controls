@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=stan
-WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
-ExecStart=/bin/bash -c 'cd /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master && . .venv/bin/activate && exec waitress-serve --host=127.0.0.1 --port=5000 wsgi:application'
+User=@SERVICE_USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-serve --host=127.0.0.1 --port=5000 wsgi:application'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -18,7 +18,7 @@ Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json
 # store dir must stay writable for password changes/lockouts/revocation
 # (startup refuses to run otherwise — fail closed).
 ProtectSystem=strict
-ReadWritePaths=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master /etc/parental-controls
+ReadWritePaths=@APP_DIR@ /etc/parental-controls
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

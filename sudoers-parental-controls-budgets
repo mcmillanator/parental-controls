@@ -3,8 +3,8 @@
 # them. No signals, no SIGKILL anywhere in budget enforcement.
 # Install as /etc/sudoers.d/parental-controls-budgets (mode 0440) and check
 # with `visudo -c`.
-stan ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.freeze
-stan ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.procs
-stan ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.freeze
-stan ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.procs
-stan ALL=(root) NOPASSWD: /usr/bin/mkdir -p /sys/fs/cgroup/parental-*
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.freeze
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/tee /sys/fs/cgroup/parental-*/cgroup.procs
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.freeze
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/cat /sys/fs/cgroup/parental-*/cgroup.procs
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/bin/mkdir -p /sys/fs/cgroup/parental-*

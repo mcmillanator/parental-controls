@@ -1,15 +1,22 @@
 # Bazzite Parental Controls — Web UI
 
-A lightweight Flask web UI for managing user account lock/unlock on Bazzite.
+A web UI for managing user account lock/unlock, bedtimes, and per-category
+app time budgets on Bazzite.
 
 ## Features
 
 - Lists all human users on the system (UID >= 1000, discovered dynamically)
 - Shows lock/unlock status for each user
-- Lock button: runs `sudo usermod -L <user>` + `sudo loginctl terminate-user <user>`
+- Lock button: locks the account (`usermod -L`) and the screen, session preserved
 - Unlock button: runs `sudo usermod -U <user>`
-- Auto-refreshes every 10 seconds
-- Error messages displayed in the UI
+- Emergency logout button: locks the account AND terminates all sessions
+- Per-user details pages: bedtime schedule, account status, processes grouped
+  by app category with Hide/Show-hidden filtering
+- Per-category daily time budgets enforced with the cgroup freezer
+  (pause-not-kill, auto-resume at reset)
+- Bedtime windows with pre-lock warnings and manual-override precedence
+- Status/process/budget cells update in place every 10 seconds (no page reloads;
+  forms are never touched); errors display as toasts
 
 ## Requirements
 
@@ -44,8 +51,8 @@ the `X-CSRF-Token` header or `csrf_token` form field.
 ## Setup
 
 ```bash
-# Clone or navigate to this directory
-cd .worktrees/webui
+# Clone or navigate to the project directory (this folder)
+cd bazzite-parental-controls-2/master
 
 # Create venv and install dependencies
 python3 -m venv .venv
@@ -88,40 +95,68 @@ explicit opt-in flag, and cookies travel in the clear until TLS lands
 
 ## API Endpoints
 
+All pages and `/api/*` routes require an admin session except `/login`.
+Every POST needs the `X-CSRF-Token` header or `csrf_token` form field.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Main UI page |
+| GET | `/login` | Login page |
+| GET | `/user/<username>` | User details page |
 | GET | `/api/users` | JSON list of users with lock status |
-| POST | `/api/lock` | Lock a user (form field: `username`) |
-| POST | `/api/unlock` | Unlock a user (form field: `username`) |
+| GET | `/api/user/<username>/live` | Live status/process/budget data (targeted refresh) |
+| GET | `/api/bedtime` | All bedtime settings |
+| POST | `/api/lock` | Lock account + screen, session preserved (form: `username`) |
+| POST | `/api/lock-screen` | Screen-lock endpoint (no UI button; Lock covers it) |
+| POST | `/api/unlock` | Unlock a user (form: `username`) |
+| POST | `/api/logout` | Emergency logout: lock + terminate all sessions |
+| POST | `/api/bedtime` | Set/clear bedtime (`username`, `start`, `end`, days) |
+| GET/POST | `/api/budgets`, `/api/budgets/resume`, `/api/budgets/<user>` | Budget limits, status, manual resume |
+| POST | `/api/process-prefs` | Hide/show a process comm for a user |
+
+## Deploying to a real machine
+
+One command (as root, from the project directory). Idempotent — safe to re-run:
+
+```bash
+sudo ./install.sh [--app-dir DIR] [--user USER] [--dry-run]
+```
+
+Defaults: app dir = the directory `install.sh` lives in, service user = the
+invoking sudo user. What it does:
+
+1. Creates the venv and installs `requirements.txt` (as the service user)
+2. Renders `systemd/*.service|timer` with the real paths/user and installs them
+3. Renders both `sudoers-*` files and installs to `/etc/sudoers.d/` (validated
+   with `visudo -c`)
+4. Creates `/etc/parental-controls` (0700, owned by the service user) for the
+   auth store
+5. Enables + starts the app service and the enforcement timer
+6. Verifies: service active, `GET /` returns the login redirect
+
+Then finish setup:
+
+```bash
+# 1. Get the one-time admin credential (forced to change on first login)
+journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'
+# 2. From your machine (localhost + SSH tunnel, no TLS in MVP):
+ssh -L 5000:localhost:5000 <user>@<host>
+# 3. Open http://localhost:5000, log in, change the password immediately.
+```
+
+To preview without changing anything: `sudo ./install.sh --dry-run`.
 
 ## Systemd Integration
 
-Files live in `systemd/`:
+Files live in `systemd/` (with `@APP_DIR@` / `@SERVICE_USER@` placeholders
+rendered by `install.sh` — never copy them by hand):
 
 | File | Purpose |
 |------|---------|
-| `parental-controls.service` | Runs the Flask app on boot (Restart=always, RestartSec=5, User=stan) |
+| `parental-controls.service` | Runs the Flask app on boot (Restart=always, RestartSec=5, service user) |
 | `parental-controls-enforce.service` | Oneshot that runs one bedtime-enforcement pass |
 | `parental-controls-enforce.timer` | Runs the enforcement oneshot every minute |
 | `enforce_bedtime_timer.py` | Script invoked by the enforce service |
-
-### Install
-
-```bash
-# Copy the enforcement script next to app.py
-cp enforce_bedtime_timer.py /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/
-
-# Install units
-sudo cp systemd/parental-controls.service /etc/systemd/system/
-sudo cp systemd/parental-controls-enforce.service /etc/systemd/system/
-sudo cp systemd/parental-controls-enforce.timer /etc/systemd/system/
-
-# Enable
-sudo systemctl daemon-reload
-sudo systemctl enable --now parental-controls.service
-sudo systemctl enable --now parental-controls-enforce.timer
-```
 
 Check status with:
 
