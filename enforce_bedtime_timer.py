@@ -28,7 +28,10 @@ import budgets  # noqa: E402
 if __name__ == '__main__':
     enforce_bedtime()
     try:
+        # tick_budgets() runs budget enforcement first, then the freezer
+        # watchdog (same pass), so this timer path self-heals stuck cgroup
+        # freezes exactly like the app's background thread does.
         budgets.tick_budgets(load_bedtime(), datetime.now(),
-                             notify=notify_user)
+                             notify=notify_user, run_watchdog=True)
     except Exception as e:
         print(f'budget tick failed: {e}')
