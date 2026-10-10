@@ -48,7 +48,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - Polished UI/UX
 
 ### MVP Scope (not prototype)
-- Responsive design via Bootstrap (add Bootstrap CSS/JS to templates and be done; still prototype phase, so no custom design work)
+- Polished UI/UX, including responsive design via Bootstrap (add Bootstrap CSS/JS to templates and be done; still prototype phase, so no custom design work)
 
 ### Approved decisions (2026-10-07, from process-filtering research review)
 - Enforcement builds on the existing `parental-*-games` / `parental-*-quarantine` cgroup experiment (cgroup freezer, not per-PID signals)
@@ -97,8 +97,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - [ ] Authentication / authorization (later)
 - [ ] Lockout prevention / safeguards (later)
 - [ ] Multi-device support (later)
-- [ ] Polished UI/UX (later)
-- [ ] Responsive design via Bootstrap (MVP, not prototype)
+- [ ] Polished UI/UX, including responsive design via Bootstrap (MVP)
 - [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
 - [x] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
