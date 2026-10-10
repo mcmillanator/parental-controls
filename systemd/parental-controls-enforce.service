@@ -3,6 +3,6 @@ Description=Enforce bedtime lock/unlock once
 
 [Service]
 Type=oneshot
-User=stan
-WorkingDirectory=/var/home/stan/Documents/Projects/bazzite-parental-controls-2/master
-ExecStart=/bin/bash -c 'cd /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master && . .venv/bin/activate && exec python /var/home/stan/Documents/Projects/bazzite-parental-controls-2/master/enforce_bedtime_timer.py'
+User=@SERVICE_USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec python @APP_DIR@/enforce_bedtime_timer.py'

@@ -1,0 +1,8 @@
+# Parental Controls: allow the service user to lock/unlock accounts and
+# manage user sessions. Scoped to exact binaries; usernames are validated
+# by the app ([A-Za-z0-9_.-]+, must exist in /etc/passwd).
+# Install as /etc/sudoers.d/parental-controls (mode 0440) and check
+# with `visudo -c`.
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/usermod -L *, /usr/bin/usermod -U *, /usr/bin/loginctl terminate-user *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/loginctl show-user *, /usr/bin/loginctl lock-session *
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/bin/loginctl show-session *
