@@ -17,10 +17,20 @@ Guards against silent-breakage classes seen in production:
 4. Sudoers allowed /usr/bin/usermod while sudo resolves bare `usermod` via
    secure_path to /usr/sbin/usermod (sudo matches on path string), and the
    app's `sudo passwd -S` status check had no rule at all.
+5. Notifications never reached the child: the warning path needs
+   `systemd-run --machine=<user>@.host --user notify-send ...` to run as root,
+   and the template granted no `systemd-run` at all, so every pre-lock warning
+   failed with "Failed to connect to system scope bus via machine transport".
+   Masked on dev by the stan-nopasswd blanket rule.
+6. A sudoers rule can be present but never match the command the app
+   actually runs (sudoers matches arguments as one concatenated string, and
+   a rule with too few argument slots matches nothing). The grant is pinned
+   against the real argv, and every granted binary path must exist.
 
 Pure file-content assertions; no Flask, no real accounts, nothing installed.
 """
 
+import fnmatch
 import os
 import re
 import unittest
@@ -32,6 +42,48 @@ ROOT = os.path.dirname(HERE)
 def read(rel):
     with open(os.path.join(ROOT, rel), encoding='utf-8') as fh:
         return fh.read()
+
+
+def rule_lines(rel):
+    """Non-comment, non-blank lines of a sudoers template."""
+    return [l.strip() for l in read(rel).splitlines()
+            if l.strip() and not l.strip().startswith('#')]
+
+
+def granted_commands(rel):
+    """[(binary, argument pattern)] for every entry in a sudoers template.
+
+    sudoers command specifications are comma separated after NOPASSWD:, so
+    each entry is split out and the binary separated from its arguments.
+    """
+    out = []
+    for line in rule_lines(rel):
+        spec = line.split('NOPASSWD:', 1)[-1]
+        for item in spec.split(','):
+            item = item.strip()
+            if not item:
+                continue
+            binary, _, args = item.partition(' ')
+            out.append((binary, ' '.join(args.split())))
+    return out
+
+
+def authorizes(rel, argv):
+    """True if the template would let sudo run `argv` (sudoers(5) semantics).
+
+    Command-line arguments are matched as a single, concatenated string
+    against the rule's argument pattern ("* matches any set of zero or more
+    characters, including white space"), which is what fnmatch does.
+    """
+    joined = ' '.join(argv)
+    return any(binary and fnmatch.fnmatchcase(joined, args)
+               for binary, args in granted_commands(rel))
+
+
+# The exact argv notify_user() runs — pinned by
+# tests/test_notifications.py::TestNotifyUser::test_command_shape.
+NOTIFY_ARGV = ['--machine=testchild@.host', '--user', 'notify-send',
+               '-u', 'critical', 'Bedtime in 15 minutes', '9:00 PM']
 
 
 class TestUnitSandbox(unittest.TestCase):
@@ -185,6 +237,53 @@ class TestSudoersTemplates(unittest.TestCase):
         for binary in ('tee', 'cat', 'mkdir'):
             self.assertIn(f'/usr/sbin/{binary}', body)
             self.assertIn(f'/usr/bin/{binary}', body)
+
+    NOTIFY_ARGS = '--machine=*@.host --user notify-send -u critical * *'
+
+    def test_systemd_run_granted_for_notifications(self):
+        body = read('sudoers-parental-controls')
+        for binary in ('/usr/sbin/systemd-run', '/usr/bin/systemd-run'):
+            self.assertIn(f'{binary} {self.NOTIFY_ARGS}', body)
+
+    def test_systemd_run_rule_is_scoped_to_the_machine_transport(self):
+        for line in rule_lines('sudoers-parental-controls'):
+            if 'systemd-run' not in line:
+                continue
+            self.assertIn('--machine=*@.host', line)
+            self.assertIn('--user notify-send -u critical', line)
+            # `--user *` would authorize any command in a child's session
+            # (sudoers(5): "Preventing shell escapes").
+
+    def test_systemd_run_rule_matches_the_command_the_app_runs(self):
+        self.assertTrue(
+            authorizes('sudoers-parental-controls', NOTIFY_ARGV),
+            'no granted command authorizes: '
+            f'systemd-run {" ".join(NOTIFY_ARGV)}')
+
+    def test_notify_user_uses_the_granted_transport(self):
+        src = read('app.py')
+        for token in ('--machine={username}@.host', "'--user'",
+                      "'notify-send'", "'critical'"):
+            self.assertIn(token, src)
+
+    def test_notification_grant_authorizes_nothing_else(self):
+        """Least privilege: notify-send only, and only via --machine."""
+        for payload in (
+                ['--machine=testchild@.host', '--user', '/bin/sh'],
+                ['--machine=testchild@.host', '--user', 'sh', '-c', 'id'],
+                ['--user', 'notify-send', '-u', 'critical', 'T', 'B']):
+            self.assertFalse(
+                authorizes('sudoers-parental-controls', payload),
+                'notifications grant must not authorize: '
+                f'systemd-run {" ".join(payload)}')
+
+    def test_granted_binary_paths_exist_on_this_box(self):
+        for rel in ('sudoers-parental-controls',
+                    'sudoers-parental-controls-budgets'):
+            for binary, _ in granted_commands(rel):
+                self.assertTrue(
+                    os.path.exists(binary),
+                    f'{rel} grants {binary}, which does not exist here')
 
 
 if __name__ == '__main__':

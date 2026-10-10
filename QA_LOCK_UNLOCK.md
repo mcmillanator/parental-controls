@@ -276,3 +276,26 @@ Please run these as the parent, at the machine:
 
 5. **No authentication on the app** — pre-existing MVP gate item, unrelated to
    this work, but it means anyone reaching port 5000 can drive these endpoints.
+
+6. **Notifications were unauthorized under scoped sudoers — template fixed,
+   deploy still pending.** `notify_user()` reaches the child's session via
+   `systemd-run --machine=<user>@.host --user notify-send -u critical …`, and the
+   machine transport needs root to open the *system* bus. `sudoers-parental-controls`
+   now grants exactly that, nothing more:
+
+   ```
+   stan ALL=(root) NOPASSWD: /usr/sbin/systemd-run --machine=*@.host --user notify-send -u critical * *, /usr/bin/systemd-run --machine=*@.host --user notify-send -u critical * *
+   ```
+
+   Pinned by `tests/test_deployment.py::TestSudoersTemplates` (grant present,
+   scoped, matches the argv `notify_user()` really runs, authorizes nothing
+   else, every granted binary exists). Two follow-ups:
+   - `/etc/sudoers.d/parental-controls` was **not** modified here; the rule only
+     takes effect on the next `sudo ./install.sh`.
+   - The rule authorizes the `systemd-run …` command, so it applies when the
+     service reaches it *through sudo*. `notify_user()` still calls `systemd-run`
+     directly (every other privileged call in `app.py` is `['sudo', …]`), which
+     polkit denies with "Failed to connect to system scope bus via machine
+     transport: Permission denied". Until that call is prefixed with `sudo`,
+     warnings stay best-effort no-ops — and the gap stays masked on this box by
+     `/etc/sudoers.d/stan-nopasswd` (stan has blanket `NOPASSWD: ALL`, see item 1).

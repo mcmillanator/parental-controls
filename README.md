@@ -28,7 +28,9 @@ app time budgets on Bazzite.
 
 - Python 3
 - Flask, argon2-cffi, waitress (see `requirements.txt`)
-- sudo access (the app runs `usermod` and `loginctl` via sudo)
+- sudo access (the app runs `usermod`, `loginctl`, `passwd -S` and, for
+  notifications, `systemd-run` through sudo — scoped rules live in
+  `sudoers-parental-controls` / `sudoers-parental-controls-budgets`)
 
 ## Authentication (MVP)
 

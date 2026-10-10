@@ -9,8 +9,24 @@
 # secure_path (sbin first). The pairs are hardlinks to the same files, but
 # sudo matches on the path string, so only the resolved path authorizes.
 # `passwd` is scoped to `-S` (read-only status check) — never password changes.
+#
+# `systemd-run` exists for the notification path only. notify_user() runs
+#   systemd-run --machine=<user>@.host --user notify-send -u critical <t> <b>
+# so pre-lock warnings reach the child's own session. The machine transport
+# talks to the *system* bus, which polkit refuses for the unprivileged service
+# user ("Failed to connect to system scope bus via machine transport:
+# Permission denied"), so the call has to arrive through sudo. Root is the only
+# runas that can open it. Only notify-send is authorized as the payload: sudoers
+# matches arguments as one concatenated string, so a bare `--user *` would also
+# authorize any other command in a child's session (sudoers(5), "Preventing
+# shell escapes").
+#
+# NOTE: sudoers authorizes the `systemd-run ...` command, not sudo itself, so
+# this rule applies when the service reaches it through sudo — the form every
+# other privileged call in the app uses.
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/usermod -L *, /usr/bin/usermod -L *, /usr/sbin/usermod -U *, /usr/bin/usermod -U *
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl terminate-user *, /usr/bin/loginctl terminate-user *
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl show-user *, /usr/bin/loginctl show-user *, /usr/sbin/loginctl lock-session *, /usr/bin/loginctl lock-session *
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl show-session *, /usr/bin/loginctl show-session *
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/passwd -S *, /usr/bin/passwd -S *
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/systemd-run --machine=*@.host --user notify-send -u critical * *, /usr/bin/systemd-run --machine=*@.host --user notify-send -u critical * *
