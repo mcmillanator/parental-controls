@@ -300,12 +300,14 @@ discover -s tests`.
    90)?
 2. Caps: max single grant 120 min? Max stacked total (propose 180 min from
    now)? Custom-entry ceiling (propose 480)?
-3. Custom-entry floor: 1 minute, or 5?
+3. Custom-entry floor: 1 minute, or 5? → **Decided 2026-10-10: 5 minutes**
+   (`BONUS_CUSTOM_MIN = 5`; shortcuts start at 15, unaffected).
 4. Bonus with **no bedtime set**: refuse (recommended) or allow as a plain
    timed unlock?
 5. Should bonus also pause/extend **budget** time, or stay login-only
    (recommended: login-only)?
 6. History retention: last-20 in `bedtime.json` enough until the Phase-3 audit
-   log lands, or keep full per-user history somewhere?
+   log lands, or keep full per-user history somewhere? → **Decided 2026-10-10:
+   last-20 is enough** (`BONUS_HISTORY_CAP = 20`, unchanged).
 7. Notification wording for grant/expiry (child-facing tone)?
 8. Revoke confirm: single (recommended) or double?

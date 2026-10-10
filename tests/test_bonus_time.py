@@ -256,7 +256,7 @@ class TestBonusGrantAPI(_AdminSessionMixin, _BedtimeFileMixin,
         self.write_bedtime({KID: dict(BONUS)})
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')):
-            for bad_minutes in ('0', '-15', 'abc', '481'):
+            for bad_minutes in ('0', '-15', 'abc', '4', '481'):
                 resp = self.authed_post('/api/bonus',
                                         data={'username': KID,
                                               'minutes': bad_minutes})

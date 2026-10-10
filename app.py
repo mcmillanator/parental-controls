@@ -50,6 +50,7 @@ DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 # until the parent confirms them.
 BONUS_SHORTCUTS = (15, 30, 60, 90, 120)
 BONUS_CUSTOM_MAX = 480
+BONUS_CUSTOM_MIN = 5
 BONUS_MAX_STACK_MINUTES = 180
 BONUS_HISTORY_CAP = 20
 
@@ -1059,9 +1060,9 @@ def api_bonus_grant():
         minutes = int(request.form.get('minutes', '').strip())
     except (ValueError, TypeError):
         return jsonify({'success': False, 'error': 'Invalid minutes'}), 400
-    if minutes < 1 or minutes > BONUS_CUSTOM_MAX:
+    if minutes < BONUS_CUSTOM_MIN or minutes > BONUS_CUSTOM_MAX:
         return jsonify({'success': False, 'error':
-                        f'minutes must be 1..{BONUS_CUSTOM_MAX}'}), 400
+                        f'minutes must be {BONUS_CUSTOM_MIN}..{BONUS_CUSTOM_MAX}'}), 400
 
     entry = load_bedtime().get(username) or {}
     if not entry.get('start') or not entry.get('end') or not entry.get('days'):
