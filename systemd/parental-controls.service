@@ -17,7 +17,13 @@ Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json
 # Filesystem hardening. The app dir holds writable JSON state; the auth
 # store dir must stay writable for password changes/lockouts/revocation
 # (startup refuses to run otherwise — fail closed).
-ProtectSystem=strict
+#
+# ProtectSystem=full (NOT strict): /usr, /boot and /efi are read-only, but
+# /etc stays writable because the app locks/unlocks accounts through
+# `sudo usermod`, which writes /etc/passwd, /etc/shadow and /etc/.pwd.lock.
+# Under ProtectSystem=strict those writes fail with "usermod: cannot lock
+# /etc/passwd; try again later." (observed 2026-10-10).
+ProtectSystem=full
 ReadWritePaths=@APP_DIR@ /etc/parental-controls
 PrivateTmp=true
 ProtectKernelTunables=true
