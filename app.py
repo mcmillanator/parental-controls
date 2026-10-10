@@ -85,12 +85,38 @@ def run_lock_command(username, action):
     """Run lock or unlock commands for a user.
 
     Returns (success, message).
+
+    For 'lock', account ownership (usermod -L) is what success reflects:
+    a terminate-user failure (e.g. user not logged in) is reported as a
+    warning note, not a failure — so callers tracking lock ownership
+    still record it.
     """
     if action == 'lock':
-        cmds = [
-            ['sudo', 'usermod', '-L', username],
-            ['sudo', 'loginctl', 'terminate-user', username],
-        ]
+        try:
+            result = subprocess.run(
+                ['sudo', 'usermod', '-L', username],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode != 0:
+                return False, (f'sudo usermod -L {username}: '
+                               f'{result.stderr.strip() or "failed"}')
+        except subprocess.TimeoutExpired:
+            return False, f'sudo usermod -L {username}: timed out'
+        except Exception as e:
+            return False, f'sudo usermod -L {username}: {e}'
+        try:
+            result = subprocess.run(
+                ['sudo', 'loginctl', 'terminate-user', username],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode != 0:
+                return True, ('OK (session terminate skipped: '
+                              f'{result.stderr.strip() or "not logged in"})')
+        except subprocess.TimeoutExpired:
+            return True, 'OK (session terminate timed out)'
+        except Exception as e:
+            return True, f'OK (session terminate error: {e})'
+        return True, 'OK'
     elif action == 'unlock':
         cmds = [
             ['sudo', 'usermod', '-U', username],
