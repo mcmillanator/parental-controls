@@ -604,7 +604,7 @@ def notify_user(username, title, body):
     """Send a desktop notification to a user's running session.
 
     Runs:
-      systemd-run --machine=<user>@.host --user \
+      sudo systemd-run --machine=<user>@.host --user \
         notify-send -u critical <title> <body>
 
     Best-effort: fails silently (logs only, returns False) when the user
@@ -616,8 +616,13 @@ def notify_user(username, title, body):
                 c.isalnum() or c in '_-.' for c in str(username)):
             print(f'notify_user: invalid username {username!r}')
             return False
+        # Must go through sudo: the machine transport is opened on the
+        # *system* bus, which the unprivileged service user cannot reach
+        # ("Failed to connect to system scope bus via machine transport:
+        # Permission denied"). Sudoers scopes this to notify-send only --
+        # see sudoers-parental-controls.
         result = subprocess.run(
-            ['systemd-run', f'--machine={username}@.host', '--user',
+            ['sudo', 'systemd-run', f'--machine={username}@.host', '--user',
              'notify-send', '-u', 'critical', str(title), str(body)],
             capture_output=True, text=True, timeout=15
         )

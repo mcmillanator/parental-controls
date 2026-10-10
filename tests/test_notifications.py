@@ -62,7 +62,12 @@ class Recorder:
 
 class TestNotifyUser(unittest.TestCase):
     def test_command_shape(self):
-        """notify-send is delivered via systemd-run --machine=<user>@.host."""
+        """notify-send is delivered via sudo systemd-run --machine=<user>@.host.
+
+        The sudo prefix is load-bearing: without it the service user gets
+        "Permission denied" on the system bus and every notification
+        silently fails (sudoers authorizes the sudo'd command only).
+        """
         seen = {}
 
         def fake_run(argv, **kwargs):
@@ -76,8 +81,8 @@ class TestNotifyUser(unittest.TestCase):
         with mock.patch.object(app.subprocess, 'run', fake_run):
             self.assertTrue(app.notify_user('testchild', 'T', 'B'))
         self.assertEqual(seen['argv'],
-                         ['systemd-run', '--machine=testchild@.host', '--user',
-                          'notify-send', '-u', 'critical', 'T', 'B'])
+                         ['sudo', 'systemd-run', '--machine=testchild@.host',
+                          '--user', 'notify-send', '-u', 'critical', 'T', 'B'])
 
     def test_failure_returns_false_without_raising(self):
         def fake_run(argv, **kwargs):
