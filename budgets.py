@@ -37,6 +37,7 @@ resume manually, and everything auto-unfreezes at reset.
 """
 
 import glob
+import grp
 import json
 import os
 import pwd
@@ -69,6 +70,37 @@ MAX_TICK_WALL_SECONDS = 300.0
 TICK_SECONDS = 60
 
 _USERNAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
+
+
+# ---------------------------------------------------------------------------
+# Admin self-protection (lockout safeguard, MVP)
+# ---------------------------------------------------------------------------
+# Rule-based, no hardcoded names: members of the admin (`wheel`) group are
+# never auto-locked by bedtime enforcement nor auto-frozen by budget
+# enforcement. Manual lock via the UI still works (behind its confirm
+# dialog). Every skip logs a note so it is visible in the service journal.
+
+ADMIN_GROUP = 'wheel'
+
+
+def is_admin_protected(username):
+    """True if `username` is an admin (member of the `wheel` group).
+
+    Covers both supplementary membership (gr_mem) and a wheel primary GID.
+    Returns False when the group or user is unknown.
+    """
+    if not username:
+        return False
+    try:
+        wheel = grp.getgrnam(ADMIN_GROUP)
+    except Exception:
+        return False
+    if username in wheel.gr_mem:
+        return True
+    try:
+        return pwd.getpwnam(username).pw_gid == wheel.gr_gid
+    except Exception:
+        return False
 
 
 def valid_username(username):
@@ -836,6 +868,14 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     summary = {'user': username, 'reset': False, 'froze': [],
                'unfroze': [], 'note': ''}
 
+    if is_admin_protected(username):
+        # Admin self-protection: never auto-freeze a wheel member's apps.
+        note = (f'skipped {username}: {ADMIN_GROUP} member '
+                '(admin self-protection)')
+        print(note, flush=True)
+        summary['note'] = note
+        return summary
+
     if entry.get('day') is None:
         entry['day'] = today_str
     if budget_reset_needed(entry.get('day'), has_bedtime, was_in, now_in,
@@ -973,6 +1013,15 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     summaries = []
     for username, entry in list(data.items()):
         if not valid_username(username):
+            continue
+        if is_admin_protected(username):
+            # Admin self-protection: not even a live `ps` snapshot is taken
+            # for wheel members — skip entirely with a logged note.
+            note = (f'skipped budget tick for {username}: {ADMIN_GROUP} '
+                    'member (admin self-protection)')
+            print(note, flush=True)
+            summaries.append({'user': username, 'reset': False, 'froze': [],
+                              'unfroze': [], 'note': note})
             continue
         for key in ('limits', 'used_seconds', 'last_cpu', 'paused', 'resumed'):
             entry.setdefault(key, {})

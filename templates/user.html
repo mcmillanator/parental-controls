@@ -53,6 +53,8 @@
         .btn-bedtime-clear { background: #e94560; color: #fff; }
         .btn-hide { background: #555; color: #fff; }
         .btn-show-hidden { background: #0f3460; color: #fff; }
+        .btn-screen-lock { background: #0f3460; color: #fff; }
+        .btn-logout { background: #7a1f2b; color: #fff; border: 2px solid #e94560; }
         .badge-paused {
             display: inline-block;
             background: #e94560;
@@ -157,10 +159,12 @@
         <div class="actions" id="account-actions" style="margin-top: 1rem;">
             {% if user.locked != True %}
             <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
+            <button type="button" class="btn-screen-lock" onclick="lockScreenUser('{{ username }}')">Lock Screen</button>
             {% endif %}
             {% if user.locked == True %}
             <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
             {% endif %}
+            <button type="button" class="btn-logout" onclick="logoutUser('{{ username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
         </div>
     </div>
 
@@ -295,10 +299,12 @@
             let actions = '';
             if (data.locked !== true) {
                 actions += `<button type="button" class="btn-lock" onclick="lockUser('${PAGE_USERNAME}')">Lock</button>`;
+                actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${PAGE_USERNAME}')">Lock Screen</button>`;
             }
             if (data.locked === true) {
                 actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
             }
+            actions += `<button type="button" class="btn-logout" onclick="logoutUser('${PAGE_USERNAME}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>`;
             document.getElementById('account-actions').innerHTML = actions;
         }
 
@@ -409,7 +415,7 @@
         }
 
         async function lockUser(username) {
-            if (!confirm('Lock user "' + username + '"? This will terminate their sessions.')) return;
+            if (!confirm('Lock account for "' + username + '"? They will be unable to log in until unlocked.')) return;
             try {
                 const resp = await fetch('/api/lock', {
                     method: 'POST',
@@ -422,6 +428,47 @@
                     refreshUserLive();
                 } else {
                     showToast('Error: ' + data.message, true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function lockScreenUser(username) {
+            if (!confirm('Lock screen for "' + username + '"? Their session stays running.')) return;
+            try {
+                const resp = await fetch('/api/lock-screen', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(data.message || ('Screen locked for ' + username), false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function logoutUser(username) {
+            if (!confirm('EMERGENCY LOGOUT "' + username + '"? This TERMINATES all of their sessions immediately and locks the account. Only use this when a screen lock is not enough.')) return;
+            if (!confirm('Are you really sure? Confirm again to terminate all sessions for "' + username + '".')) return;
+            try {
+                const resp = await fetch('/api/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'username=' + encodeURIComponent(username)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Logged out ' + username, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
                 }
             } catch (e) {
                 showToast('Error: ' + e.message, true);
