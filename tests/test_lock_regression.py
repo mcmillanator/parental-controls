@@ -596,16 +596,32 @@ class TestLockUserSessions(unittest.TestCase):
     parent's own screen and left the child alone.
     """
 
-    def test_resolves_target_sessions_first(self):
-        calls = []
+    GRAPHICAL = 'Type=wayland\nClass=user\n'
+    MANAGER = 'Type=unspecified\nClass=manager\n'
+    TTY_USER = 'Type=tty\nClass=user\n'
+
+    def _fake_ps(self, sessions, props_by_id=None, calls=None):
+        """Fake subprocess.run: show-user -> sessions; show-session ->
+        per-ID props; everything else records and succeeds."""
+        props_by_id = props_by_id or {}
 
         def fake_run(cmd, **kwargs):
-            calls.append(cmd)
+            if calls is not None:
+                calls.append(cmd)
             if 'show-user' in cmd:
-                return _result(0, stdout='21 22\n')
+                return _result(0, stdout=sessions)
+            if 'show-session' in cmd:
+                sid = cmd[cmd.index('show-session') + 1]
+                return _result(0, stdout=props_by_id.get(sid, ''))
             return _result(0)
 
-        with mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
+        return fake_run
+
+    def test_resolves_target_sessions_first(self):
+        calls = []
+        fake = self._fake_ps('21 22\n', {'21': self.GRAPHICAL,
+                                         '22': self.GRAPHICAL}, calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
             msg = app.lock_user_sessions(KID)
         self.assertIn('show-user', calls[0])
         self.assertEqual(calls[0][:2], ['sudo', 'loginctl'])
@@ -618,19 +634,63 @@ class TestLockUserSessions(unittest.TestCase):
     def test_never_calls_bare_lock_session(self):
         """Regression guard: a bare 'lock-session' locks the caller."""
         calls = []
-
-        def fake_run(cmd, **kwargs):
-            calls.append(cmd)
-            if 'show-user' in cmd:
-                return _result(0, stdout='21\n')
-            return _result(0)
-
-        with mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
+        fake = self._fake_ps('21\n', {'21': self.GRAPHICAL}, calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
             app.lock_user_sessions(KID)
         for cmd in calls:
             if 'lock-session' in cmd:
                 self.assertGreater(len(cmd), 3,
                                    'lock-session called without a session id')
+
+    def test_manager_sessions_are_skipped(self):
+        """Manager/greeter sessions reject lock-session ('does not support
+        lock screen') — they must never reach the lock call."""
+        calls = []
+        fake = self._fake_ps('31 30\n', {'31': self.MANAGER,
+                                         '30': self.MANAGER}, calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            msg = app.lock_user_sessions(KID)
+        self.assertIn('no lockable', msg)
+        self.assertFalse(any('lock-session' in cmd for cmd in calls))
+
+    def test_tty_user_sessions_are_skipped(self):
+        calls = []
+        fake = self._fake_ps('30\n', {'30': self.TTY_USER}, calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            msg = app.lock_user_sessions(KID)
+        self.assertIn('no lockable', msg)
+        self.assertFalse(any('lock-session' in cmd for cmd in calls))
+
+    def test_mixed_sessions_lock_only_graphical(self):
+        """Manager + graphical: only the graphical ID is locked."""
+        calls = []
+        fake = self._fake_ps('31 30\n', {'31': self.MANAGER,
+                                         '30': self.GRAPHICAL}, calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            msg = app.lock_user_sessions(KID)
+        lock_calls = [cmd for cmd in calls if 'lock-session' in cmd]
+        self.assertEqual(len(lock_calls), 1)
+        self.assertIn('30', lock_calls[0])
+        self.assertNotIn('31', lock_calls[0])
+        self.assertIn('1 session', msg)
+
+    def test_vanished_session_is_skipped(self):
+        """A session that disappears mid-loop (show-session fails) is
+        skipped, not fatal."""
+        calls = []
+        fake = self._fake_ps('30\n', {}, calls)  # props lookup misses
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            msg = app.lock_user_sessions(KID)
+        self.assertIn('no lockable', msg)
+
+    def test_unparsable_props_are_skipped(self):
+        calls = []
+        fake = self._fake_ps('30\n', {'30': 'garbage without equals'},
+                             calls)
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            msg = app.lock_user_sessions(KID)
+        self.assertIn('no lockable', msg)
+        self.assertFalse(any('lock-session' in cmd for cmd in calls))
 
     def test_no_active_session_is_reported_not_fatal(self):
         with mock.patch.object(app.subprocess, 'run',
