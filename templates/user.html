@@ -80,6 +80,27 @@
         .process-row { background: #1a1a3e; margin: 0.2rem 0; padding: 0.3rem; border-radius: 4px; }
         .process-name { font-weight: 500; }
         .process-pid { font-size: 0.75rem; color: #888; margin-left: 0.5rem; }
+        .badge-count {
+            display: inline-block;
+            background: #0f3460;
+            color: #4ecca3;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-left: 0.5rem;
+        }
+        .btn-group-toggle {
+            background: #0f3460;
+            color: #4ecca3;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.8rem;
+            line-height: 1.2;
+        }
+        .btn-group-toggle[aria-expanded="true"] { background: #4ecca3; color: #1a1a2e; }
+        .group-detail > td { background: #131c36; }
+        .group-detail .table { margin: 0.25rem 0 0; }
+        .group-detail .table th { background: #0f3460; }
         #toast { position: fixed; bottom: 2rem; right: 2rem; padding: 0.75rem 1.25rem; border-radius: 6px; font-size: 0.9rem; display: none; z-index: 100; }
         .toast-success { background: #4ecca3; color: #1a1a2e; }
         .toast-error { background: #e94560; color: #fff; }
@@ -270,19 +291,28 @@
         <table class="table table-dark table-striped table-hover align-middle mb-0">
             <thead>
                 <tr>
-                    <th>PID</th>
+                    <th></th>
                     <th>Command</th>
                     <th>Elapsed</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
-                {% for proc in groups[cat] %}
-                <tr>
-                    <td>{{ proc.pid }}</td>
-                    <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
-                    <td>{{ proc.elapsed or proc.etime }}</td>
-                    <td><button type="button" class="btn-hide" onclick="hideProc('{{ username }}', '{{ proc.comm }}')">Hide</button></td>
+                {% for group in groups[cat] %}
+                {% set gid = 'detail-' ~ (cat|slugify_id) ~ '-' ~ (group.comm|slugify_id) %}
+                <tr class="group-row" data-group-cat="{{ cat }}" data-group-comm="{{ group.comm }}">
+                    <td>
+                        <button type="button" class="btn-group-toggle" aria-expanded="false" aria-controls="{{ gid }}"
+                            data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %}
+                            title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
+                            onclick="toggleGroup(this, '{{ cat }}')"><span class="group-chevron">▶</span></button>
+                    </td>
+                    <td><span class="process-name">{{ group.comm }}</span>
+                        {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
+                        <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
+                    </td>
+                    <td>{{ group.max_elapsed or '—' }}</td>
+                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button></td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -297,21 +327,30 @@
         {% endif %}
         {% if hidden and hidden|length > 0 %}
         <p style="margin-top: 1rem;">
-            <button type="button" class="btn-show-hidden" onclick="document.getElementById('hidden-procs').style.display = document.getElementById('hidden-procs').style.display === 'none' ? 'block' : 'none';">Show hidden ({{ hidden|length }})</button>
+            <button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden ({{ hidden|length }} groups, {{ hidden|sum(attribute='count') }} processes)</button>
         </p>
         <div id="hidden-procs" style="display: none;">
             <div class="table-responsive">
             <table class="table table-dark table-striped table-hover align-middle mb-0">
                 <thead>
-                    <tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr>
+                    <tr><th></th><th>Command</th><th>Category</th><th></th></tr>
                 </thead>
                 <tbody>
-                    {% for proc in hidden %}
-                    <tr>
-                        <td>{{ proc.pid }}</td>
-                        <td><span class="process-name">{{ proc.comm }}</span> <span class="process-pid">(PID: {{ proc.pid }})</span></td>
-                        <td>{{ category_labels[proc.category] if proc.category else '—' }}</td>
-                        <td><button type="button" class="btn-show-hidden" onclick="showProc('{{ username }}', '{{ proc.comm }}')">Show</button></td>
+                    {% for group in hidden %}
+                    {% set gid = 'detail-hidden-' ~ (group.comm|slugify_id) %}
+                    <tr class="group-row" data-group-cat="hidden" data-group-comm="{{ group.comm }}">
+                        <td>
+                            <button type="button" class="btn-group-toggle" aria-expanded="false" aria-controls="{{ gid }}"
+                                data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %}
+                                title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
+                                onclick="toggleGroup(this, 'hidden')"><span class="group-chevron">▶</span></button>
+                        </td>
+                        <td><span class="process-name">{{ group.comm }}</span>
+                            {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
+                            <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
+                        </td>
+                        <td>{% if group.uniform_category and group.categories %}{{ category_labels[group.categories[0]] }}{% else %}Mixed{% endif %}</td>
+                        <td><button type="button" class="btn-show-hidden" data-comm="{{ group.comm }}" onclick="showGroup(this)">Show</button></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -332,6 +371,139 @@
         const PAGE_USERNAME = {{ username|tojson }};
         const CATEGORIES = {{ categories|tojson }};
         const CATEGORY_LABELS = {{ category_labels|tojson }};
+
+        // Expand/collapse state for grouped process rows. Keys are
+        // `category + '\u0000' + comm` (a comm can span categories, so the
+        // category is part of the key). Survives the 10s re-render because
+        // renderProcesses captures it from the DOM before rebuilding.
+        const expanded = new Set();
+        // Latest /live payload, so a first-click expand on the initial
+        // server markup can render its detail row without waiting a poll.
+        let LIVE_DATA = null;
+
+        function cleanId(value) {
+            return String(value).replace(/[^A-Za-z0-9_.-]/g, '-');
+        }
+
+        function groupKey(cat, comm) {
+            return String(cat) + '\u0000' + String(comm);
+        }
+
+        function detailId(cat, comm) {
+            return 'detail-' + cleanId(cat) + '-' + cleanId(comm);
+        }
+
+        function rowGroupKey(row) {
+            return groupKey(row.getAttribute('data-group-cat'),
+                            row.getAttribute('data-group-comm'));
+        }
+
+        function findGroup(cat, comm) {
+            if (cat === 'hidden') {
+                const hs = (LIVE_DATA && LIVE_DATA.hidden) || [];
+                return hs.find(g => g.comm === comm) || null;
+            }
+            const gs = (LIVE_DATA && LIVE_DATA.groups && LIVE_DATA.groups[cat]) || [];
+            return gs.find(g => g.comm === comm) || null;
+        }
+
+        function groupDetailHtml(cat, group) {
+            let rows = '';
+            for (const m of group.members || []) {
+                let label;
+                if (cat === 'hidden') {
+                    label = (m.category && CATEGORY_LABELS[m.category]) || '—';
+                } else {
+                    label = CATEGORY_LABELS[cat] || cat;
+                }
+                rows += '<tr><td>' + esc(m.pid) + '</td>' +
+                    '<td><span class="process-name">' + esc(m.comm) + '</span></td>' +
+                    '<td>' + esc(m.elapsed || '—') + '</td>' +
+                    '<td>' + esc(label) + '</td></tr>';
+            }
+            return '<td colspan="4"><div class="table-responsive">' +
+                '<table class="table table-dark table-striped table-hover align-middle mb-0">' +
+                '<thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th>Category</th></tr></thead>' +
+                '<tbody>' + rows + '</tbody></table></div></td>';
+        }
+
+        function groupRowsHtml(cat, group) {
+            const key = groupKey(cat, group.comm);
+            const isOpen = expanded.has(key);
+            const multiple = group.count > 1;
+            const badge = multiple ? ' <span class="badge-count">× ' + group.count + '</span>' : '';
+            const countNote = multiple
+                ? ' <span class="process-pid">(' + group.count + ' instances)</span>' : '';
+            const toggle = '<button type="button" class="btn-group-toggle"' +
+                ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
+                ' aria-controls="' + detailId(cat, group.comm) + '"' +
+                ' data-comm="' + esc(group.comm) + '"' +
+                (multiple ? '' : ' disabled') +
+                ' title="' + esc(group.comm) + (multiple ? ': ' + group.count + ' instances' : '') + '"' +
+                ' onclick="toggleGroup(this, \'' + esc(cat) + '\')">' +
+                '<span class="group-chevron">' + (isOpen ? '▼' : '▶') + '</span></button>';
+            const action = cat === 'hidden'
+                ? '<button type="button" class="btn-show-hidden" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
+                : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>';
+            let middle;
+            if (cat === 'hidden') {
+                const uniform = group.uniform_category && group.categories && group.categories.length > 0;
+                middle = '<td><span class="process-name">' + esc(group.comm) + '</span>' + badge + countNote + '</td>' +
+                    '<td>' + (uniform ? esc(CATEGORY_LABELS[group.categories[0]]) : 'Mixed') + '</td>';
+            } else {
+                middle = '<td><span class="process-name">' + esc(group.comm) + '</span>' + badge + countNote + '</td>' +
+                    '<td>' + esc(group.elapsed || '—') + '</td>';
+            }
+            return '<tr class="group-row" data-group-cat="' + esc(cat) + '" data-group-comm="' + esc(group.comm) + '">' +
+                '<td>' + toggle + '</td>' + middle + '<td>' + action + '</td></tr>';
+        }
+
+        function updateToggleState(button, isOpen) {
+            button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            const chevron = button.querySelector('.group-chevron');
+            if (chevron) chevron.textContent = isOpen ? '▼' : '▶';
+        }
+
+        function expandFromData(button, cat, comm) {
+            const group = findGroup(cat, comm);
+            const row = button.closest('tr.group-row');
+            if (!group || !row) return false;
+            const tr = document.createElement('tr');
+            tr.className = 'group-detail';
+            tr.id = detailId(cat, comm);
+            tr.innerHTML = groupDetailHtml(cat, group);
+            row.parentNode.insertBefore(tr, row.nextSibling);
+            return true;
+        }
+
+        function toggleGroup(button, cat) {
+            const comm = button.getAttribute('data-comm');
+            const key = groupKey(cat, comm);
+            const detail = document.getElementById(detailId(cat, comm));
+            if (detail) {
+                // Toggle in place; the next scheduled poll re-renders
+                // naturally and keeps the Set state.
+                if (expanded.has(key)) {
+                    expanded.delete(key);
+                    detail.style.display = 'none';
+                } else {
+                    expanded.add(key);
+                    detail.style.display = '';
+                }
+            } else if (!LIVE_DATA || liveHasError() || !expandFromData(button, cat, comm)) {
+                // Nothing to expand against: just remember intent so the
+                // next render emits the detail row.
+                if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+            } else {
+                expanded.add(key);
+            }
+            updateToggleState(button, expanded.has(key));
+        }
+
+        function liveHasError() {
+            return LIVE_DATA && (LIVE_DATA.error ||
+                (!LIVE_DATA.groups && LIVE_DATA.hidden === undefined));
+        }
 
         function showToast(msg, isError) {
             const toast = document.getElementById('toast');
@@ -374,7 +546,15 @@
             if (!section) return;
             const hiddenEl = document.getElementById('hidden-procs');
             const wasOpen = !!hiddenEl && hiddenEl.style.display === 'block';
+
+            // Capture expand/collapse state and focus from the live DOM
+            // before the wholesale rebuild so both survive the 10s refresh.
+            const activeRow = document.activeElement
+                ? document.activeElement.closest('tr.group-row') : null;
+            const focusedKey = activeRow ? rowGroupKey(activeRow) : null;
+
             let html = '<h2>Processes</h2>';
+            const renderedKeys = [];
             if (data.error) {
                 html += `<p>Error loading processes: ${esc(data.error)}</p>`;
             } else {
@@ -383,31 +563,54 @@
                     html += '<p>No processes found or error loading processes.</p>';
                 }
                 for (const cat of cats) {
-                    const procs = data.groups[cat];
-                    html += `<h3 style="margin-top: 1rem;">${esc(CATEGORY_LABELS[cat])} (${procs.length})</h3>` +
-                        '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0"><thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
-                    for (const p of procs) {
-                        html += `<tr><td>${esc(p.pid)}</td>` +
-                            `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
-                            `<td>${esc(p.elapsed)}</td>` +
-                            `<td><button type="button" class="btn-hide" onclick="hideProc('${PAGE_USERNAME}', '${p.comm}')">Hide</button></td></tr>`;
+                    const groups = data.groups[cat];
+                    html += `<h3 style="margin-top: 1rem;">${esc(CATEGORY_LABELS[cat])} (${groups.length})</h3>` +
+                        '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0">' +
+                        '<thead><tr><th></th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
+                    for (const g of groups) {
+                        html += groupRowsHtml(cat, g);
+                        renderedKeys.push(groupKey(cat, g.comm));
+                        if (expanded.has(groupKey(cat, g.comm))) {
+                            html += `<tr class="group-detail" id="${detailId(cat, g.comm)}">${groupDetailHtml(cat, g)}</tr>`;
+                        }
                     }
                     html += '</tbody></table></div>';
                 }
             }
             if (data.hidden && data.hidden.length > 0) {
-                html += `<p style="margin-top: 1rem;"><button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden (${data.hidden.length})</button></p>` +
+                const procCount = data.hidden.reduce((n, g) => n + g.count, 0);
+                html += `<p style="margin-top: 1rem;"><button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden (${data.hidden.length} groups, ${procCount} processes)</button></p>` +
                     `<div id="hidden-procs" style="display: ${wasOpen ? 'block' : 'none'};">` +
-                    '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0"><thead><tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
-                for (const p of data.hidden) {
-                    html += `<tr><td>${esc(p.pid)}</td>` +
-                        `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
-                        `<td>${esc((p.category && CATEGORY_LABELS[p.category]) || '—')}</td>` +
-                        `<td><button type="button" class="btn-show-hidden" onclick="showProc('${PAGE_USERNAME}', '${p.comm}')">Show</button></td></tr>`;
+                    '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0">' +
+                    '<thead><tr><th></th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
+                for (const g of data.hidden) {
+                    html += groupRowsHtml('hidden', g);
+                    renderedKeys.push(groupKey('hidden', g.comm));
+                    if (expanded.has(groupKey('hidden', g.comm))) {
+                        html += `<tr class="group-detail" id="${detailId('hidden', g.comm)}">${groupDetailHtml('hidden', g)}</tr>`;
+                    }
                 }
                 html += '</tbody></table></div></div>';
             }
+
+            // Prune expand keys for groups that no longer exist in the
+            // newest payload (died, or moved to hidden).
+            for (const key of Array.from(expanded)) {
+                if (renderedKeys.indexOf(key) === -1) {
+                    expanded.delete(key);
+                }
+            }
+
             section.innerHTML = html;
+
+            // Focus preservation: restore the toggle of the previously
+            // focused group row, if it still renders.
+            if (focusedKey !== null) {
+                const row = Array.from(section.querySelectorAll('tr.group-row'))
+                    .find(r => rowGroupKey(r) === focusedKey);
+                const toggle = row && row.querySelector('.btn-group-toggle');
+                if (toggle && !toggle.disabled) toggle.focus();
+            }
         }
 
         function toggleHidden() {
@@ -462,6 +665,7 @@
                     showToast('Error: ' + (data.error || 'unknown'), true);
                     return;
                 }
+                LIVE_DATA = data;
                 renderAccount(data);
                 renderBonus(data);
                 renderProcesses(data);
@@ -644,6 +848,17 @@
             }
         }
 
+        // Group-level Hide/Show: the button carries data-comm, so the comm
+        // never passes through a JS string literal (avoids quote-escaping
+        // pitfalls inside inline onclick attributes).
+        async function hideGroup(button) {
+            await hideProc(PAGE_USERNAME, button.getAttribute('data-comm'));
+        }
+
+        async function showGroup(button) {
+            await showProc(PAGE_USERNAME, button.getAttribute('data-comm'));
+        }
+
         async function showProc(username, comm) {
             try {
                 const resp = await fetch('/api/process-prefs', {
@@ -704,6 +919,9 @@
 
         // Targeted refresh: only status, processes, and budget cells update.
         // Bedtime and budget-limit inputs are never touched. Every 10s.
+        // One immediate render on load so expand works on the initial
+        // server markup without waiting for the first poll.
+        refreshUserLive();
         setInterval(refreshUserLive, 10000);
     </script>
 </body>
