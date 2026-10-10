@@ -113,8 +113,7 @@ Proposed: **15 / 30 / 60 / 90 / 120 minutes.**
 - 60 — the standard extension unit.
 - 90 — feature-film / long task; fills the gap where parents otherwise stack
   60+30.
-- 120 — the required 2-hour maximum single grant; doubles as the proposed cap
-  (see §7 open questions).
+- 120 — the 2-hour maximum single shortcut grant (no cap otherwise — §7).
 
 All whole minutes (budgets UI already promises "whole minutes only"), evenly
 covers 15 min → 2 h, no seconds ever displayed.
@@ -142,8 +141,8 @@ covers 15 min → 2 h, no seconds ever displayed.
   clock time ("15 more minutes").
 - **Stacking = extend.** Grant while active: `new_until = max(now,
   current_until) + minutes`. A parent adding 30 min to 10 remaining gets 40,
-  not 30. History kind `extend`. Cap stacked total (propose: cannot exceed
-  180 min from now — §7).
+  not 30. History kind `extend`. No stacked cap (parent decision 2026-10-10:
+  grants stack unbounded; expiry re-locks).
 - **Revoke:** clears `bonus_until` immediately, appends `revoke` entry, and
   re-runs that user's enforcement inline (locks at once if in bedtime) rather
   than waiting up to 60s.
@@ -160,9 +159,9 @@ covers 15 min → 2 h, no seconds ever displayed.
 | `POST /api/bonus` | `username`, `minutes` | Validate; extend-or-set `bonus_until`; unlock immediately if bedtime-locked; return `{success, message, locked: False, bonus_until, remaining_minutes}` |
 | `POST /api/bonus/revoke` | `username` | Clear bonus, history `revoke`, re-enforce inline; return `{success, message, locked: <bool>}` |
 
-Validation: `valid_username()`; `minutes` integer 1..480 (custom-entry ceiling;
-shortcuts only ever send the 5 allowlisted values — server re-validates
-anyway); require an existing bedtime entry with a valid schedule
+Validation: `valid_username()`; `hours` + `minutes` custom entry (total ≥
+`BONUS_CUSTOM_MIN`, no upper cap — parent decision 2026-10-10); shortcuts send
+`minutes` only (the 5 allowlisted values — server re-validates anyway); require an existing bedtime entry with a valid schedule
 (`400 "No bedtime schedule set"` — granting bonus with nothing to suspend is a
 logic error, and it avoids creating phantom entries); wheel refusal per §1.3.
 `minutes<=0`, non-numeric, or missing → `400`.
@@ -186,8 +185,9 @@ New **"Bonus Time"** section inside/just below the Bedtime Settings card:
 - Five shortcut buttons: `+15m  +30m  +1h  +1h30  +2h` — **no confirm dialog**
   (the feature requirement is one-click; grants only *extend* access, so they
   are non-destructive).
-- Custom row: `<input type="number" min=1 max=480> minutes  [Grant]` — single
-  `confirm("Grant N minutes to X? Stays unlocked until HH:MM")`, consistent
+- Custom row: hours + minutes inputs [Grant] — single confirm showing the
+  computed duration (`confirm("Grant 2h 30m to X? Stays unlocked until
+  HH:MM")`), consistent
   with the existing single-confirm convention for non-destructive unlock.
 - Revoke uses a single confirm (it *removes* access → destructive-adjacent,
   same tier as Lock's single confirm; reserve double-confirm for session
@@ -209,7 +209,7 @@ New **"Bonus Time"** section inside/just below the Bedtime Settings card:
 3. **Manual lock during bonus.** Resolved §1.3: wins, cancels bonus, history
    `lock-cancelled`. (Mirrors root-cause-1 ownership rule.)
 4. **Overlapping grants.** Extend semantics (§2); each grant separately
-   validated, capped, and history-logged.
+   validated (floor only, no cap) and history-logged.
 5. **Bedtime save during bonus.** `bonus_*` keys join `locked_by_bedtime` in
    the preserved set; `manual_override` reset behavior unchanged (grant
    already cleared it).
@@ -264,8 +264,8 @@ Pure/enforcement unit tests (inject `now=` into `enforce_bedtime`):
 HTTP/API tests (Flask test client, mocked `run_lock_command`/`get_lock_status`):
 
 12. `test_api_grant_requires_auth_and_csrf` (401/403 matrix, mirrors auth tests).
-13. `test_api_grant_validation` — bad username, leading dash, `minutes` 0 /
-    negative / non-numeric / >480, no-schedule user → `400`, no state write.
+13. `test_api_grant_validation` — bad username, leading dash, total < 5 min /
+    negative / non-numeric, no-schedule user → `400`, no state write.
 14. `test_api_grant_wheel_refused` — 403, no state write.
 15. `test_live_payload_includes_bonus` — `/api/user/<u>/live` bonus block shape.
 16. `test_history_appends_and_caps_at_20` — 21 grants → 20 retained, newest last.
@@ -299,7 +299,10 @@ discover -s tests`.
 1. Denominations: OK with **15 / 30 / 60 / 90 / 120**? Any swap (e.g. 45 for
    90)?
 2. Caps: max single grant 120 min? Max stacked total (propose 180 min from
-   now)? Custom-entry ceiling (propose 480)?
+   now)? Custom-entry ceiling (propose 480)? → **Decided 2026-10-10: no caps.**
+   Grants stack unbounded; custom entry takes hours + minutes; expiry still
+   re-locks ("just lock the account when time runs out"). Leftover bonus is
+   cleared at the scheduled unlock (bedtime end, history kind `window_end`).
 3. Custom-entry floor: 1 minute, or 5? → **Decided 2026-10-10: 5 minutes**
    (`BONUS_CUSTOM_MIN = 5`; shortcuts start at 15, unaffected).
 4. Bonus with **no bedtime set**: refuse (recommended) or allow as a plain

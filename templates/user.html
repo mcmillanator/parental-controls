@@ -187,7 +187,8 @@
                 <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 120)">+2h</button>
             </p>
             <p style="margin-bottom: 0;">
-                <input type="number" id="bonus-minutes" min="5" max="480" placeholder="minutes" style="width: 6rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
+                <input type="number" id="bonus-hours" min="0" max="99" placeholder="hours" style="width: 4.5rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
+                <input type="number" id="bonus-minutes" min="0" max="59" placeholder="minutes" style="width: 5.5rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
                 <button type="button" class="btn-bonus" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
             </p>
         </div>
@@ -799,14 +800,22 @@
         }
 
         function grantCustomBonus(username) {
-            const input = document.getElementById('bonus-minutes');
-            const minutes = parseInt(input.value, 10);
-            if (!minutes || minutes < 5 || minutes > 480) {
-                showToast('Enter minutes between 5 and 480', true);
+            const hoursInput = document.getElementById('bonus-hours');
+            const minutesInput = document.getElementById('bonus-minutes');
+            const hours = parseInt((hoursInput && hoursInput.value) || '0', 10);
+            const minutes = parseInt((minutesInput && minutesInput.value) || '0', 10);
+            if (isNaN(hours) || isNaN(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
+                showToast('Enter hours (0+) and minutes (0-59)', true);
                 return;
             }
-            if (!confirm(`Grant ${minutes} minutes of bonus time to "${username}"? They will stay unlocked past bedtime until the bonus ends.`)) return;
-            grantBonus(username, minutes);
+            const total = hours * 60 + minutes;
+            if (total < 5) {
+                showToast('Minimum bonus is 5 minutes', true);
+                return;
+            }
+            const desc = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} minutes`;
+            if (!confirm(`Grant ${desc} of bonus time to "${username}"? They will stay unlocked past bedtime until the bonus ends.`)) return;
+            grantBonus(username, total);
         }
 
         async function revokeBonus(username) {

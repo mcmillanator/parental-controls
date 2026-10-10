@@ -2,7 +2,7 @@
 """Tests for parent-granted bonus time (keep unlocked past bedtime).
 
 Covers the tick/expiry logic inside enforce_bedtime(), the grant/revoke
-HTTP endpoints, stacking + caps, manual-lock cancellation, schedule save
+HTTP endpoints, unbounded stacking, manual-lock cancellation, schedule save
 preservation, and the live-payload shape. All subprocess/work is mocked;
 no real users are touched.
 """
@@ -83,13 +83,24 @@ class TestBonusHelpers(_BedtimeFileMixin, unittest.TestCase):
         self.assertEqual(until, datetime(2026, 10, 10, 3, 30) + timedelta(minutes=75))
         self.assertEqual(kind, 'extend')
 
-    def test_compute_bonus_until_cap_from_now(self):
+    def test_compute_bonus_until_unbounded(self):
+        # Parent decision 2026-10-10: no stacked cap. Large grants and deep
+        # stacking always succeed; expiry re-locks instead.
         now = datetime(2026, 10, 10, 3, 30)
-        # 181 min from now exceeds BONUS_MAX_STACK_MINUTES (180).
-        self.assertIsNone(app.compute_bonus_until(dict(BONUS), 181, now))
-        # Stacking a valid amount onto an active bonus past the cap fails too.
+        until, kind = app.compute_bonus_until(dict(BONUS), 480, now)
+        self.assertEqual(until, now + timedelta(minutes=480))
+        self.assertEqual(kind, 'grant')
         entry = _active_bonus_entry(minutes=170, until=now)
-        self.assertIsNone(app.compute_bonus_until(entry, 60, now))
+        until, kind = app.compute_bonus_until(entry, 500, now)
+        self.assertEqual(until, now + timedelta(minutes=670))
+        self.assertEqual(kind, 'extend')
+
+    def test_format_bonus_minutes(self):
+        self.assertEqual(app.format_bonus_minutes(30), '30 minutes')
+        self.assertEqual(app.format_bonus_minutes(5), '5 minutes')
+        self.assertEqual(app.format_bonus_minutes(60), '1 hour')
+        self.assertEqual(app.format_bonus_minutes(90), '1 hour 30 minutes')
+        self.assertEqual(app.format_bonus_minutes(120), '2 hours')
 
     def test_note_bonus_grant_records_and_clears_override(self):
         self.write_bedtime({KID: dict(BONUS, manual_override=True)})
@@ -203,6 +214,21 @@ class TestBonusEnforcement(_BedtimeFileMixin, unittest.TestCase):
         self.assertNotIn('lock', actions)
         self.assertNotIn('bonus_until', self.read_bedtime()[KID])
 
+    def test_window_end_clears_leftover_bonus(self):
+        # Bedtime ends with bonus still on the clock: the stale bonus is
+        # dropped at the scheduled unlock (parent decision 2026-10-10)
+        # instead of lingering as a phantom "Bonus active".
+        lock_cmd, notify = self._enforce(
+            OUT_WINDOW,
+            bonus_until=(OUT_WINDOW + timedelta(minutes=30)).isoformat(),
+            bonus_minutes=30, bonus_granted_by='qaadmin')
+        actions = [c.args[1] for c in lock_cmd.call_args_list if len(c.args) > 1]
+        self.assertNotIn('lock', actions)
+        self.assertNotIn('unlock', actions)
+        entry = self.read_bedtime()[KID]
+        self.assertNotIn('bonus_until', entry)
+        self.assertEqual(entry['bonus_history'][-1]['kind'], 'window_end')
+
     def test_corrupt_bonus_until_means_no_bonus(self):
         # Fail closed: unparseable bonus_until → enforcement proceeds.
         lock_cmd, _ = self._enforce(IN_WINDOW, bonus_until='garbage')
@@ -256,25 +282,34 @@ class TestBonusGrantAPI(_AdminSessionMixin, _BedtimeFileMixin,
         self.write_bedtime({KID: dict(BONUS)})
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')):
-            for bad_minutes in ('0', '-15', 'abc', '4', '481'):
+            for bad_minutes in ('0', '-15', 'abc', '4'):
                 resp = self.authed_post('/api/bonus',
                                         data={'username': KID,
                                               'minutes': bad_minutes})
                 self.assertEqual(resp.status_code, 400,
                                  f'minutes={bad_minutes!r} must be rejected')
+            # Negative hours are rejected too.
+            resp = self.authed_post('/api/bonus',
+                                    data={'username': KID, 'hours': '-1',
+                                          'minutes': '30'})
+            self.assertEqual(resp.status_code, 400)
             resp = self.authed_post('/api/bonus', data={'minutes': '15'})
             self.assertEqual(resp.status_code, 400)
             resp = self.authed_post('/api/bonus',
                                     data={'username': '-kid', 'minutes': '15'})
             self.assertEqual(resp.status_code, 400)
-            # 480 is the custom-entry ceiling and passes field validation,
-            # but a single grant can never exceed the stacked cap (180).
+            # No upper cap (parent decision 2026-10-10): large grants succeed.
             resp = self.authed_post('/api/bonus',
                                     data={'username': KID, 'minutes': '480'})
-            self.assertEqual(resp.status_code, 400)
-            resp = self.authed_post('/api/bonus',
-                                    data={'username': KID, 'minutes': '180'})
             self.assertEqual(resp.status_code, 200)
+            # Hours + minutes custom entry: 1h30 = 90 minutes.
+            resp = self.authed_post('/api/bonus',
+                                    data={'username': KID, 'hours': '1',
+                                          'minutes': '30'})
+            self.assertEqual(resp.status_code, 200)
+            payload = resp.get_json()
+            self.assertTrue(payload['success'])
+            self.assertIn('hour', payload['message'])
 
     def test_grant_refused_for_wheel(self):
         self.write_bedtime({self.ADMIN_USER: dict(BONUS)})
@@ -285,14 +320,15 @@ class TestBonusGrantAPI(_AdminSessionMixin, _BedtimeFileMixin,
                                           'minutes': '15'})
         self.assertEqual(resp.status_code, 403)
 
-    def test_grant_cap_rejected(self):
+    def test_grant_no_cap(self):
+        # Parent decision 2026-10-10: grants stack without an upper cap.
         self.write_bedtime({KID: dict(BONUS)})
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')):
             resp = self.authed_post('/api/bonus',
-                                    data={'username': KID, 'minutes': '181'})
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('total', resp.get_json()['error'].lower())
+                                    data={'username': KID, 'minutes': '500'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()['success'])
 
     def test_grant_requires_auth_and_csrf(self):
         self.write_bedtime({KID: dict(BONUS)})

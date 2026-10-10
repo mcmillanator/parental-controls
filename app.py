@@ -42,16 +42,13 @@ BEDTIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bedtime
 
 DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-# Bonus time (parent-granted extra minutes past bedtime). The five
-# one-click shortcuts are 15/30/60/90/120; the custom entry accepts up to
-# BONUS_CUSTOM_MAX. A new grant stacks onto any active bonus but cannot
-# push the total beyond BONUS_MAX_STACK_MINUTES from now. Ceilings are
-# the BONUS_TIME_PLAN.md §7 recommendations and are easy to change here
-# until the parent confirms them.
+# Bonus time (parent-granted extra time past bedtime). The five
+# one-click shortcuts are 15/30/60/90/120; the custom entry takes hours +
+# minutes with no upper cap (parent decision 2026-10-10: no stacked cap,
+# lock when the bonus runs out). New grants stack onto any active bonus.
+# Floors/history caps below are the BONUS_TIME_PLAN.md §7 decisions.
 BONUS_SHORTCUTS = (15, 30, 60, 90, 120)
-BONUS_CUSTOM_MAX = 480
 BONUS_CUSTOM_MIN = 5
-BONUS_MAX_STACK_MINUTES = 180
 BONUS_HISTORY_CAP = 20
 
 
@@ -366,17 +363,27 @@ def _drop_bonus_keys(entry):
 def compute_bonus_until(entry, minutes, now=None):
     """The grant's new bonus_until (stacking onto an active grant).
 
-    Returns (until, kind) where kind is 'grant' or 'extend', or None when
-    the grant would push the total past BONUS_MAX_STACK_MINUTES from now.
+    Returns (until, kind) where kind is 'grant' or 'extend'. Grants stack
+    without an upper cap (parent decision 2026-10-10); expiry re-locks.
     """
     now = now or datetime.now()
     existing = _parse_bonus_until(entry)
     base = max(now, existing) if existing is not None else now
     until = base + timedelta(minutes=minutes)
-    if (until - now).total_seconds() / 60.0 > BONUS_MAX_STACK_MINUTES:
-        return None
     kind = 'extend' if existing is not None and existing > now else 'grant'
     return until, kind
+
+
+def format_bonus_minutes(total):
+    """Human duration for toasts/notifications: '30 minutes', '1 hour 5 minutes'."""
+    total = int(total)
+    hours, minutes = divmod(total, 60)
+    parts = []
+    if hours:
+        parts.append(f'{hours} hour' + ('' if hours == 1 else 's'))
+    if minutes or not parts:
+        parts.append(f'{minutes} minute' + ('' if minutes == 1 else 's'))
+    return ' '.join(parts)
 
 
 def note_bonus_grant(username, minutes, grantor=None, now=None):
@@ -385,18 +392,15 @@ def note_bonus_grant(username, minutes, grantor=None, now=None):
     Clears manual_override (a bonus is bounded, an override is not) and
     clears locked_by_bedtime so the bonus actually means "stays
     unlocked". Returns the until datetime, or None when the user has no
-    entry or the grant would exceed the stacked cap. The account itself
-    is unlocked by the caller (mirrors api_unlock → note_manual_unlock).
+    entry. The account itself is unlocked by the caller
+    (mirrors api_unlock → note_manual_unlock).
     """
     now = now or datetime.now()
     data = load_bedtime()
     entry = data.get(username)
     if entry is None:
         return None
-    result = compute_bonus_until(entry, minutes, now)
-    if result is None:
-        return None
-    until, kind = result
+    until, kind = compute_bonus_until(entry, minutes, now)
     entry['bonus_until'] = until.isoformat(timespec='seconds')
     entry['bonus_minutes'] = minutes
     entry['bonus_granted_by'] = grantor or 'admin'
@@ -723,6 +727,16 @@ def enforce_bedtime(now=None):
                                      f'{entry.get("end")} '
                                      'unless a parent changes it.')
         else:
+            # Bedtime is over (or no valid schedule): a leftover bonus is
+            # meaningless past the scheduled unlock, so clear it instead of
+            # letting a stale "Bonus active" linger (parent decision
+            # 2026-10-10). Expiry inside a window is handled above.
+            if _parse_bonus_until(entry) is not None:
+                _append_bonus_history(entry, 'window_end',
+                                      entry.get('bonus_minutes'),
+                                      entry.get('bonus_until'), 'system')
+                _drop_bonus_keys(entry)
+                changed = True
             # Pre-warning: bedtime starts soon, warn once per window.
             window_id = bedtime_window_id(entry)
             mins = minutes_until_bedtime(entry, now)
@@ -1042,9 +1056,9 @@ def api_unlock():
 def api_bonus_grant():
     """Grant bonus time: keep a user's account unlocked past bedtime.
 
-    Form fields: username, minutes (one of the shortcut values or a
-    custom 1..BONUS_CUSTOM_MAX entry; the server re-validates).
-    Grants stack onto an active bonus and are capped in total from now.
+    Form fields: username, minutes and/or hours (shortcuts send minutes;
+    the custom entry sends hours + minutes; the server re-validates).
+    Grants stack onto an active bonus with no upper cap; expiry re-locks.
     A grant is a bounded manual unlock: it clears manual_override.
     """
     username = request.form.get('username', '').strip()
@@ -1057,46 +1071,43 @@ def api_bonus_grant():
         return refused
 
     try:
-        minutes = int(request.form.get('minutes', '').strip())
+        minutes = int(request.form.get('minutes', '0').strip() or 0)
+        hours = int(request.form.get('hours', '0').strip() or 0)
     except (ValueError, TypeError):
-        return jsonify({'success': False, 'error': 'Invalid minutes'}), 400
-    if minutes < BONUS_CUSTOM_MIN or minutes > BONUS_CUSTOM_MAX:
+        return jsonify({'success': False, 'error': 'Invalid hours/minutes'}), 400
+    if minutes < 0 or hours < 0:
+        return jsonify({'success': False, 'error': 'Invalid hours/minutes'}), 400
+    total = hours * 60 + minutes
+    if total < BONUS_CUSTOM_MIN:
         return jsonify({'success': False, 'error':
-                        f'minutes must be {BONUS_CUSTOM_MIN}..{BONUS_CUSTOM_MAX}'}), 400
+                        f'minimum bonus is {BONUS_CUSTOM_MIN} minutes'}), 400
+    minutes = total
 
     entry = load_bedtime().get(username) or {}
     if not entry.get('start') or not entry.get('end') or not entry.get('days'):
         return jsonify({'success': False,
                         'error': 'No bedtime schedule set for this user'}), 400
 
-    # Fail closed: refuse the grant *before* touching the account when it
-    # would exceed the stacked cap or is otherwise not recordable.
-    now = datetime.now()
-    if compute_bonus_until(entry, minutes, now) is None:
-        return jsonify({'success': False, 'error':
-                        'Too much bonus time: max '
-                        f'{BONUS_MAX_STACK_MINUTES} minutes total from now',
-                        'locked': None}), 400
-
     # Unlock first so the bonus is immediately usable, then record it
     # (mirrors api_unlock → note_manual_unlock ordering).
+    now = datetime.now()
     success, message = run_lock_command(username, 'unlock')
     if not success:
         return jsonify({'success': False, 'message': message,
                         'locked': True}), 400
     until = note_bonus_grant(username, minutes, grantor=g.admin, now=now)
     if until is None:
-        # Should not happen (cap was validated above); leave the account
-        # usable rather than double-locking.
+        # Should not happen (entry presence was validated above); leave
+        # the account usable rather than double-locking.
         return jsonify({'success': False, 'error':
-                        'Too much bonus time: max '
-                        f'{BONUS_MAX_STACK_MINUTES} minutes total from now',
+                        'Could not record bonus time',
                         'locked': False}), 400
+    duration = format_bonus_minutes(minutes)
     _safe_notify(username, 'Bonus time granted',
-                 f'{minutes} minutes — device stays unlocked until '
+                 f'{duration} — device stays unlocked until '
                  f'{until.strftime("%H:%M")}.')
     return jsonify({'success': True,
-                    'message': f'Granted {minutes} minutes of bonus time',
+                    'message': f'Granted {duration} of bonus time',
                     'locked': False,
                     'bonus_until': until.isoformat(),
                     'remaining_minutes': bonus_state(
