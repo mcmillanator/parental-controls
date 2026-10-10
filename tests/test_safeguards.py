@@ -190,8 +190,11 @@ class TestConfirmUI(unittest.TestCase):
             resp = client.get('/')
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        for fn in ('lockUser', 'lockScreenUser', 'unlockUser'):
+        for fn in ('lockUser', 'unlockUser'):
             self.assertIn(fn, html)
+        # Lock Screen was deliberately removed: Lock already locks the
+        # account and the screen. Its absence is asserted, not incidental.
+        self.assertNotIn('lockScreenUser', html)
         self.assertIn('confirm(', html)
         self.assertNotIn('TODO: add confirmation dialog', html)
 
@@ -219,9 +222,11 @@ class TestConfirmUI(unittest.TestCase):
         self.assertIn('/api/logout', html)
         self.assertIn('logoutUser', html)
         self.assertIn('confirm(', html)
-        # Lock + Lock Screen + Unlock confirms all present on details page.
-        for fn in ('lockUser', 'lockScreenUser', 'unlockUser'):
+        # Lock + Unlock confirms present on details page. Lock Screen was
+        # deliberately removed (Lock already locks account + screen).
+        for fn in ('lockUser', 'unlockUser'):
             self.assertIn(fn, html)
+        self.assertNotIn('lockScreenUser', html)
 
 
 if __name__ == '__main__':
