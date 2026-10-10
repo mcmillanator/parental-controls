@@ -78,7 +78,10 @@ def grouped_live():
     """A get_user_live()-shaped result with duplicates already grouped."""
     user = {'username': 'kid', 'uid': 1001, 'home': '/home/kid',
             'shell': '/bin/bash', 'locked': False,
-            'status_detail': 'Unlocked', 'bedtime': {}, 'in_bedtime': False}
+            'status_detail': 'Unlocked', 'bedtime': {}, 'in_bedtime': False,
+            'bonus': {'active': False, 'until': None,
+                      'remaining_minutes': None, 'granted_by': None,
+                      'last_minutes': None}}
     groups = {c: [] for c in budgets.CATEGORIES}
     groups['games'] = [
         {'comm': 'steam', 'count': 1, 'max_minutes': 62,
