@@ -801,6 +801,208 @@ def unfreeze_all_user(username):
     return True, results
 
 
+# ---------------------------------------------------------------------------
+# Freezer watchdog: detect + self-heal stuck/orphan freezes (prototype)
+# ---------------------------------------------------------------------------
+# Incident (2026-10-09): a stale `parental-tester-quarantine` cgroup held an
+# entire desktop session frozen (cgroup.freeze=1, 17 procs incl.
+# kwin/pipewire/dbus) with no corresponding budget state. The desktop stayed
+# black until manually thawed. This watchdog makes that class of incident
+# self-heal on the next 60s tick.
+#
+# Ordering contract (no flapping vs. legitimate freezes): enforcement runs
+# FIRST, watchdog SECOND, against the SAME in-memory budgets dict — so a
+# category the current tick legitimately froze already has
+# paused[category]=True set and the watchdog sees it as legitimate.
+# `tick_budgets()` implements exactly this order (see below).
+#
+# Frozen means BOTH files agree: desired state `cgroup.freeze == '1'` AND
+# effective state `cgroup.events` reports `frozen 1`. A cgroup mid-transition
+# (freeze=1 written, events still `frozen 0` while processes settle) is
+# skipped, never thawed — this avoids flapping with a freeze that is still
+# landing. Any unreadable/ambiguous state is logged + skipped, never thawed
+# blindly. Only UNFREEZE writes are ever issued, only on OUR
+# `parental-<user>-<category>` groups. No signals, no kills, no membership
+# changes anywhere.
+
+def parse_managed_cgroup(name):
+    """Split `parental-<user>-<category>` -> (username, category).
+
+    Returns None for anything not matching our naming scheme (foreign
+    groups such as a future `parental-*-quarantine` reappearing). The split
+    is on the LAST hyphen so usernames containing hyphens still parse.
+    """
+    if not name.startswith('parental-'):
+        return None
+    rest = name[len('parental-'):]
+    if '-' not in rest:
+        return None
+    username, category = rest.rsplit('-', 1)
+    if not valid_username(username) or not valid_category(category):
+        return None
+    return username, category
+
+
+def _read_desired_frozen(cgroup_dir):
+    """Desired freezer state from `cgroup.freeze`: True/False/None.
+
+    None = missing, unreadable, or unexpected content (ambiguous: the
+    caller must skip, never thaw blindly). Plain open() on purpose: these
+    files are world-readable, and this keeps the watchdog usable without
+    sudo for reads.
+    """
+    try:
+        with open(os.path.join(cgroup_dir, 'cgroup.freeze'), 'r') as f:
+            content = f.read().strip()
+    except OSError:
+        return None
+    if content == '1':
+        return True
+    if content == '0':
+        return False
+    return None
+
+
+def _read_effective_frozen(cgroup_dir):
+    """Effective freezer state from `cgroup.events` (`frozen 1/0`).
+
+    None = missing, unreadable, or unparseable (ambiguous: skip).
+    """
+    try:
+        with open(os.path.join(cgroup_dir, 'cgroup.events'), 'r') as f:
+            text = f.read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == 'frozen':
+            if parts[1] == '1':
+                return True
+            if parts[1] == '0':
+                return False
+            return None
+    return None
+
+
+def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
+    """One watchdog pass: thaw stuck/orphan freezes, report foreign groups.
+
+    budgets_data: budgets.json-shaped dict (default: loaded from disk).
+    cgroup_root: directory to scan (default: real /sys/fs/cgroup).
+    thaw_fn: callable(username, category) -> (ok, msg) used for the
+      unfreeze write (default: set_frozen(..., False) on the real tree,
+      direct '0' write on any alternate root so tests never touch sudo
+      or the real hierarchy).
+
+    Returns a summary dict {thawed, legit, clean, unknown, skipped, note}.
+    Only OUR managed groups are ever thawed, and only when truly frozen
+    (desired AND effective) with NO paused flag for that user/category.
+    Foreign `parental-*` groups are logged loudly and reported in
+    `unknown` but NEVER touched.
+    """
+    root = cgroup_root or CGROUP_ROOT
+    if budgets_data is None:
+        try:
+            budgets_data = load_budgets()
+        except Exception as e:
+            note = f'WATCHDOG: could not load budget state, skipping pass: {e}'
+            print(note, flush=True)
+            return {'thawed': [], 'legit': [], 'clean': [], 'unknown': [],
+                    'skipped': [], 'note': note}
+    if not isinstance(budgets_data, dict):
+        budgets_data = {}
+    if thaw_fn is None:
+        if root != CGROUP_ROOT:
+            # Alternate/test root: direct write, no sudo, no real tree.
+            def thaw_fn(username, category, _root=root):
+                try:
+                    cdir = os.path.join(
+                        _root, f'parental-{username}-{category}')
+                    with open(os.path.join(cdir, 'cgroup.freeze'), 'w') as f:
+                        f.write('0')
+                except (OSError, ValueError) as e:
+                    return False, str(e)
+                return True, ''
+        else:
+            thaw_fn = lambda u, c: set_frozen(u, c, False)  # noqa: E731
+    summary = {'thawed': [], 'legit': [], 'clean': [], 'unknown': [],
+               'skipped': [], 'note': ''}
+    try:
+        names = os.listdir(root)
+    except OSError as e:
+        note = f'WATCHDOG: cannot list {root}, skipping pass: {e}'
+        print(note, flush=True)
+        summary['note'] = note
+        return summary
+    for name in names:
+        if not name.startswith('parental-'):
+            continue
+        parsed = parse_managed_cgroup(name)
+        if parsed is None:
+            print(f'WATCHDOG: unknown parental cgroup {name} present; '
+                  f'leaving untouched (foreign group, report only)',
+                  flush=True)
+            summary['unknown'].append(name)
+            continue
+        username, category = parsed
+        cdir = os.path.join(root, name)
+        desired = _read_desired_frozen(cdir)
+        if desired is None:
+            print(f'WATCHDOG: {name}: cannot read cgroup.freeze, '
+                  f'skipping (never thaw on ambiguous state)', flush=True)
+            summary['skipped'].append(name + ' (unreadable freeze state)')
+            continue
+        if not desired:
+            summary['clean'].append(name)
+            continue
+        effective = _read_effective_frozen(cdir)
+        if effective is None:
+            print(f'WATCHDOG: {name}: freeze=1 but cgroup.events unreadable, '
+                  f'skipping (never thaw on ambiguous state)', flush=True)
+            summary['skipped'].append(name + ' (unreadable events)')
+            continue
+        if not effective:
+            # Freeze requested but not yet effective: still settling.
+            # Skip quietly-ish so the next tick re-checks without flapping.
+            summary['skipped'].append(
+                name + ' (transition: freeze=1, frozen 0)')
+            continue
+        # Truly frozen (desired + effective). Legitimate ONLY when the
+        # budget state marks this user/category paused.
+        try:
+            paused = bool((budgets_data.get(username) or {})
+                          .get('paused', {}).get(category, False))
+        except (AttributeError, TypeError):
+            paused = False
+        if paused:
+            summary['legit'].append(name)
+            continue
+        print(f'WATCHDOG: STUCK freeze detected: {name} is frozen '
+              f'(freeze=1, frozen 1) with NO paused budget state; '
+              f'thawing to self-heal', flush=True)
+        try:
+            ok, msg = thaw_fn(username, category)
+        except Exception as e:
+            ok, msg = False, str(e)
+        if ok:
+            print(f'WATCHDOG: THAWED stuck cgroup {name} '
+                  f'(orphan freeze self-healed)', flush=True)
+            summary['thawed'].append(name)
+        else:
+            print(f'WATCHDOG: FAILED to thaw stuck cgroup {name}: {msg}',
+                  flush=True)
+            summary['skipped'].append(name + f' (thaw failed: {msg})')
+    if summary['thawed']:
+        summary['note'] = ('self-healed stuck freeze(s): '
+                           + ', '.join(summary['thawed']))
+    if summary['unknown']:
+        note = ('foreign parental cgroup(s) present, left untouched: '
+                + ', '.join(summary['unknown']))
+        summary['note'] = (summary['note'] + '; ' + note if summary['note']
+                           else note)
+    return summary
+
+
 def verify_freeze_safety(username, member_pids, expected_freezable):
     """Freeze-time gate: every cgroup member must be owned by the user and
     not on the NEVER-pause list. expected_freezable maps pid -> proc dict
@@ -1045,14 +1247,23 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
 
 
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
-                 index=None, act=True, notify=None):
+                 index=None, act=True, notify=None, run_watchdog=True,
+                 cgroup_root=None):
     """Run one budget tick for every user in budgets.json.
 
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
     procs_provider: callable(username) -> procs (default: live ps snapshot).
     notify: optional callable ``notify(username, title, body)`` for
     best-effort "minutes left" / "paused" warnings.
-    Returns a list of per-user summary dicts.
+    run_watchdog: when True (default), run the freezer watchdog AFTER
+      enforcement against the same in-memory state, so categories this
+      tick legitimately froze already carry paused=True and are never
+      mistaken for stuck. The watchdog summary is appended as a
+      {'user': '_watchdog', ...} entry. Both the app thread and the
+      systemd timer path go through here, so both self-heal.
+    cgroup_root: alternate cgroup tree for the watchdog (tests only;
+      default: real /sys/fs/cgroup).
+    Returns a list of per-user summary dicts (+ watchdog entry).
     """
     data = load_budgets()
     if prefs is None:
@@ -1086,6 +1297,17 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             save_budgets(data)
         except OSError:
             pass
+    if run_watchdog:
+        # Enforcement first, watchdog second, same in-memory `data`: a
+        # category frozen above already has paused=True, so it reads as
+        # legitimate and is never thawed back (no flapping).
+        try:
+            w = watchdog_tick(data, cgroup_root=cgroup_root or CGROUP_ROOT)
+        except Exception as e:
+            print(f'WATCHDOG: pass failed: {e}', flush=True)
+            w = {'thawed': [], 'legit': [], 'clean': [], 'unknown': [],
+                 'skipped': [], 'note': f'pass failed: {e}'}
+        summaries.append(dict({'user': '_watchdog'}, **w))
     return summaries
 
 

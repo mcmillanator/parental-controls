@@ -353,7 +353,8 @@ class TestBudgetWarnings(unittest.TestCase):
                     {}, datetime(2026, 10, 12, 15, 0),
                     procs_provider=lambda u: [steam_proc()],
                     prefs={}, index={}, act=False, notify=self.recorder)
-        self.assertEqual(len(summaries), 1)
+        self.assertEqual(len([s for s in summaries
+                              if s.get('user') != '_watchdog']), 1)
         self.assertIn('games (low)', summaries[0]['notified'])
         self.assertEqual(self.recorder.titles(), ['Games: 5 minutes left'])
 
