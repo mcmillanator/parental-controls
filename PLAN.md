@@ -133,6 +133,7 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
 - [x] Bedtime lock ownership: flag set when usermod succeeds regardless of terminate-user result (offline users auto-unlock correctly)
 - [x] Pre-lock warnings: 15-min bedtime warning + lock-time notice, budget low/pause warnings via notify-send (feature/notifications)
-- [x] One-command installer stages the app into `/opt/parental-controls` (`install.sh`: stage code, preserve/seed runtime state, venv, templated units/sudoers, auth dir, enable, verify) + deploy docs; no checkout path is hardcoded in deployed units
+- [x] ProtectSystem=strict with directory-level /etc writable (usermod regression fix; per-file shadow binds denied by SELinux; `full` also mounts /etc read-only)
+- [x] Sudoers least-privilege repair: installer replaces `@SERVICE_USER@`, sbin+bin paths for all binaries, `passwd` scoped to `-S` (was masked by stan-nopasswd blanket on dev)
 - [x] Lock Screen targets graphical user sessions only (manager/tty sessions report "no lockable session" instead of failing)
 - [x] Unlocked accounts in bedtime show manual Lock/Lock Screen buttons (no dead-end disabled button)
