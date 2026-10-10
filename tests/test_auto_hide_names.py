@@ -177,6 +177,18 @@ class TestIsUserApp(unittest.TestCase):
         self.assertFalse(is_user_app(proc, {'firefox': 'browsers'},
                                      home='/home/kid'))
 
+    def test_uncategorized_installed_app_is_user_app(self):
+        """Installed but uncategorized apps (terminals, editors) are
+        user-started: the mark index must cover every .desktop Exec
+        entry, so get_user_live passes build_desktop_names (not the
+        categorized index) to mark_user_apps."""
+        proc = {'comm': 'helper', 'cmdline': '/opt/helper/helper --serve'}
+        self.assertTrue(is_user_app(proc, {'helper': 'My Helper'},
+                                    home='/home/kid'))
+        # ...but the categorized index alone would wrongly hide it.
+        self.assertFalse(is_user_app(proc, {'firefox': 'browsers'},
+                                     home='/home/kid'))
+
 
 class TestMarkAndAnnotate(unittest.TestCase):
     def test_mark_sets_flags(self):

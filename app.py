@@ -1482,12 +1482,14 @@ def get_user_live(username):
         index = budgets.build_desktop_index(username)
         # Auto-hide: flag explicitly user-started processes first; the
         # filter below hides everything else unless the parent re-shows
-        # it via shown_comm. Absent flags default to visible so callers
-        # passing unmarked snapshots behave as before.
-        budgets.mark_user_apps(processes, index, home)
+        # it via shown_comm. The membership index covers EVERY installed
+        # app (names, not just categorized ones) so uncategorized apps
+        # like terminals stay visible. Absent flags default to visible
+        # so callers passing unmarked snapshots behave as before.
+        names = budgets.build_desktop_names(username)
+        budgets.mark_user_apps(processes, names, home)
         visible, hidden = budgets.apply_filter(processes, username, prefs)
-        budgets.annotate_display_names(
-            processes, budgets.build_desktop_names(username))
+        budgets.annotate_display_names(processes, names)
         groups = budgets.group_by_category(visible, index)
         # Group duplicate comms inside each category bucket: each bucket
         # becomes [{comm, count, members, max_elapsed, ...}] group dicts.

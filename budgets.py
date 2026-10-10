@@ -513,7 +513,8 @@ def is_user_app(proc, app_index=None, home=None):
     """True if a proc looks explicitly user-started (not background plumbing).
 
     Any rule wins: argv[0]-basename or comm is a known installed app
-    (app_index from build_desktop_index); a CATEGORY_OVERRIDES
+    (app_index covers every .desktop Exec entry, e.g. build_desktop_names —
+    not just categorized ones, so terminals/editors stay visible); a CATEGORY_OVERRIDES
     whole-word match on comm+cmdline (covers the Steam chain,
     browsers, media, chat — the same match categorize() uses);
     argv[0] is an absolute path under the user's home dir (their own
