@@ -95,7 +95,7 @@ Bazzite (Fedora-based immutable desktop OS)
 - [ ] Scheduled timers (7pm lock / 10am unlock) (later)
 - [ ] Notifications before lock (notify-send via systemd-run) (later)
 - [ ] Authentication / authorization (later)
-- [ ] Lockout prevention / safeguards (later)
+- [x] Lockout prevention / safeguards: confirm dialogs on destructive buttons, Emergency logout button, wheel admins never auto-locked/auto-frozen
 - [ ] Multi-device support (later)
 - [ ] Polished UI/UX, including responsive design via Bootstrap (MVP)
 - [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
