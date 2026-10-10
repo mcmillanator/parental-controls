@@ -194,10 +194,20 @@ def run_lock_command(username, action):
 
     Returns (success, message).
 
-    For 'lock', account ownership (usermod -L) is what success reflects:
-    a terminate-user failure (e.g. user not logged in) is reported as a
-    warning note, not a failure — so callers tracking lock ownership
-    still record it.
+    For 'lock', account ownership (usermod -L) is what success reflects,
+    and the session is ALWAYS preserved: after locking the account the
+    user's graphical sessions are screen-locked (lock_user_sessions),
+    never terminated. Session termination lives ONLY in the /api/logout
+    emergency-logout endpoint, which runs its own terminate-user call.
+
+    Screen lock is best-effort and never fails the lock: an offline user
+    (or a screen-lock failure) still reports success with a note, so
+    callers tracking lock ownership still record it.
+
+    Tradeoff: bedtime/bonus/revoke auto-locks no longer stop already-
+    running apps (terminate-user did that as a side effect). App runtime
+    is governed by the budgets cgroup freezer instead; the account lock
+    itself still blocks all new authentication at the PAM layer.
     """
     if action == 'lock':
         try:
@@ -212,19 +222,14 @@ def run_lock_command(username, action):
             return False, f'sudo usermod -L {username}: timed out'
         except Exception as e:
             return False, f'sudo usermod -L {username}: {e}'
+        # Screen-lock the user's sessions (best-effort, never raises).
+        # This deliberately never calls terminate-user: locking must not
+        # log the user out.
         try:
-            result = subprocess.run(
-                ['sudo', 'loginctl', 'terminate-user', username],
-                capture_output=True, text=True, timeout=15
-            )
-            if result.returncode != 0:
-                return True, ('OK (session terminate skipped: '
-                              f'{result.stderr.strip() or "not logged in"})')
-        except subprocess.TimeoutExpired:
-            return True, 'OK (session terminate timed out)'
+            screen_msg = lock_user_sessions(username)
         except Exception as e:
-            return True, f'OK (session terminate error: {e})'
-        return True, 'OK'
+            screen_msg = f'screen lock error: {e}'
+        return True, f'OK ({screen_msg})'
     elif action == 'unlock':
         cmds = [
             ['sudo', 'usermod', '-U', username],
@@ -736,6 +741,8 @@ def enforce_bedtime(now=None):
                 continue
             locked, _detail = get_lock_status(username)
             if locked is False:
+                # Session-preserving lock (usermod -L + screen-lock):
+                # bedtime never logs the user out.
                 success, _msg = run_lock_command(username, 'lock')
                 if success:
                     entry['locked_by_bedtime'] = True
@@ -1169,6 +1176,7 @@ def api_bonus_revoke():
     if (is_in_bedtime(entry, now)
             and not entry.get('manual_override')
             and not locked_now):
+        # Session-preserving re-lock (never terminates the session).
         success, _msg = run_lock_command(username, 'lock')
         if success:
             entry['locked_by_bedtime'] = True
@@ -1277,6 +1285,7 @@ def api_bedtime_set():
                 return jsonify({'success': True,
                                 'message': 'Bedtime saved (auto-lock skipped: admin user)',
                                 'locked': False})
+            # Session-preserving auto-lock (usermod -L + screen-lock).
             success, message = run_lock_command(username, 'lock')
             if success:
                 entry['locked_by_bedtime'] = True

@@ -12,7 +12,7 @@ Bazzite (Fedora-based immutable desktop OS)
 
 - **Web UI**: Python Flask app serving on `0.0.0.0:5000`
 - **User discovery**: Reads `/etc/passwd` for human users (UID >= 1000)
-- **Lock mechanism**: `sudo usermod -L <user>` + `sudo loginctl terminate-user <user>`
+- **Lock mechanism**: `sudo usermod -L <user>` + screen-lock of the user's graphical sessions (`loginctl lock-session`, session preserved). Session termination (`loginctl terminate-user`) lives ONLY in the emergency-logout endpoint (`/api/logout`)
 - **Unlock mechanism**: `sudo usermod -U <user>`
 - **Sudoers**: Dedicated rule in `/etc/sudoers.d/parental-controls` for passwordless operation
 
@@ -130,7 +130,7 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - [x] Process filtering: curated denylist + per-row Hide / Show-hidden toggle (`process_prefs.json`)
 - [x] Apps grouped by category on the details page (`.desktop` Categories + curated overrides)
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
-- [x] Bedtime lock ownership: flag set when usermod succeeds regardless of terminate-user result (offline users auto-unlock correctly)
+- [x] Bedtime lock ownership: flag set when usermod succeeds regardless of screen-lock result (offline users auto-unlock correctly); locks never terminate the session
 - [x] Pre-lock warnings: 15-min bedtime warning + lock-time notice, budget low/pause warnings via notify-send (feature/notifications)
 - [x] ProtectSystem=strict with directory-level /etc writable (usermod regression fix; per-file shadow binds denied by SELinux; `full` also mounts /etc read-only)
 - [x] Sudoers least-privilege repair: installer replaces `@SERVICE_USER@`, sbin+bin paths for all binaries, `passwd` scoped to `-S` (was masked by stan-nopasswd blanket on dev)

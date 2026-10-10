@@ -115,8 +115,11 @@ requires `--badname`), so this costs nothing.
 - `passwd -S` read-back maps correctly to `L`/`P`/`NP` and matches reality after
   each operation. Unknown status, command failure, timeout and truncated output all
   report *unknown* rather than silently reporting "Unlocked".
-- `run_lock_command` reports success when `usermod` succeeds even when
-  `terminate-user` fails (offline user), including on timeout — the offline
+- `run_lock_command('lock')` preserves the session: `usermod -L` plus a
+  best-effort screen-lock (`lock_user_sessions`). It never calls
+  `terminate-user` — session termination lives only in `/api/logout`
+  (emergency logout, by design). An offline user (or a screen-lock
+  failure) still reports success with a note, so the offline
   auto-unlock bookkeeping is sound.
 - Account lock genuinely blocks authentication at the PAM layer. PAM
   configuration is stock (`pam_unix.so nullok`, no `sssd-shadowutils` in the login
@@ -131,7 +134,8 @@ account:
 - Shadow contract: one-bang prepend, one-bang removal, no over-strip, idempotent
   double/triple lock, and all 64 short lock/unlock sequences leaving the hash intact
   with at most one leading `!`.
-- `run_lock_command` success/failure/timeout matrix, including offline-user success.
+- `run_lock_command` success/failure matrix, including offline-user
+  success (screen-lock failure degrades to a note, never a failure).
 - Lock status read-back vs reality after every operation.
 - **Manual lock ownership** — the owner's critical report: a manual lock survives
   the bedtime window ending and the schedule being cleared; a stale snapshot never
@@ -205,19 +209,33 @@ Please run these as the parent, at the machine:
      change — previously the manual lock was silently reverted here.
    - To get bedtime's automatic unlock back, unlock manually or clear the schedule.
 
-4. **Lock Screen and Lock are still distinct.**
+4. **Lock and Lock Screen both preserve the session.**
+   **Lock Screen** and **Lock** both lock the account (`usermod -L`) and
+   screen-lock the child's graphical sessions; the child stays logged in
+   with apps running. Only **Emergency logout** (`/api/logout`)
+   terminates the child's session. (Corrected 2026-10-10: this item
+   previously said Lock must terminate; that was the lock-logs-out
+   regression.)
    **Lock Screen** must leave the child logged in (screen locked, session alive).
-   **Lock** must terminate the child's session.
+   **Lock** must do the same (account locked + screen locked, session alive).
+   Only **Emergency logout** terminates the session.
 
 5. **Wheel-admin protection still holds.**
    A `wheel` member must never be auto-locked by bedtime.
 
 ## Remaining risks / follow-ups (not fixed here)
 
-1. **sudoers does not allow the new screen-lock commands — screen lock will
-   not work until this is added.** `/etc/sudoers.d/parental-controls` currently
-   permits only `usermod -L *`, `usermod -U *` and `loginctl terminate-user *`.
-   The fix calls `loginctl show-user *` (read-only session lookup) and
+1. **RESOLVED — sudoers templates now cover the screen-lock commands.**
+    The `sudoers-parental-controls` template in this repo permits
+    `loginctl show-user *`, `loginctl lock-session *` and
+    `loginctl show-session *` (sbin + bin paths, pinned by
+    `tests/test_deployment.py::TestSudoersTemplates`), so screen lock is
+    authorized once rendered by `install.sh`. Production `/etc/sudoers.d/`
+    was NOT touched — it is security-sensitive. Original report kept below:
+
+    Original report: `/etc/sudoers.d/parental-controls` previously permitted only
+   `usermod -L *`, `usermod -U *` and `loginctl terminate-user *`.
+   The screen-lock fix calls `loginctl show-user *` (read-only session lookup) and
    `loginctl lock-session *`, neither of which is permitted. Both are invoked
    through `sudo`, so on a hardened box they fail and screen-lock degrades to
    the harmless `"no active session"` message.
@@ -240,8 +258,11 @@ Please run these as the parent, at the machine:
    which defeats least-privilege sudoers entirely.
 
 2. **Lock does not kill processes.** `usermod -L` prevents *authentication*; it
-   does not stop an already-running session or its processes. Bedtime relies on
-   `loginctl terminate-user` for that. If a session is offline, nothing is
+   does not stop an already-running session or its processes. Since the
+   2026-10-10 lock-logs-out fix, bedtime/bonus locks also preserve the
+   session (screen-lock only) — running apps are governed by the budgets
+   cgroup freezer instead, and only Emergency logout (`/api/logout`)
+   terminates a session. If a session is offline, nothing is
    terminated — by design, but worth knowing.
 
 3. **`manual_override` semantics changed subtly.** A manual lock now also clears
