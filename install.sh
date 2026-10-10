@@ -2,7 +2,12 @@
 # One-command installer for Bazzite Parental Controls (MVP).
 # Idempotent: safe to re-run. Must run as root.
 #
-#   sudo ./install.sh [--install-dir DIR] [--user USER] [--dry-run]
+#   sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST]
+#                     [--port PORT] [--open-firewall] [--dry-run]
+#
+# Defaults keep the panel on localhost only (127.0.0.1:5000, no firewall
+# change). --bind/--port render into the service unit; --open-firewall opens
+# the chosen port in the default firewalld zone.
 #
 # The app is staged into a system location (default /opt/parental-controls)
 # so the deployed systemd units never reference the checkout path (e.g. a
@@ -17,12 +22,18 @@ set -euo pipefail
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/opt/parental-controls"
 SERVICE_USER="${SUDO_USER:-}"
+BIND_HOST="127.0.0.1"
+BIND_PORT="5000"
+OPEN_FIREWALL=0
 DRY_RUN=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --install-dir|--app-dir) INSTALL_DIR="$2"; shift 2 ;;
         --user) SERVICE_USER="$2"; shift 2 ;;
+        --bind) BIND_HOST="$2"; shift 2 ;;
+        --port) BIND_PORT="$2"; shift 2 ;;
+        --open-firewall) OPEN_FIREWALL=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -42,6 +53,19 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 command -v python3 >/dev/null || { echo "python3 not found." >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemctl not found." >&2; exit 1; }
+case "$BIND_PORT" in
+    ''|*[!0-9]*) echo "Invalid --port: '$BIND_PORT' (want 1-65535)." >&2; exit 2 ;;
+esac
+[ "$BIND_PORT" -ge 1 ] && [ "$BIND_PORT" -le 65535 ] || \
+    { echo "Invalid --port: '$BIND_PORT' (want 1-65535)." >&2; exit 2; }
+case "$BIND_HOST" in
+    ''|*[!A-Za-z0-9.:-]*) echo "Invalid --bind: '$BIND_HOST'." >&2; exit 2 ;;
+esac
+if [ "$BIND_HOST" != "127.0.0.1" ] && [ "$BIND_HOST" != "localhost" ] \
+   && [ "$BIND_HOST" != "::1" ]; then
+    echo "WARNING: --bind $BIND_HOST exposes the panel beyond this machine" >&2
+    echo "without TLS; session cookies travel in the clear (MVP has no TLS)." >&2
+fi
 [ -f "$SOURCE_DIR/app.py" ] || { echo "No app.py in $SOURCE_DIR — run install.sh from the app checkout." >&2; exit 1; }
 
 run() {
@@ -60,7 +84,7 @@ as_user() {
     fi
 }
 
-echo "== 1/7 stage app into $INSTALL_DIR =="
+echo "== 1/8 stage app into $INSTALL_DIR =="
 run mkdir -p "$INSTALL_DIR"
 if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
     # Sync code only. Runtime state files are excluded so live state is never
@@ -99,18 +123,19 @@ run chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 TEMPLATE_DIR="$INSTALL_DIR"
 [ -f "$SOURCE_DIR/systemd/parental-controls.service" ] && TEMPLATE_DIR="$SOURCE_DIR"
 
-echo "== 2/7 venv + dependencies (as $SERVICE_USER) =="
+echo "== 2/8 venv + dependencies (as $SERVICE_USER) =="
 if [ ! -d "$INSTALL_DIR/.venv" ]; then
     as_user python3 -m venv "$INSTALL_DIR/.venv"
 fi
 as_user "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
 
-echo "== 3/7 systemd units =="
+echo "== 3/8 systemd units (bind $BIND_HOST:$BIND_PORT) =="
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
 for unit in parental-controls.service parental-controls-enforce.service parental-controls-enforce.timer; do
     [ -f "$TEMPLATE_DIR/systemd/$unit" ] || { echo "Missing $TEMPLATE_DIR/systemd/$unit" >&2; exit 1; }
     sed -e "s|@APP_DIR@|$INSTALL_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
+        -e "s|@BIND_HOST@|$BIND_HOST|g" -e "s|@BIND_PORT@|$BIND_PORT|g" \
         "$TEMPLATE_DIR/systemd/$unit" > "$TMPD/$unit"
     echo "--- rendered $unit ---"
     grep -E "^(User|WorkingDirectory|ExecStart)=" "$TMPD/$unit" || true
@@ -118,7 +143,7 @@ for unit in parental-controls.service parental-controls-enforce.service parental
     run chmod 644 /etc/systemd/system/"$unit"
 done
 
-echo "== 4/7 sudoers (visudo-validated) =="
+echo "== 4/8 sudoers (visudo-validated) =="
 for f in sudoers-parental-controls sudoers-parental-controls-budgets; do
     [ -f "$TEMPLATE_DIR/$f" ] || { echo "Missing $TEMPLATE_DIR/$f" >&2; exit 1; }
     target="/etc/sudoers.d/${f#sudoers-}"
@@ -137,12 +162,29 @@ else
     visudo -c
 fi
 
-echo "== 5/7 auth store dir =="
+echo "== 5/8 auth store dir =="
 run mkdir -p /etc/parental-controls
 run chown "$SERVICE_USER:$SERVICE_USER" /etc/parental-controls
 run chmod 700 /etc/parental-controls
 
-echo "== 6/7 enable + start =="
+echo "== 6/8 firewall =="
+if [ "$OPEN_FIREWALL" -eq 1 ]; then
+    if ! command -v firewall-cmd >/dev/null; then
+        echo "WARNING: firewall-cmd not found; skipping firewall change." >&2
+    elif [ "$DRY_RUN" -eq 1 ]; then
+        echo "[dry-run] firewall-cmd --permanent --add-port=${BIND_PORT}/tcp && firewall-cmd --reload"
+    elif firewall-cmd --state >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-port="${BIND_PORT}/tcp"
+        firewall-cmd --reload
+        echo "Opened ${BIND_PORT}/tcp in the default zone."
+    else
+        echo "WARNING: firewalld is not running; nothing to open." >&2
+    fi
+else
+    echo "(skipped — pass --open-firewall to open ${BIND_PORT}/tcp)"
+fi
+
+echo "== 7/8 enable + start =="
 run systemctl daemon-reload
 run systemctl enable --now parental-controls.service
 run systemctl enable --now parental-controls-enforce.timer
@@ -152,15 +194,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-echo "== 7/7 verify =="
+echo "== 8/8 verify =="
 sleep 3
 systemctl is-active parental-controls.service
-code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/ || true)
+PROBE_HOST="$BIND_HOST"
+[ "$PROBE_HOST" = "0.0.0.0" ] && PROBE_HOST="127.0.0.1"
+code=$(curl -s -o /dev/null -w "%{http_code}" "http://${PROBE_HOST}:${BIND_PORT}/" || true)
 echo "GET / -> $code (302 login redirect expected)"
 [ "$code" = "302" ] || { echo "WARNING: unexpected status; check journalctl -u parental-controls.service" >&2; }
 
 echo
-echo "Installed into $INSTALL_DIR. Next steps:"
+echo "Installed into $INSTALL_DIR (listening on ${BIND_HOST}:${BIND_PORT}). Next steps:"
 echo "  1. Get the one-time admin credential: journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'"
-echo "  2. From your machine: ssh -L 5000:localhost:5000 <user>@<host>, open http://localhost:5000"
+echo "  2. From your machine: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>, open http://localhost:${BIND_PORT}"
 echo "  3. Log in and change the password immediately (forced on first login)."

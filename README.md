@@ -119,12 +119,14 @@ Every POST needs the `X-CSRF-Token` header or `csrf_token` form field.
 One command (as root, from the app checkout). Idempotent — safe to re-run:
 
 ```bash
-sudo ./install.sh [--install-dir DIR] [--user USER] [--dry-run]
+sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST] [--port PORT]
+                  [--open-firewall] [--dry-run]
 ```
 
 The app is **staged into a system path** so the deployed systemd units never
 reference the checkout (e.g. a home directory). Defaults: install dir =
-`/opt/parental-controls`, service user = the invoking sudo user. What it does:
+`/opt/parental-controls`, service user = the invoking sudo user,
+bind = `127.0.0.1:5000`, no firewall change. What it does:
 
 1. Stages a copy of the app into the install dir (code only; existing runtime
    state is preserved, and a first run seeds `*.json` state from the checkout)
@@ -134,8 +136,13 @@ reference the checkout (e.g. a home directory). Defaults: install dir =
    with `visudo -c`)
 5. Creates `/etc/parental-controls` (0700, owned by the service user) for the
    auth store
-6. Enables + starts the app service and the enforcement timer
-7. Verifies: service active, `GET /` returns the login redirect
+6. Opens `PORT/tcp` in the default firewalld zone — only with `--open-firewall`
+7. Enables + starts the app service and the enforcement timer
+8. Verifies: service active, `GET /` returns the login redirect
+
+`--bind`/`--port` render into the service unit (`--bind 0.0.0.0` listens on
+all interfaces). A non-localhost bind prints a warning: the MVP has no TLS,
+so session cookies travel in the clear — prefer the SSH tunnel.
 
 Then finish setup:
 

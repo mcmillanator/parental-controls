@@ -89,6 +89,44 @@ class TestInstallerStaging(unittest.TestCase):
         self.assertIn('s|@SERVICE_USER@|${SERVICE_USER}|g', script)
 
 
+class TestBindOptions(unittest.TestCase):
+    def test_safe_defaults(self):
+        script = read('install.sh')
+        self.assertIn('BIND_HOST="127.0.0.1"', script)
+        self.assertIn('BIND_PORT="5000"', script)
+        self.assertIn('OPEN_FIREWALL=0', script)
+
+    def test_unit_renders_bind_from_placeholders(self):
+        unit = read(os.path.join('systemd', 'parental-controls.service'))
+        self.assertIn('@BIND_HOST@', unit)
+        self.assertIn('@BIND_PORT@', unit)
+        for line in unit.splitlines():
+            if line.startswith('ExecStart='):
+                self.assertNotIn('127.0.0.1', line)
+                self.assertNotIn('5000', line)
+
+    def test_installer_substitutes_bind_placeholders(self):
+        script = read('install.sh')
+        self.assertIn('s|@BIND_HOST@|$BIND_HOST|g', script)
+        self.assertIn('s|@BIND_PORT@|$BIND_PORT|g', script)
+
+    def test_firewall_change_is_opt_in(self):
+        script = read('install.sh')
+        self.assertIn('--open-firewall', script)
+        self.assertIn('firewall-cmd', script)
+        # The firewall commands only run inside the opt-in branch.
+        idx_flag = script.index('--open-firewall) OPEN_FIREWALL=1')
+        idx_gate = script.index('if [ "$OPEN_FIREWALL" -eq 1 ]')
+        idx_fw = script.index('firewall-cmd --permanent --add-port')
+        self.assertLess(idx_flag, idx_gate)
+        self.assertLess(idx_gate, idx_fw)
+
+    def test_port_and_bind_are_validated(self):
+        script = read('install.sh')
+        self.assertIn("Invalid --port", script)
+        self.assertIn("Invalid --bind", script)
+
+
 class TestSudoersTemplates(unittest.TestCase):
     def test_templates_use_placeholder_not_a_real_user(self):
         for rel in ('sudoers-parental-controls',

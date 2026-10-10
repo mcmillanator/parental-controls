@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=@SERVICE_USER@
 WorkingDirectory=@APP_DIR@
-ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-serve --host=127.0.0.1 --port=5000 wsgi:application'
+ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-serve --host=@BIND_HOST@ --port=@BIND_PORT@ wsgi:application'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
