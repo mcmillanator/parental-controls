@@ -156,6 +156,33 @@ class TestMinutesUntilBedtime(unittest.TestCase):
                          '21:00-08:00')
 
 
+class TestFormat12h(unittest.TestCase):
+    """Clock times display 12-hour; storage stays 24h/ISO."""
+
+    def test_evening(self):
+        self.assertEqual(app.format_12h('21:00'), '9:00 PM')
+        self.assertEqual(app.format_12h('23:59'), '11:59 PM')
+
+    def test_morning(self):
+        self.assertEqual(app.format_12h('07:00'), '7:00 AM')
+        self.assertEqual(app.format_12h('00:30'), '12:30 AM')
+
+    def test_noon_midnight_edges(self):
+        self.assertEqual(app.format_12h('12:00'), '12:00 PM')
+        self.assertEqual(app.format_12h('12:30'), '12:30 PM')
+        self.assertEqual(app.format_12h('00:00'), '12:00 AM')
+
+    def test_datetime_input(self):
+        self.assertEqual(app.format_12h(datetime(2026, 10, 10, 21, 5)),
+                         '9:05 PM')
+
+    def test_empty_and_garbage_never_crash(self):
+        self.assertEqual(app.format_12h(''), '')
+        self.assertEqual(app.format_12h(None), '')
+        self.assertEqual(app.format_12h('bogus'), 'bogus')
+        self.assertEqual(app.format_12h('25:00'), '25:00')
+
+
 class TestBedtimeWarnedState(unittest.TestCase):
     """Full enforce_bedtime loop with fake now and a temp bedtime.json."""
 
@@ -205,6 +232,9 @@ class TestBedtimeWarnedState(unittest.TestCase):
         self.assertEqual(self.recorder.titles(), ['Bedtime in 15 minutes'])
         self.assertEqual(self.locks, [])
         self.assertEqual(self._entry()['warned_for'], '21:00-22:00')
+        bodies = [b for _, _, b in self.recorder.calls]
+        self.assertTrue(any('9:00 PM' in b for b in bodies), bodies)
+        self.assertFalse(any('21:00' in b for b in bodies), bodies)
 
         # A minute later: no repeat warning (60s loop must not spam).
         app.enforce_bedtime(MONDAY.replace(hour=20, minute=51))
@@ -217,6 +247,9 @@ class TestBedtimeWarnedState(unittest.TestCase):
         self.assertEqual(self.recorder.titles(),
                          ['Bedtime in 15 minutes', 'Locked for bedtime'])
         self.assertTrue(self._entry()['locked_by_bedtime'])
+        bodies = [b for _, _, b in self.recorder.calls]
+        self.assertTrue(any('10:00 PM' in b for b in bodies), bodies)
+        self.assertFalse(any('22:00' in b for b in bodies), bodies)
 
         # Still inside: no repeat lock, no repeat notification.
         app.enforce_bedtime(MONDAY.replace(hour=21, minute=31))

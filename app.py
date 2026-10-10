@@ -500,6 +500,31 @@ def _parse_hhmm(value):
     return None
 
 
+def format_12h(value):
+    """'21:00' -> '9:00 PM'; datetime -> same 12-hour form.
+
+    Display-only: storage, schedules, and API payloads stay 24h/ISO.
+    Empty -> ''; unparseable passes through unchanged (fail-open display:
+    a page must never crash on odd data).
+    """
+    if isinstance(value, datetime):
+        h, m = value.hour, value.minute
+    else:
+        if not value:
+            return ''
+        try:
+            h, m = [int(x) for x in str(value).strip().split(':')[:2]]
+        except (ValueError, TypeError):
+            return value
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return value
+    suffix = 'AM' if h < 12 else 'PM'
+    return f'{h % 12 or 12}:{m:02d} {suffix}'
+
+
+app.jinja_env.filters['twelve'] = format_12h
+
+
 def format_etime(etime):
     """Format ps ETIME (e.g. '21:47:19', '05:23', '1-02:03:04') as '21h 47m'.
 
@@ -719,12 +744,12 @@ def enforce_bedtime(now=None):
                     if bonus_expired_this_pass:
                         _safe_notify(username, 'Bonus time ended',
                                      f'The device unlocks at '
-                                     f'{entry.get("end")} '
+                                     f'{format_12h(entry.get("end"))} '
                                      'unless a parent changes it.')
                     else:
                         _safe_notify(username, 'Locked for bedtime',
                                      'Good night! The device unlocks at '
-                                     f'{entry.get("end")} '
+                                     f'{format_12h(entry.get("end"))} '
                                      'unless a parent changes it.')
         else:
             # Bedtime is over (or no valid schedule): a leftover bonus is
@@ -743,7 +768,7 @@ def enforce_bedtime(now=None):
             if (mins is not None and 0 < mins <= BEDTIME_WARN_MINUTES
                     and entry.get('warned_for') != window_id):
                 _safe_notify(username, 'Bedtime in 15 minutes',
-                             f'Bedtime starts at {entry.get("start")}. '
+                             f'Bedtime starts at {format_12h(entry.get("start"))}. '
                              'Finish up — the device will lock.')
                 entry['warned_for'] = window_id
                 changed = True
@@ -1105,7 +1130,7 @@ def api_bonus_grant():
     duration = format_bonus_minutes(minutes)
     _safe_notify(username, 'Bonus time granted',
                  f'{duration} — device stays unlocked until '
-                 f'{until.strftime("%H:%M")}.')
+                 f'{format_12h(until)}.')
     return jsonify({'success': True,
                     'message': f'Granted {duration} of bonus time',
                     'locked': False,
@@ -1151,7 +1176,7 @@ def api_bonus_revoke():
             locked_now = True
             _safe_notify(username, 'Locked for bedtime',
                          'Good night! The device unlocks at '
-                         f'{entry.get("end")} '
+                         f'{format_12h(entry.get("end"))} '
                          'unless a parent changes it.')
     return jsonify({'success': True, 'message': 'Bonus time revoked',
                     'locked': locked_now})
@@ -1258,7 +1283,7 @@ def api_bedtime_set():
                 save_bedtime(data)
                 _safe_notify(username, 'Locked for bedtime',
                              'Good night! The device unlocks at '
-                             f'{entry.get("end")} '
+                             f'{format_12h(entry.get("end"))} '
                              'unless a parent changes it.')
                 return jsonify({'success': True, 'message': 'Locked', 'locked': True})
         return jsonify({'success': True, 'message': 'Already locked by bedtime', 'locked': True})

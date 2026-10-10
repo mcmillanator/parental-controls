@@ -145,7 +145,7 @@
                 </td>
                 <td>
                     {% if user.bedtime and user.bedtime.start %}
-                        {{ user.bedtime.start }} – {{ user.bedtime.end }}
+                        {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }}
                         <br>
                         <span class="bedtime-summary">{% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
                     {% else %}
@@ -202,6 +202,18 @@
             }[c]));
         }
 
+        // '21:00' -> '9:00 PM'. Display-only mirror of the server's
+        // format_12h(); storage and API payloads stay 24h/ISO.
+        function fmt12(hhmm) {
+            if (!hhmm) return '';
+            const parts = String(hhmm).slice(0, 5).split(':');
+            const h = parseInt(parts[0], 10);
+            const m = parts.length > 1 ? parts[1] : '00';
+            if (isNaN(h) || h < 0 || h > 23) return hhmm;
+            const suffix = h < 12 ? 'AM' : 'PM';
+            return `${h % 12 || 12}:${m} ${suffix}`;
+        }
+
         function statusClass(locked) {
             return locked === true ? 'locked' : locked === false ? 'unlocked' : 'unknown';
         }
@@ -212,7 +224,7 @@
             let bedtimeCell;
             if (u.bedtime && u.bedtime.start) {
                 const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
-                bedtimeCell = `${esc(u.bedtime.start)} – ${esc(u.bedtime.end)}<br><span class="bedtime-summary">${esc(days)}</span>`;
+                bedtimeCell = `${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))}<br><span class="bedtime-summary">${esc(days)}</span>`;
             } else {
                 bedtimeCell = '<span class="bedtime-summary">Not set</span>';
             }

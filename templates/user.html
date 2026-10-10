@@ -138,7 +138,7 @@
     <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h3>Bedtime Settings</h3>
         {% if bedtime and bedtime.start %}
-        <p>Bedtime: {{ bedtime.start }} – {{ bedtime.end }}</p>
+        <p>Bedtime: {{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}</p>
         <p>Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
         {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
         {% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}
@@ -173,7 +173,7 @@
             <p id="bonus-status" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
                 {% if user.bonus and user.bonus.active %}
                 <span class="badge-bonus">Bonus active</span>
-                {{ user.bonus.remaining_minutes }} min left (until {{ user.bonus.until[11:16] }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
+                {{ user.bonus.remaining_minutes }} min left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
                 <button type="button" class="btn-lock" onclick="revokeBonus('{{ username }}')">Revoke</button>
                 {% else %}
                 No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
@@ -521,6 +521,18 @@
             }[c]));
         }
 
+        // '21:00' -> '9:00 PM'. Display-only mirror of the server's
+        // format_12h(); storage and API payloads stay 24h/ISO.
+        function fmt12(hhmm) {
+            if (!hhmm) return '';
+            const parts = String(hhmm).slice(0, 5).split(':');
+            const h = parseInt(parts[0], 10);
+            const m = parts.length > 1 ? parts[1] : '00';
+            if (isNaN(h) || h < 0 || h > 23) return hhmm;
+            const suffix = h < 12 ? 'AM' : 'PM';
+            return `${h % 12 || 12}:${m} ${suffix}`;
+        }
+
         function renderAccount(data) {
             const p = document.getElementById('account-status');
             if (!p) return;
@@ -649,7 +661,7 @@
             if (b && b.active) {
                 let html = '<span class="badge-bonus">Bonus active</span> ' +
                     esc(b.remaining_minutes) + ' min left' +
-                    (b.until ? ' (until ' + esc(b.until.slice(11, 16)) + ')' : '') +
+                    (b.until ? ' (until ' + esc(fmt12(b.until.slice(11, 16))) + ')' : '') +
                     (b.granted_by ? ', granted by ' + esc(b.granted_by) : '') +
                     `<button type="button" class="btn-lock" onclick="revokeBonus('${PAGE_USERNAME}')">Revoke</button>`;
                 el.innerHTML = html;
