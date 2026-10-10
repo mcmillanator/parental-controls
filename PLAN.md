@@ -39,8 +39,15 @@ as `stan` with passwordless root sudo — anything that can reach port 5000 can 
 account or kill any session.
 
 - [ ] Authentication / authorization: parent login with server-side sessions; child
-      accounts get no access to the UI or API
+      accounts get no access to the UI or API (design: `AUTH_DESIGN.md`)
+      - Two admin tiers: `wheel` members (may also use their system password via a
+        minimal PAM helper; **cannot be locked or removed**) and app-only admins
+        (**removable by wheel admins**; cannot act on wheel admins)
+      - Child accounts never authenticate — not even read-only
+      - CLI recovery command ships in the same change, so a lost password can never
+        lock a parent out of their own machine
 - [ ] Bind `127.0.0.1` by default, with an explicit opt-in flag for LAN access
+      (access via localhost + SSH tunnel; no TLS in MVP)
 - [ ] CSRF protection on every state-changing endpoint
 - [ ] Production WSGI server (gunicorn or waitress) replacing the Flask dev server
 - [ ] Systemd hardening for the service unit (`NoNewPrivileges`, `ProtectSystem=strict`,
