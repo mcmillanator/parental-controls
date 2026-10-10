@@ -155,6 +155,30 @@ class TestBonusEnforcement(_BedtimeFileMixin, unittest.TestCase):
         entry = self.read_bedtime()[KID]
         self.assertFalse(entry.get('locked_by_bedtime'))
 
+    def test_active_bonus_keeps_pre_warning(self):
+        # A bonus suppresses the lock only — the 15-min bedtime pre-warning
+        # still fires while the bonus runs (BONUS_TIME_PLAN.md §2).
+        soon = datetime(2026, 10, 10, 2, 50)  # 10 min before 03:00 window
+        entry = dict(BONUS,
+                     bonus_until=(soon + timedelta(minutes=30)).isoformat(),
+                     bonus_minutes=30, bonus_granted_by='qaadmin')
+        with mock.patch.object(app, 'run_lock_command',
+                               return_value=(True, 'OK')) as lock_cmd, \
+             mock.patch.object(app, 'get_lock_status',
+                               return_value=(False, 'unlocked')), \
+             mock.patch.object(app.budgets, 'is_admin_protected',
+                               return_value=False), \
+             mock.patch.object(app, '_safe_notify') as notify:
+            app.enforce_bedtime(now=soon)
+            self.write_bedtime({KID: entry})
+            app.enforce_bedtime(now=soon)
+        actions = [c.args[1] for c in lock_cmd.call_args_list if len(c.args) > 1]
+        self.assertNotIn('lock', actions)
+        self.assertNotIn('unlock', actions)
+        titles = [c.args[1] for c in notify.call_args_list]
+        self.assertIn('Bedtime in 15 minutes', titles,
+                      'pre-warning must still fire during an active bonus')
+
     def test_expired_bonus_relocks_in_window(self):
         lock_cmd, notify = self._enforce(
             IN_WINDOW,
