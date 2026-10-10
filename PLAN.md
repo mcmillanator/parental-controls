@@ -133,3 +133,5 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - [x] Per-category daily time budgets with cgroup-freezer pause, auto-resume at reset, manual Resume button
 - [x] Bedtime lock ownership: flag set when usermod succeeds regardless of terminate-user result (offline users auto-unlock correctly)
 - [x] Pre-lock warnings: 15-min bedtime warning + lock-time notice, budget low/pause warnings via notify-send (feature/notifications)
+- [x] Lock Screen targets graphical user sessions only (manager/tty sessions report "no lockable session" instead of failing)
+- [x] Unlocked accounts in bedtime show manual Lock/Lock Screen buttons (no dead-end disabled button)
