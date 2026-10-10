@@ -28,8 +28,7 @@ all green).
 - Bedtime save (`app.py:855-949`) preserves `locked_by_bedtime`, forces
   `manual_override=False`, and enforces immediately. Clear (`app.py:875-886`)
   deletes the entry and unlocks if `locked_by_bedtime`.
-- Account lock = `sudo usermod -L` (+ `loginctl terminate-user` for bedtime,
-  screen-lock only for `/api/lock`); unlock = `sudo usermod -U`
+- Account lock = `sudo usermod -L` + screen-lock of the user's graphical sessions (session always preserved; `loginctl terminate-user` lives ONLY in `/api/logout` emergency logout); unlock = `sudo usermod -U`
   (`run_lock_command`, `app.py:177-237`). No new privileged commands are needed.
 - Budget freezer (`budgets.py`) is orthogonal: cgroup freeze per app category,
   driven by `tick_budgets()` on the same 60s cadence. Bonus time must not touch it.

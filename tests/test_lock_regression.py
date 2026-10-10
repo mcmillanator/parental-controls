@@ -253,27 +253,55 @@ class TestUsermodShadowSemantics(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestRunLockCommandContract(unittest.TestCase):
-    def test_lock_reports_success_when_terminate_fails(self):
-        """Offline user: usermod succeeds, terminate-user fails.
+    GRAPHICAL = 'Type=wayland\nClass=user\n'
+
+    def _fake_full_stack(self, calls, sessions=''):
+        """Fake subprocess.run for the whole lock path: usermod -L,
+        show-user -> sessions, show-session -> graphical, lock-session ok."""
+        def fake(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ['sudo', 'usermod', '-L']:
+                return _result(0)
+            if 'show-user' in cmd:
+                return _result(0, stdout=sessions)
+            if 'show-session' in cmd:
+                return _result(0, stdout=self.GRAPHICAL)
+            return _result(0)
+        return fake
+
+    def test_lock_preserves_session_never_terminates(self):
+        """Lock = usermod -L + screen-lock; terminate-user never runs."""
+        calls = []
+        with mock.patch.object(app.subprocess, 'run',
+                               side_effect=self._fake_full_stack(
+                                   calls, sessions='21\n')):
+            success, message = app.run_lock_command(KID, 'lock')
+        self.assertTrue(success)
+        self.assertIn(['sudo', 'usermod', '-L', KID], calls)
+        self.assertTrue([c for c in calls if 'lock-session' in c])
+        self.assertFalse([c for c in calls if 'terminate-user' in c])
+
+    def test_lock_offline_user_still_succeeds(self):
+        """Offline user: usermod succeeds, no session to screen-lock.
         Lock ownership is usermod, so this must still be success."""
+        calls = []
+        with mock.patch.object(app.subprocess, 'run',
+                               side_effect=self._fake_full_stack(calls)):
+            success, message = app.run_lock_command(KID, 'lock')
+        self.assertTrue(success)
+        self.assertIn('no active session', message)
+        self.assertFalse([c for c in calls if 'terminate-user' in c])
+
+    def test_lock_screen_lock_failure_still_succeeds(self):
         with mock.patch.object(
             app.subprocess, 'run',
             side_effect=_run_side_effect([
-                _result(0), _result(1, stderr='not logged in'),
+                _result(0), _result(1, stderr='no sessions'),
             ]),
         ):
             success, message = app.run_lock_command(KID, 'lock')
         self.assertTrue(success)
-        self.assertIn('terminate', message)
-
-    def test_lock_terminate_timeout_still_succeeds(self):
-        with mock.patch.object(
-            app.subprocess, 'run',
-            side_effect=[_result(0), app.subprocess.TimeoutExpired('x', 15)],
-        ):
-            success, message = app.run_lock_command(KID, 'lock')
-        self.assertTrue(success)
-        self.assertIn('timed out', message)
+        self.assertIn('no active session', message)
 
     def test_lock_usermod_failure_fails_and_skips_terminate(self):
         calls = []
@@ -322,19 +350,27 @@ class TestRunLockCommandContract(unittest.TestCase):
         self.assertIn('Unknown action', message)
 
     def test_lock_and_unlock_use_sudo(self):
-        """Both must go through sudo -- running usermod unprivileged is
-        a silent no-op failure that looks like a broken button."""
-        for action, flag in (('lock', '-L'), ('unlock', '-U')):
-            calls = []
+        """All lock/unlock subprocess calls must go through sudo."""
+        calls = []
 
-            def fake(cmd, **kwargs):
-                calls.append(cmd)
-                return _result(0)
+        def fake(cmd, **kwargs):
+            calls.append(cmd)
+            if 'show-user' in cmd:
+                return _result(0, stdout='')
+            return _result(0)
 
-            with mock.patch.object(app.subprocess, 'run', side_effect=fake):
-                app.run_lock_command(KID, action)
-            self.assertEqual(calls[0][0], 'sudo')
-            self.assertIn(flag, calls[0])
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            app.run_lock_command(KID, 'lock')
+        self.assertTrue(calls)
+        self.assertEqual(calls[0][:2], ['sudo', 'usermod'])
+        self.assertIn('-L', calls[0])
+        for cmd in calls:
+            self.assertEqual(cmd[0], 'sudo')
+        calls.clear()
+        with mock.patch.object(app.subprocess, 'run', side_effect=fake):
+            app.run_lock_command(KID, 'unlock')
+        self.assertEqual(calls[0][0], 'sudo')
+        self.assertIn('-U', calls[0])
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +434,12 @@ class TestLockStatusReadBack(unittest.TestCase):
             elif cmd[:2] == ['sudo', 'passwd']:
                 status = 'L' if shadow.locked else 'P'
                 return _result(0, stdout=f'{KID} {status} 2026-10-06\n')
+            elif 'show-user' in cmd:
+                return _result(0, stdout='')
             elif 'terminate-user' in cmd:
-                return _result(0)
-            elif 'lock-session' in cmd or 'show-user' in cmd:
+                raise AssertionError(
+                    'terminate-user must never run on a lock path')
+            elif 'lock-session' in cmd or 'show-session' in cmd:
                 return _result(0, stdout='')
             return _result(0)
 
@@ -742,7 +781,7 @@ class TestLockEndpoints(_AdminSessionMixin, unittest.TestCase):
                                       data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
-        # must NOT terminate the session (that is Lock's documented job)
+        # must NOT terminate the session (only /api/logout terminates)
         self.assertFalse([c for c in calls if 'terminate-user' in c])
 
     def test_api_lock_screen_locks_the_account(self):
@@ -758,6 +797,8 @@ class TestLockEndpoints(_AdminSessionMixin, unittest.TestCase):
                                               data={'username': KID})
         self.assertEqual(resp.status_code, 200)
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
+        # screen-lock endpoint must also never terminate the session
+        self.assertFalse([c for c in calls if 'terminate-user' in c])
 
     def test_api_logout_locks_and_terminates(self):
         calls = []
