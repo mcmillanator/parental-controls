@@ -154,12 +154,8 @@
                 </td>
                 <td class="actions">
                     {% if user.locked != True %}
-                    {% if user.in_bedtime %}
-                    <button type="button" class="btn-lock" style="background: #6a4c93;" disabled>In Bedtime</button>
-                    {% else %}
                     <button type="button" class="btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
                     <button type="button" class="btn-screen-lock" onclick="lockScreenUser('{{ user.username }}')">Lock Screen</button>
-                    {% endif %}
                     {% endif %}
                     {% if user.locked == True %}
                     <button type="button" class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
@@ -223,12 +219,8 @@
             }
             let actions = '';
             if (u.locked !== true) {
-                if (u.in_bedtime) {
-                    actions += '<button type="button" class="btn-lock" style="background: #6a4c93;" disabled>In Bedtime</button>';
-                } else {
-                    actions += `<button type="button" class="btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
-                    actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${esc(u.username)}')">Lock Screen</button>`;
-                }
+                actions += `<button type="button" class="btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
+                actions += `<button type="button" class="btn-screen-lock" onclick="lockScreenUser('${esc(u.username)}')">Lock Screen</button>`;
             }
             if (u.locked === true) {
                 actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
