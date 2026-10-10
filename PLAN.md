@@ -39,7 +39,8 @@ as `stan` with passwordless root sudo — anything that can reach port 5000 can 
 account or kill any session.
 
 - [ ] Authentication / authorization: parent login with server-side sessions; child
-      accounts get no access to the UI or API (design: `AUTH_DESIGN.md`)
+      accounts get no access to the UI or API (design: `AUTH_DESIGN.md`, in progress:
+      `feature/mvp-auth`)
       - Two admin tiers, both authenticating with app passwords (system-password/PAM
         auth **rejected — no PAM helper in any version**): `wheel` members
         (**cannot be locked or removed**) and app-only admins (**removable by wheel
@@ -48,14 +49,17 @@ account or kill any session.
       - CLI recovery command ships in the same change, so a lost password can never
         lock a parent out of their own machine
 - [ ] Bind `127.0.0.1` by default, with an explicit opt-in flag for LAN access
-      (access via localhost + SSH tunnel; no TLS in MVP)
-- [ ] CSRF protection on every state-changing endpoint
+      (access via localhost + SSH tunnel; no TLS in MVP) — with MVP auth change
+- [ ] CSRF protection on every state-changing endpoint — with MVP auth change
 - [ ] Production WSGI server (gunicorn or waitress) replacing the Flask dev server
+      — with MVP auth change
 - [ ] Systemd hardening for the service unit (`NoNewPrivileges`, `ProtectSystem=strict`,
-      least-privilege sudoers review)
+      least-privilege sudoers review) — with MVP auth change
 - [ ] Watchdog on freezer state: detect and self-heal a stuck `cgroup.freeze=1`
       (a stuck freeze froze an entire desktop on 2026-10-09; it must self-heal)
-- [ ] Polished UI/UX, including responsive design via Bootstrap
+      — in progress: `feature/freezer-watchdog`
+- [ ] Polished UI/UX, including responsive design via Bootstrap — in progress:
+      `feature/bootstrap`
 
 ### Post-MVP phases
 Phase 3 (hardening, after MVP):
