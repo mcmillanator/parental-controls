@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parental Controls — {{ username }} Details</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -72,9 +73,25 @@
         .toast-error { background: #e94560; color: #fff; }
         .refresh-info { color: #666; font-size: 0.8rem; margin-top: 1rem; }
         .day-checkbox { margin-right: 0.5rem; }
+        /* Bootstrap dark-theme compatibility (minimal overrides, no behavior change) */
+        body { background: #1a1a2e; color: #e0e0e0; }
+        .table {
+            --bs-table-bg: #16213e;
+            --bs-table-striped-bg: #1a1a3e;
+            --bs-table-hover-bg: #1f2b50;
+            --bs-table-color: #e0e0e0;
+            --bs-table-border-color: #0f3460;
+            color: #e0e0e0;
+        }
+        .table thead th { background: #0f3460; color: #e0e0e0; }
+        .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .page-wrap { max-width: 1100px; margin: 0 auto; }
+        input[type="time"], input[type="number"] { max-width: 100%; }
+        @media (max-width: 576px) { body { padding: 1rem; } }
     </style>
 </head>
-<body>
+<body data-bs-theme="dark">
+    <div class="container-fluid page-wrap">
     <a href="/" class="back-link">← Back to Parental Controls</a>
 
     <h1>User: {{ username }}</h1>
@@ -172,7 +189,8 @@
     <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h2>Time Budgets</h2>
         <p style="color:#888; font-size:0.85rem;">Daily minutes per category — counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
-        <table>
+        <div class="table-responsive">
+        <table class="table table-dark table-striped table-hover align-middle mb-0">
             <thead>
                 <tr>
                     <th>Category</th>
@@ -202,6 +220,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 
     <!-- Processes -->
@@ -211,7 +230,8 @@
         {% for cat in categories %}
         {% if groups[cat] and groups[cat]|length > 0 %}
         <h3 style="margin-top: 1rem;">{{ category_labels[cat] }} ({{ groups[cat]|length }})</h3>
-        <table>
+        <div class="table-responsive">
+        <table class="table table-dark table-striped table-hover align-middle mb-0">
             <thead>
                 <tr>
                     <th>PID</th>
@@ -231,6 +251,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% endif %}
         {% endfor %}
         {% elif processes and processes|length > 0 and processes[0]|default('') != 'error' and (processes[0].error is defined) %}
@@ -243,7 +264,8 @@
             <button type="button" class="btn-show-hidden" onclick="document.getElementById('hidden-procs').style.display = document.getElementById('hidden-procs').style.display === 'none' ? 'block' : 'none';">Show hidden ({{ hidden|length }})</button>
         </p>
         <div id="hidden-procs" style="display: none;">
-            <table>
+            <div class="table-responsive">
+            <table class="table table-dark table-striped table-hover align-middle mb-0">
                 <thead>
                     <tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr>
                 </thead>
@@ -258,12 +280,14 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
         </div>
         {% endif %}
     </div>
     {% endif %}
 
     <p class="refresh-info">Status updates automatically every 10 seconds</p>
+    </div>
 
     <div id="toast"></div>
 
@@ -324,27 +348,27 @@
                 for (const cat of cats) {
                     const procs = data.groups[cat];
                     html += `<h3 style="margin-top: 1rem;">${esc(CATEGORY_LABELS[cat])} (${procs.length})</h3>` +
-                        '<table><thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
+                        '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0"><thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
                     for (const p of procs) {
                         html += `<tr><td>${esc(p.pid)}</td>` +
                             `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
                             `<td>${esc(p.elapsed)}</td>` +
                             `<td><button type="button" class="btn-hide" onclick="hideProc('${PAGE_USERNAME}', '${p.comm}')">Hide</button></td></tr>`;
                     }
-                    html += '</tbody></table>';
+                    html += '</tbody></table></div>';
                 }
             }
             if (data.hidden && data.hidden.length > 0) {
                 html += `<p style="margin-top: 1rem;"><button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden (${data.hidden.length})</button></p>` +
                     `<div id="hidden-procs" style="display: ${wasOpen ? 'block' : 'none'};">` +
-                    '<table><thead><tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
+                    '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0"><thead><tr><th>PID</th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
                 for (const p of data.hidden) {
                     html += `<tr><td>${esc(p.pid)}</td>` +
                         `<td><span class="process-name">${esc(p.comm)}</span> <span class="process-pid">(PID: ${esc(p.pid)})</span></td>` +
                         `<td>${esc((p.category && CATEGORY_LABELS[p.category]) || '—')}</td>` +
                         `<td><button type="button" class="btn-show-hidden" onclick="showProc('${PAGE_USERNAME}', '${p.comm}')">Show</button></td></tr>`;
                 }
-                html += '</tbody></table></div>';
+                html += '</tbody></table></div></div>';
             }
             section.innerHTML = html;
         }
