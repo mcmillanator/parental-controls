@@ -167,3 +167,25 @@ Check status with:
 systemctl status parental-controls.service
 systemctl list-timers parental-controls-enforce.timer
 ```
+
+## Testing
+
+Run the suite from the **checkout** (not the install dir) in the dev venv —
+system Python has no Flask:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```
+
+Notes:
+
+- Stdlib `unittest` only — no pytest. ~186 tests, roughly one minute.
+- Most tests are mocked/integration tests using the Flask test client, but a
+  few are **live**: `test_lock_usermod_real.py` creates a throwaway account,
+  really runs `usermod`/`loginctl` against it, and deletes it in teardown.
+  `bluefox`, `stan`, `tester` (and root) are forbidden targets — the live
+  tests fail rather than touch a real human account.
+- Live tests run via the same sudoers rules the app needs; they never talk to
+  the running service on `:5000`.
+- They're slow on purpose (every live test locks/unlocks the throwaway account
+  through the real stack).
