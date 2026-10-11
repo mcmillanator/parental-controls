@@ -27,4 +27,5 @@ bedtime.json
 budgets.json
 process_prefs.json
 auth.json
+audit.jsonl
 .auth-*

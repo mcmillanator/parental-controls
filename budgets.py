@@ -46,6 +46,8 @@ import shlex
 import subprocess
 from datetime import datetime
 
+import audit
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROCESS_PREFS_FILE = os.path.join(BASE_DIR, 'process_prefs.json')
 BUDGETS_FILE = os.path.join(BASE_DIR, 'budgets.json')
@@ -820,7 +822,7 @@ def blank_entry():
             'last_tick': None}
 
 
-def set_limit(username, category, minutes):
+def set_limit(username, category, minutes, actor='system'):
     """Set/clear a per-category daily budget. minutes<=0 clears the limit."""
     if not valid_username(username):
         return False, 'Invalid username'
@@ -842,13 +844,18 @@ def set_limit(username, category, minutes):
             save_budgets(data)
         except OSError as e:
             return False, str(e)
-        ok, msg = set_frozen(username, category, False)
+        ok, msg = set_frozen(username, category, False, actor=actor)
+        audit.safe_log(actor, 'budget.limit_cleared',
+                       f'{username}:{category}',
+                       {'ok': True, 'unfreeze': msg})
         return True, 'Limit cleared' + ('' if ok else f' (unfreeze: {msg})')
     entry['limits'][category] = minutes
     try:
         save_budgets(data)
     except OSError as e:
         return False, str(e)
+    audit.safe_log(actor, 'budget.set_limit', f'{username}:{category}',
+                   {'minutes': minutes})
     return True, 'OK'
 
 
@@ -957,8 +964,11 @@ def read_freeze(username, category):
     return content.strip() == '1'
 
 
-def set_frozen(username, category, frozen):
-    """Freeze (True) or thaw (False) a category cgroup; verify by readback."""
+def set_frozen(username, category, frozen, actor='system'):
+    """Freeze (True) or thaw (False) a category cgroup; verify by readback.
+
+    The audit hook is best-effort and can never fail the freeze itself.
+    """
     try:
         path = os.path.join(cgroup_path(username, category), 'cgroup.freeze')
     except ValueError as e:
@@ -969,15 +979,33 @@ def set_frozen(username, category, frozen):
             if not ok:
                 return False, msg
         else:
+            audit.safe_log(actor, 'budget.thaw', f'{username}:{category}',
+                           {'ok': True, 'note': 'no cgroup (already unfrozen)',
+                            'frozen': False})
             return True, 'no cgroup (already unfrozen)'
     ok, msg = _sudo_write_file(path, '1' if frozen else '0')
     if not ok:
+        audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
+                       f'{username}:{category}',
+                       {'ok': False, 'error': msg, 'frozen': bool(frozen)})
         return False, msg
     state = read_freeze(username, category)
     if state is None:
+        audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
+                       f'{username}:{category}',
+                       {'ok': False, 'error': 'could not verify freeze state',
+                        'frozen': bool(frozen)})
         return False, 'could not verify freeze state'
     if state != bool(frozen):
+        audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
+                       f'{username}:{category}',
+                       {'ok': False,
+                        'error': 'freeze state mismatch after write',
+                        'frozen': bool(frozen)})
         return False, 'freeze state mismatch after write'
+    audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
+                   f'{username}:{category}',
+                   {'ok': True, 'frozen': bool(frozen)})
     return True, ''
 
 
@@ -1008,7 +1036,7 @@ def migrate_pid(username, category, pid):
     return _sudo_write_file(path, str(int(pid)))
 
 
-def unfreeze_all_user(username):
+def unfreeze_all_user(username, actor='system'):
     """Thaw every parental-<username>-* cgroup. Only our own name pattern."""
     if not valid_username(username):
         return False, 'Invalid username'
@@ -1024,8 +1052,10 @@ def unfreeze_all_user(username):
         category = name[len(prefix):]
         if not valid_category(category):
             continue
-        ok, msg = set_frozen(username, category, False)
+        ok, msg = set_frozen(username, category, False, actor=actor)
         results.append((category, ok, msg))
+    audit.safe_log(actor, 'budget.unfreeze_all', username,
+                   {'thawed': [c for c, ok, _m in results if ok]})
     return True, results
 
 
@@ -1539,13 +1569,13 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     return summaries
 
 
-def resume_category(username, category):
+def resume_category(username, category, actor='system'):
     """Manual Resume: unfreeze and inhibit re-freeze until the next reset."""
     if not valid_username(username):
         return False, 'Invalid username'
     if not valid_category(category):
         return False, f'Unknown category: {category}'
-    ok, msg = set_frozen(username, category, False)
+    ok, msg = set_frozen(username, category, False, actor=actor)
     if not ok:
         return False, msg
     try:
@@ -1556,6 +1586,8 @@ def resume_category(username, category):
         save_budgets(data)
     except OSError as e:
         return False, str(e)
+    audit.safe_log(actor, 'budget.resume', f'{username}:{category}',
+                   {'ok': True})
     return True, 'Resumed; will not re-pause until the next reset'
 
 

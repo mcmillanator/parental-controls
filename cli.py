@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import auth  # noqa: E402
+import audit  # noqa: E402
 import budgets  # noqa: E402
 
 
@@ -54,6 +55,8 @@ def cmd_unlock(args):
         print(f'usermod -U failed: {result.stderr.strip() or "failed"}',
               file=sys.stderr)
         raise SystemExit(1)
+    audit.safe_log('cli:unlock', 'account.unlock', username,
+                   {'success': True})
     print(f'{username} unlocked.')
 
 
@@ -84,11 +87,15 @@ def cmd_unfreeze_all(args):
                 break
         if user is None:
             continue
-        ok, msg = budgets.set_frozen(user, cat, False)
+        ok, msg = budgets.set_frozen(user, cat, False,
+                                       actor='cli:unfreeze-all')
         if ok:
             count += 1
         else:
             failures.append(f'{name}: {msg}')
+    audit.safe_log('cli:unfreeze-all', 'budget.unfreeze_all', '',
+                   {'success': not failures, 'thawed': count,
+                    'failures': failures})
     print(f'Thawed {count} cgroup(s).')
     for f in failures:
         print(f'FAILED: {f}', file=sys.stderr)
@@ -112,6 +119,8 @@ def cmd_reset_password(args):
     row['locked'] = False
     row['must_change'] = True
     _save(store)
+    audit.safe_log('cli:reset-password', 'admin.reset_password', username,
+                   {'success': True})
     print(f'New app password for {username!r}: {generated}')
     print('Shown ONCE. It must be changed at first login.')
 
@@ -150,6 +159,8 @@ def cmd_add_admin(args):
         'locked': False,
     }
     _save(store)
+    audit.safe_log('cli:add-admin', 'admin.add', username,
+                   {'success': True, 'tier': tier})
     print(f'Admin {username!r} created (tier: {tier}).')
     print(f'App password: {generated}')
     print('Shown ONCE. It must be changed at first login.')
@@ -167,6 +178,8 @@ def cmd_remove_admin(args):
         raise SystemExit(1)
     del store['users'][username]
     _save(store)
+    audit.safe_log('cli:remove-admin', 'admin.remove', username,
+                   {'success': True})
     print(f'Admin {username!r} removed.')
 
 
@@ -184,6 +197,8 @@ def cmd_lock_admin(args):
         raise SystemExit(1)
     row['locked'] = True
     _save(store)
+    audit.safe_log('cli:lock-admin', 'admin.lock', username,
+                   {'success': True})
     print(f'Admin {username!r} login locked.')
 
 

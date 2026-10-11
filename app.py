@@ -21,6 +21,7 @@ from flask import (Flask, render_template, request, jsonify, redirect,
                    url_for, g, make_response)
 
 import auth
+import audit
 import budgets
 
 app = Flask(__name__)
@@ -189,10 +190,16 @@ def _session_supports_lock(session_id):
             and props.get('Type') in ('wayland', 'x11'))
 
 
-def run_lock_command(username, action):
+def run_lock_command(username, action, actor=None):
     """Run lock or unlock commands for a user.
 
     Returns (success, message).
+
+    `actor` overrides the audit actor; when omitted it resolves to the
+    logged-in admin inside requests and 'system' elsewhere (so web UI
+    and enforcement/timer paths share this helper without the caller
+    threading identity through). The audit write is best-effort and
+    can never change the returned outcome.
 
     For 'lock', account ownership (usermod -L) is what success reflects,
     and the session is ALWAYS preserved: after locking the account the
@@ -209,6 +216,16 @@ def run_lock_command(username, action):
     is governed by the budgets cgroup freezer instead; the account lock
     itself still blocks all new authentication at the PAM layer.
     """
+    act = actor or _req_actor()
+    audit_action = ('account.lock' if action == 'lock'
+                    else 'account.unlock' if action == 'unlock'
+                    else 'account.unknown')
+
+    def _done(success, message):
+        _safe_audit(act, audit_action, username,
+                    {'success': success, 'message': message})
+        return success, message
+
     if action == 'lock':
         try:
             result = subprocess.run(
@@ -216,12 +233,12 @@ def run_lock_command(username, action):
                 capture_output=True, text=True, timeout=15
             )
             if result.returncode != 0:
-                return False, (f'sudo usermod -L {username}: '
-                               f'{result.stderr.strip() or "failed"}')
+                return _done(False, (f'sudo usermod -L {username}: '
+                               f'{result.stderr.strip() or "failed"}'))
         except subprocess.TimeoutExpired:
-            return False, f'sudo usermod -L {username}: timed out'
+            return _done(False, f'sudo usermod -L {username}: timed out')
         except Exception as e:
-            return False, f'sudo usermod -L {username}: {e}'
+            return _done(False, f'sudo usermod -L {username}: {e}')
         # Screen-lock the user's sessions (best-effort, never raises).
         # This deliberately never calls terminate-user: locking must not
         # log the user out.
@@ -229,13 +246,13 @@ def run_lock_command(username, action):
             screen_msg = lock_user_sessions(username)
         except Exception as e:
             screen_msg = f'screen lock error: {e}'
-        return True, f'OK ({screen_msg})'
+        return _done(True, f'OK ({screen_msg})')
     elif action == 'unlock':
         cmds = [
             ['sudo', 'usermod', '-U', username],
         ]
     else:
-        return False, f'Unknown action: {action}'
+        return _done(False, f'Unknown action: {action}')
 
     errors = []
     for cmd in cmds:
@@ -253,8 +270,8 @@ def run_lock_command(username, action):
             errors.append(f'{" ".join(cmd)}: {e}')
 
     if errors:
-        return False, '; '.join(errors)
-    return True, 'OK'
+        return _done(False, '; '.join(errors))
+    return _done(True, 'OK')
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +294,7 @@ def save_bedtime(data):
         json.dump(data, f, indent=2)
 
 
-def note_manual_unlock(username):
+def note_manual_unlock(username, actor=None):
     """Record a manual unlock for bedtime bookkeeping.
 
     Clears bedtime ownership and, if the user is currently in bedtime,
@@ -294,6 +311,8 @@ def note_manual_unlock(username):
             save_bedtime(data)
     except OSError:
         pass
+    _safe_audit(actor or _req_actor(), 'bedtime.manual_unlock', username,
+                {'success': True})
 
 
 def clear_manual_override(username):
@@ -404,6 +423,9 @@ def note_bonus_grant(username, minutes, grantor=None, now=None):
     data = load_bedtime()
     entry = data.get(username)
     if entry is None:
+        _safe_audit(grantor or _req_actor(), 'bonus.grant', username,
+                    {'success': False, 'minutes': minutes,
+                     'error': 'no bedtime entry'})
         return None
     until, kind = compute_bonus_until(entry, minutes, now)
     entry['bonus_until'] = until.isoformat(timespec='seconds')
@@ -415,6 +437,9 @@ def note_bonus_grant(username, minutes, grantor=None, now=None):
     _append_bonus_history(entry, kind, minutes, entry['bonus_until'],
                           entry['bonus_granted_by'])
     save_bedtime(data)
+    _safe_audit(grantor or _req_actor(), 'bonus.grant', username,
+                {'success': True, 'minutes': minutes,
+                 'until': entry['bonus_until'], 'kind': kind})
     return until
 
 
@@ -423,11 +448,15 @@ def note_bonus_revoke(username, by=None):
     data = load_bedtime()
     entry = data.get(username)
     if entry is None or _parse_bonus_until(entry) is None:
+        _safe_audit(by or _req_actor(), 'bonus.revoke', username,
+                    {'success': False, 'error': 'no active bonus time'})
         return False
     _append_bonus_history(entry, 'revoke', entry.get('bonus_minutes'),
                           entry.get('bonus_until'), by or 'admin')
     _drop_bonus_keys(entry)
     save_bedtime(data)
+    _safe_audit(by or _req_actor(), 'bonus.revoke', username,
+                {'success': True})
     return True
 
 
@@ -450,7 +479,7 @@ def bonus_state(entry, now=None):
     }
 
 
-def note_manual_lock(username):
+def note_manual_lock(username, actor=None):
     """Record a manual (parent-issued) lock for bedtime bookkeeping.
 
     A manual lock transfers ownership away from bedtime: it clears
@@ -471,6 +500,8 @@ def note_manual_lock(username):
         data = load_bedtime()
         entry = data.get(username)
         if entry is None:
+            _safe_audit(actor or _req_actor(), 'bedtime.manual_lock',
+                        username, {'success': True, 'note': 'no bedtime entry'})
             return
         changed = False
         if entry.get('locked_by_bedtime'):
@@ -491,6 +522,8 @@ def note_manual_lock(username):
             save_bedtime(data)
     except OSError:
         pass
+    _safe_audit(actor or _req_actor(), 'bedtime.manual_lock', username,
+                {'success': True})
 
 
 def _parse_hhmm(value):
@@ -648,6 +681,28 @@ def _safe_notify(username, title, body):
         notify_user(username, title, body)
     except Exception as e:
         print(f'notify (suppressed): {e}')
+
+
+def _req_actor():
+    """Actor name for audit entries: the logged-in admin in requests,
+    'system' everywhere else (timer loops, direct helper calls).
+
+    Never raises: accessing `g` outside an app/request context raises
+    RuntimeError, which falls back to 'system'.
+    """
+    try:
+        return getattr(g, 'admin', 'system') or 'system'
+    except Exception:
+        return 'system'
+
+
+def _safe_audit(actor, action, target='', detail=None):
+    """audit.safe_log that can never raise (mirrors _safe_notify: audit
+    is additive — a logging failure must never break a lock/unlock)."""
+    try:
+        audit.safe_log(actor, action, target, detail)
+    except Exception as e:
+        print(f'audit (suppressed): {e}')
 
 
 def bedtime_window_id(entry):
@@ -1015,8 +1070,14 @@ def api_lock():
         )
         if result.returncode != 0:
                 msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+                _safe_audit(_req_actor(), 'account.lock', username,
+                            {'success': False, 'message': msg,
+                             'via': 'api_lock'})
                 return jsonify({'success': False, 'message': msg}), 400
     except Exception as e:
+        _safe_audit(_req_actor(), 'account.lock', username,
+                    {'success': False, 'message': 'usermod -L error: ' + str(e),
+                     'via': 'api_lock'})
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
     # A manual lock takes ownership away from bedtime so the bedtime
@@ -1026,6 +1087,9 @@ def api_lock():
     # Lock the screen without terminating the session
     screen_msg = lock_user_sessions(username)
 
+    _safe_audit(_req_actor(), 'account.lock', username,
+                {'success': True, 'message': f'OK ({screen_msg})',
+                 'via': 'api_lock'})
     return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
 
 
@@ -1057,8 +1121,14 @@ def api_lock_screen():
         )
         if result.returncode != 0:
                 msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+                _safe_audit(_req_actor(), 'account.lock', username,
+                            {'success': False, 'message': msg,
+                             'via': 'api_lock_screen'})
                 return jsonify({'success': False, 'message': msg}), 400
     except Exception as e:
+        _safe_audit(_req_actor(), 'account.lock', username,
+                    {'success': False, 'message': 'usermod -L error: ' + str(e),
+                     'via': 'api_lock_screen'})
         return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
 
     # A manual lock takes ownership away from bedtime so the bedtime
@@ -1068,6 +1138,9 @@ def api_lock_screen():
     # Lock the screen without terminating the session
     screen_msg = lock_user_sessions(username)
 
+    _safe_audit(_req_actor(), 'account.lock', username,
+                {'success': True, 'message': f'OK ({screen_msg})',
+                 'via': 'api_lock_screen'})
     return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
 
 
@@ -1228,6 +1301,8 @@ def api_bedtime_set():
         if username in data:
             del data[username]
             save_bedtime(data)
+        _safe_audit(_req_actor(), 'bedtime.clear', username,
+                    {'success': True})
         if existing.get('locked_by_bedtime'):
             success, message = run_lock_command(username, 'unlock')
             if not success:
@@ -1269,6 +1344,8 @@ def api_bedtime_set():
         if key in existing:
             data[username][key] = existing[key]
     save_bedtime(data)
+    _safe_audit(_req_actor(), 'bedtime.set', username,
+                {'success': True, 'start': start, 'end': end, 'days': days})
 
     # Immediately enforce the new bedtime for this user
     entry = data[username]
@@ -1340,8 +1417,14 @@ def api_logout():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode != 0:
+            _safe_audit(_req_actor(), 'account.logout', username,
+                        {'success': False,
+                         'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')})
             return jsonify({'success': False, 'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')}), 400
     except Exception as e:
+        _safe_audit(_req_actor(), 'account.logout', username,
+                    {'success': False,
+                     'message': 'usermod -L error: ' + str(e)})
         return jsonify({'success': False, 'message': 'usermod -L error: ' + str(e)}), 400
 
     # A manual lock takes ownership away from bedtime so the bedtime
@@ -1355,10 +1438,17 @@ def api_logout():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode != 0:
+            _safe_audit(_req_actor(), 'account.logout', username,
+                        {'success': False,
+                         'message': 'loginctl terminate-user: ' + (result.stderr.strip() or 'failed')})
             return jsonify({'success': False, 'message': 'loginctl terminate-user: ' + (result.stderr.strip() or 'failed')}), 400
     except Exception as e:
+        _safe_audit(_req_actor(), 'account.logout', username,
+                    {'success': False,
+                     'message': 'loginctl terminate-user error: ' + str(e)})
         return jsonify({'success': False, 'message': 'loginctl terminate-user error: ' + str(e)}), 400
 
+    _safe_audit(_req_actor(), 'account.logout', username, {'success': True})
     return jsonify({'success': True, 'message': 'Session terminated. User logged out.'})
 
 
@@ -1399,7 +1489,8 @@ def api_budgets_set():
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
     if not minutes:
         minutes = 0
-    ok, msg = budgets.set_limit(username, category, minutes)
+    ok, msg = budgets.set_limit(username, category, minutes,
+                                actor=_req_actor())
     if not ok:
         return jsonify({'success': False, 'error': msg}), 400
     return jsonify({'success': True, 'message': msg})
@@ -1415,7 +1506,8 @@ def api_budgets_resume():
         return jsonify({'success': False, 'error': 'No username provided'}), 400
     if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
-    ok, msg = budgets.resume_category(username, category)
+    ok, msg = budgets.resume_category(username, category,
+                                      actor=_req_actor())
     if not ok:
         return jsonify({'success': False, 'error': msg}), 400
     return jsonify({'success': True, 'message': msg})
@@ -1792,6 +1884,7 @@ def api_admins_add():
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
+    _safe_audit(_req_actor(), 'admin.add', username, {'success': True})
     return jsonify({'success': True,
                     'message': f'Admin {username} created. This password is '
                                'shown ONCE and must be changed at first login.',
@@ -1833,8 +1926,27 @@ def api_admins_remove():
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
+    _safe_audit(_req_actor(), 'admin.remove', username, {'success': True})
     return jsonify({'success': True,
                     'message': f'Admin {username} removed.'})
+
+
+@app.route('/api/audit')
+@require_admin
+def api_audit():
+    """Read the tamper-evident audit log (newest first) + chain status.
+
+    Query param: limit=N (default 100, capped at 1000).
+    """
+    try:
+        limit = int(request.args.get('limit', '100'))
+    except (TypeError, ValueError):
+        limit = 100
+    limit = max(1, min(limit, 1000))
+    entries = audit.read_entries(limit=limit)
+    ok, bad_seq = audit.verify_chain()
+    return jsonify({'success': True, 'entries': entries,
+                    'chain_ok': ok, 'bad_seq': bad_seq, 'limit': limit})
 
 
 if __name__ == '__main__':
