@@ -1,8 +1,17 @@
 # QA Report — Lock / Unlock core mechanisms
 
-Branch: `qa/lock-unlock`
+Branch: `qa/lock-unlock` (merged to `master`)
 Scope: the product's two core functions (lock, screen-lock, unlock, logout, and
 the bedtime/timer enforcement paths that drive them).
+
+> **Release-1.0 refresh (2026-10-10, docs only).** The findings below stand. What
+> changed since the original run: the lock-logs-out regression was fixed so *all*
+> lock paths preserve the session (`921ea54`), app-only admin auth + CSRF shipped
+> (`feature/mvp-auth`), and the notification sudo grant is now deployed and
+> reached through `sudo` (`98b2cfd`, `24fb669`). Remaining-risk items 5 and 6
+> below record those closures; item 7 is the one live gap they leave behind.
+> The physical-machine checks above and the suite counts still describe the
+> state of the original run unless explicitly re-dated.
 
 ## Summary
 
@@ -90,9 +99,10 @@ Confirmed two ways:
 via `loginctl show-user <u> -p Sessions --value` first, then locks exactly those.
 Best-effort and never raises — a failed screen lock must not fail the account lock.
 
-**Note:** this makes screen-lock depend on a sudoers rule that is **not currently
-installed**, so screen lock will be a no-op until it is added (see Remaining
-risk #1). The account lock is unaffected.
+**Note:** this made screen-lock depend on sudoers rules that were **not installed**
+at the time of this run, so screen lock was a no-op until they were added and
+deployed (both are done now — see Remaining risk #1; the account lock was never
+affected).
 
 ## Root cause 3 (found while testing): leading-dash username injection
 
@@ -151,7 +161,9 @@ via `su -`. Creates and deletes its own throwaway account; never touches
 `tester`/`stan`/`bluefox`/root/PID 1; never calls `terminate-user`,
 `lock-session` or `kill`; skips itself without privileges.
 
-**Full suite: 122 tests, all green (was 61).**
+**Full suite: 122 tests, all green (was 61)** — the counts at the time of this
+run. The suite has grown substantially since (`tests/`, 13 files, 300+ test
+methods); those later runs are not re-verified in this report.
 
 I confirmed the tests actually catch the bugs by reverting each fix in turn:
 
@@ -191,9 +203,12 @@ here. The account-level mechanism is proven; the **greeter/session** half is not
 Please run these as the parent, at the machine:
 
 1. **Screen lock (the fix's main user-visible change).**
-   Child logged in and at the desktop. Click **Lock Screen** for the child.
-   - Expected: the **child's** screen locks. Your own screen must stay unlocked.
+   Child logged in and at the desktop. Click **Lock** for the child.
+   - Expected: the account locks (status column reads Locked) **and the
+     child's** screen locks. Your own screen must stay unlocked.
    - Before the fix your screen would lock instead and the child stayed live.
+   - There is no separate "Lock Screen" button any more — the button was
+     removed once Lock was confirmed to do both.
 
 2. **Locked account cannot log back in (the critical report).**
    - Click **Lock** for the child. Confirm the status column reads Locked.
@@ -209,29 +224,31 @@ Please run these as the parent, at the machine:
      change — previously the manual lock was silently reverted here.
    - To get bedtime's automatic unlock back, unlock manually or clear the schedule.
 
-4. **Lock and Lock Screen both preserve the session.**
-   **Lock Screen** and **Lock** both lock the account (`usermod -L`) and
-   screen-lock the child's graphical sessions; the child stays logged in
-   with apps running. Only **Emergency logout** (`/api/logout`)
-   terminates the child's session. (Corrected 2026-10-10: this item
-   previously said Lock must terminate; that was the lock-logs-out
-   regression.)
-   **Lock Screen** must leave the child logged in (screen locked, session alive).
-   **Lock** must do the same (account locked + screen locked, session alive).
-   Only **Emergency logout** terminates the session.
+4. **All lock paths preserve the session.**
+   Every lock path — the **Lock** button, the `/api/lock-screen` endpoint, the
+   bedtime auto-lock, the enforce-on-bedtime-save path, and bonus
+   grant/revoke/expiry — does `usermod -L` and then screen-locks the child's
+   graphical sessions. The child stays logged in with apps running; the account
+   simply cannot authenticate again.
+   Only **Emergency logout** (`/api/logout`) runs `loginctl terminate-user` and
+   ends the sessions. (Updated 2026-10-10: an earlier draft of this item said
+   "Lock must terminate the session"; that was the lock-logs-out regression,
+   fixed in `921ea54`.) The UI has a single **Lock** button, which performs the
+   account lock and the screen lock together.
 
 5. **Wheel-admin protection still holds.**
    A `wheel` member must never be auto-locked by bedtime.
 
-## Remaining risks / follow-ups (not fixed here)
+## Remaining risks / follow-ups
 
-1. **RESOLVED — sudoers templates now cover the screen-lock commands.**
+1. **RESOLVED — sudoers cover the screen-lock commands, and they are deployed.**
     The `sudoers-parental-controls` template in this repo permits
     `loginctl show-user *`, `loginctl lock-session *` and
     `loginctl show-session *` (sbin + bin paths, pinned by
-    `tests/test_deployment.py::TestSudoersTemplates`), so screen lock is
-    authorized once rendered by `install.sh`. Production `/etc/sudoers.d/`
-    was NOT touched — it is security-sensitive. Original report kept below:
+    `tests/test_deployment.py::TestSudoersTemplates`), and `sudo ./install.sh`
+    has rendered them into `/etc/sudoers.d/parental-controls` (visudo-validated).
+    Screen lock is authorized on a correctly-scoped box. Original report kept
+    below:
 
     Original report: `/etc/sudoers.d/parental-controls` previously permitted only
    `usermod -L *`, `usermod -U *` and `loginctl terminate-user *`.
@@ -251,11 +268,10 @@ Please run these as the parent, at the machine:
    returns a short note and never raises, and the **account lock still works**
    either way. Only the screen lock is affected.
 
-   Note this gap is currently invisible on this box because
+   Note this gap was invisible on this box because
    `/etc/sudoers.d/stan-nopasswd` grants stan `NOPASSWD: ALL`, which masks
-   every sudoers restriction. That rule should be reviewed separately — it is
-   effectively "the app's user can be root with no password for anything",
-   which defeats least-privilege sudoers entirely.
+   every sudoers restriction. That blanket rule is **still in place** and is
+   tracked as its own open item (item 7 below).
 
 2. **Lock does not kill processes.** `usermod -L` prevents *authentication*; it
    does not stop an already-running session or its processes. Since the
@@ -274,28 +290,45 @@ Please run these as the parent, at the machine:
    the window but does not eliminate the race. Atomic writes / SQLite are already
    tracked in PLAN.md Phase 4.
 
-5. **No authentication on the app** — pre-existing MVP gate item, unrelated to
-   this work, but it means anyone reaching port 5000 can drive these endpoints.
+5. **RESOLVED — authentication now ships.** This was a pre-existing MVP gate item:
+   at the time of this QA run anyone reaching port 5000 could drive these endpoints.
+   Every page and `/api/*` route now requires an admin session
+   (`feature/mvp-auth`, design in `AUTH_DESIGN.md`), with CSRF on every
+   state-changing request and a localhost-only bind by default.
 
-6. **Notifications were unauthorized under scoped sudoers — template fixed,
-   deploy still pending.** `notify_user()` reaches the child's session via
-   `systemd-run --machine=<user>@.host --user notify-send -u critical …`, and the
+6. **Notifications under scoped sudoers — RESOLVED, deployed (2026-10-10).**
+   `notify_user()` reaches the child's session via
+   `systemd-run --machine=<user>@.host --user notify-send -u critical ...`, and the
    machine transport needs root to open the *system* bus. `sudoers-parental-controls`
-   now grants exactly that, nothing more:
+   grants exactly that, nothing more:
 
    ```
-   stan ALL=(root) NOPASSWD: /usr/sbin/systemd-run --machine=*@.host --user notify-send -u critical * *, /usr/bin/systemd-run --machine=*@.host --user notify-send -u critical * *
+   @SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/systemd-run --machine=*@.host --user notify-send -u critical * *, /usr/bin/systemd-run --machine=*@.host --user notify-send -u critical * *
    ```
 
    Pinned by `tests/test_deployment.py::TestSudoersTemplates` (grant present,
    scoped, matches the argv `notify_user()` really runs, authorizes nothing
-   else, every granted binary exists). Two follow-ups:
-   - `/etc/sudoers.d/parental-controls` was **not** modified here; the rule only
-     takes effect on the next `sudo ./install.sh`.
-   - The rule authorizes the `systemd-run …` command, so it applies when the
-     service reaches it *through sudo*. `notify_user()` still calls `systemd-run`
-     directly (every other privileged call in `app.py` is `['sudo', …]`), which
-     polkit denies with "Failed to connect to system scope bus via machine
-     transport: Permission denied". Until that call is prefixed with `sudo`,
-     warnings stay best-effort no-ops — and the gap stays masked on this box by
-     `/etc/sudoers.d/stan-nopasswd` (stan has blanket `NOPASSWD: ALL`, see item 1).
+   else, every granted binary exists). Both original follow-ups are now closed:
+   - **Deploy pending — DONE.** `sudo ./install.sh` rendered the rule into
+     `/etc/sudoers.d/parental-controls` (validated with `visudo -c`).
+   - **sudo prefix missing — DONE** (`24fb669`). `notify_user()` now runs
+     `['sudo', 'systemd-run', ...]`, like every other privileged call in the app,
+     so the grant actually applies. Without the prefix polkit refused with
+     "Failed to connect to system scope bus via machine transport: Permission
+     denied" and warnings stayed silent no-ops.
+
+   Verified working under scoped sudoers. Warnings remain best-effort by design:
+   a failed notification never blocks a lock, and an offline user simply gets
+   nothing.
+
+7. **Open: blanket passwordless sudo still masks every scoped rule.** On this
+   machine the service account keeps a blanket `NOPASSWD: ALL` rule
+   (`/etc/sudoers.d/stan-nopasswd`), which overrides the scoped
+   `/etc/sudoers.d/parental-controls*` rules. Consequence: the least-privilege
+   story above cannot be *verified in practice* on this box — a bug that ran the
+   wrong command would still succeed. Retiring the blanket rule is tracked as a
+   sudo audit (`PLAN.md` Phase 3); it is the single most valuable hardening item
+   left before this runs on someone else's machine.
+
+8. **Open: multi-writer state files.** See item 4 above — no file locking between
+   the web app, its 60s thread and the enforce timer.
