@@ -149,20 +149,27 @@ sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST] [--port PORT]
 
 The app is **staged into a system path** so the deployed systemd units never
 reference the checkout (e.g. a home directory). Defaults: install dir =
-`/opt/parental-controls`, service user = the invoking sudo user,
-bind = `127.0.0.1:5000`, no firewall change. What it does:
+`/opt/parental-controls`, service user = `parental-controls` (a dedicated
+system account — nologin shell, no home, locked password — created by the
+installer when missing; override with `--user USER`), bind =
+`127.0.0.1:5000`, no firewall change. What it does:
 
-1. Stages a copy of the app into the install dir (code only; existing runtime
+1. Creates the `parental-controls` service user when missing (idempotent;
+   an existing account is left untouched — migration never resets it)
+2. Stages a copy of the app into the install dir (code only; existing runtime
    state is preserved, and a first run seeds `*.json` state from the checkout)
-2. Creates the venv and installs `requirements.txt` (as the service user)
-3. Renders `systemd/*.service|timer` against the install dir and installs them
-4. Renders both `sudoers-*` files and installs to `/etc/sudoers.d/` (validated
+3. Creates the venv and installs `requirements.txt` (as the service user,
+   with `HOME`/`XDG_CACHE_HOME` pointed at an owned dir — the account is
+   intentionally homeless)
+4. Renders `systemd/*.service|timer` against the install dir and installs them
+5. Renders both `sudoers-*` files and installs to `/etc/sudoers.d/` (validated
    with `visudo -c`)
-5. Creates `/etc/parental-controls` (0700, owned by the service user) for the
+6. Creates `/etc/parental-controls` (0700, owned by the service user) for the
    auth store
-6. Opens `PORT/tcp` in the default firewalld zone — only with `--open-firewall`
-7. Enables + starts the app service and the enforcement timer
-8. Verifies: service active, `GET /` returns the login redirect
+7. Opens `PORT/tcp` in the default firewalld zone — only with `--open-firewall`
+8. Enables + starts the app service and the enforcement timer
+9. Verifies: service active as the service user (`User=`), auth store owned
+   and writable by it, `GET /` returns the login redirect
 
 `--bind`/`--port` render into the service unit (`--bind 0.0.0.0` listens on
 all interfaces). A non-localhost bind prints a warning: the MVP has no TLS,

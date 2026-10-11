@@ -23,6 +23,11 @@ verified running on: **Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44
 - **Lock mechanism**: `sudo usermod -L <user>` + screen-lock of the user's graphical sessions (`loginctl lock-session`, session preserved). Every lock path — manual Lock, `/api/lock-screen`, bedtime auto-lock, bedtime-save enforce, bonus grant/revoke/expiry — preserves the session. Session termination (`loginctl terminate-user`) lives ONLY in the emergency-logout endpoint (`/api/logout`)
 - **Unlock mechanism**: `sudo usermod -U <user>`
 - **Sudoers**: Dedicated rule in `/etc/sudoers.d/parental-controls` for passwordless operation
+- **Service user**: the panel and the enforcement/healthcheck oneshots run as
+  the dedicated system user `parental-controls` (nologin shell, no home,
+  locked password, no sudo of its own — only the scoped sudoers grants).
+  The shared human/agent login account never owns this network-exposed
+  process; `install.sh` creates the account idempotently (`--user` overrides)
 - **Deployment**: code is staged into the install dir (`@APP_DIR@`, default
   `/opt/parental-controls`); runtime state stays beside the code and is never
   overwritten by a redeploy
@@ -76,11 +81,12 @@ Phase 3 (hardening, after MVP):
 - [ ] Audit log of every action (who locked/unlocked/froze whom, and when) — a parental
       control a parent may need to defend needs a tamper-evident record. Today's audit
       trail is only the per-user bonus history (last 20 entries, `bonus_history`)
-- [ ] Sudo audit: retire the blanket passwordless-sudo rule on the service account so
+- [ ] Sudo audit: retire the blanket passwordless-sudo rule on the dev machine so
       the scoped `/etc/sudoers.d/parental-controls*` rules are actually the only path to
-      root. While a blanket `NOPASSWD: ALL` for the service user exists, every scoped
-      rule is masked and least privilege is unverifiable in practice (tracked on
-      `feature/sudo-audit`)
+      root. The panel itself already runs as the dedicated `parental-controls`
+      user (never covered by any blanket); the remaining blanket is
+      `stan-nopasswd` on the shared human/agent ops account, which still masks
+      scoped-rule verification on dev (tracked on `feature/sudo-audit`)
 - [x] Admin recovery escape hatch: `cli.py` (`unlock`, `unfreeze-all`,
       `reset-password`, `add-admin`, `remove-admin`, `lock-admin`) runs as root and
       works even if the app is wedged; wheel targets are refused in the handler

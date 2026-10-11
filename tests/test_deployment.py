@@ -724,6 +724,13 @@ class TestInstallerStaging(unittest.TestCase):
         script = read('install.sh')
         self.assertIn('INSTALL_DIR="/opt/parental-controls"', script)
 
+    def test_service_user_defaults_to_the_dedicated_account(self):
+        # The panel must not run as the shared human/agent login account.
+        script = read('install.sh')
+        self.assertIn('DEFAULT_SERVICE_USER="parental-controls"', script)
+        self.assertNotRegex(script, r'(?m)^SERVICE_USER=.*SUDO_USER')
+        self.assertIn('--user) SERVICE_USER="$2"', script)
+
     def test_units_use_placeholders_not_absolute_paths(self):
         for rel in ('systemd/parental-controls.service',
                     'systemd/parental-controls-enforce.service'):
@@ -827,6 +834,14 @@ class TestSudoersTemplates(unittest.TestCase):
             body = read(rel)
             self.assertIn('@SERVICE_USER@', body)
             self.assertNotRegex(body, r'(?m)^stan\s')
+
+    def test_templates_render_for_the_dedicated_service_user(self):
+        for rel in ('sudoers-parental-controls',
+                    'sudoers-parental-controls-budgets'):
+            rendered = read(rel).replace('@SERVICE_USER@',
+                                         'parental-controls')
+            self.assertNotIn('@SERVICE_USER@', rendered)
+            self.assertRegex(rendered, r'(?m)^parental-controls\s')
 
     def test_rendered_templates_contain_no_placeholder(self):
         import re as _re

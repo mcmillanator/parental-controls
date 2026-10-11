@@ -6,6 +6,15 @@ through `sudo`, checked against `sudoers-parental-controls` and
 using sudo's real matching rules. Analysis and tests only — nothing under
 `/etc` was modified and no account was touched.
 
+> **Service-user migration note.** This audit was performed when the panel
+> ran as `stan`. The installer now deploys it as the dedicated system user
+> `parental-controls` (nologin, homeless, locked password, no sudo of its
+> own), rendering the same templates with `@SERVICE_USER@=parental-controls`.
+> Matching semantics are user-independent, so the coverage tables below hold
+> unchanged; read every "`stan`" below as "the service account". The
+> `stan-nopasswd` blanket itself is untouched — it remains the dev VM's
+> human/agent ops rule only.
+
 **Headline:** the scoped rules are **complete** — every command the code
 runs is authorized, so the blanket is not needed for the app to function.
 But the scoped rules are **not yet contained**: the trailing `*` in the
@@ -79,8 +88,8 @@ asserts that guard exists so the exemption cannot silently rot.
 
 Every row below was verified **ALLOW** against real sudo policy via the
 `pcverify` account (§4). These are *rule* gaps: the app never builds these
-argv, but anything that can run `sudo` as `stan` — including a compromised
-web app — can.
+argv, but anything that can run `sudo` as the service account — including a
+compromised web app — can.
 
 | command | why it is authorized | impact |
 |---|---|---|
@@ -104,7 +113,7 @@ the `shell escapes` risk the template comment cites, and it holds.
 **Net:** today `stan-nopasswd` (`NOPASSWD: ALL`) is what makes this
 urgent, and it is strictly worse than every entry above. Removing it is
 still the right move — it deletes `sudo <anything>` outright — but it will
-not by itself contain a compromised `stan`.
+not by itself contain a compromised service account.
 
 ---
 
@@ -116,8 +125,10 @@ not by itself contain a compromised `stan`.
 stan ALL=(ALL) NOPASSWD: ALL
 ```
 
-`stan` is the account the web service runs as (`User=@SERVICE_USER@` in
-`systemd/parental-controls.service`, `waitress-serve` on `127.0.0.1:5000`).
+`parental-controls` is the dedicated account the web service runs as
+(`User=@SERVICE_USER@` in `systemd/parental-controls.service`,
+`waitress-serve` on `127.0.0.1:5000`; previously the shared `stan` account,
+see the migration note in Scope).
 The panel is a Flask app that takes a **username from an HTTP form field**
 and passes it to `subprocess.run(['sudo', 'usermod', '-L', username])`.
 The app's own validators are the only thing between that form field and
@@ -304,7 +315,7 @@ sudo -n -u pcverify sudo -n -l -- /usr/sbin/tee /etc/shadow   # must be DENY
 sudo journalctl -u parental-controls.service -n 100 --no-pager | grep -iE \
      'sudo|password is required|not allowed|denied'
 
-# 5. The enforce timer runs as stan too — it must still work.
+# 5. The enforce timer runs as the service user too — it must still work.
 sudo systemctl start parental-controls-enforce.service
 sudo systemctl status parental-controls-enforce.service --no-pager
 sudo journalctl -u parental-controls-enforce.service -n 50 --no-pager

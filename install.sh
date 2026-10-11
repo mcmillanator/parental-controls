@@ -7,6 +7,14 @@
 #                     [--tls [--tls-cert CERT --tls-key KEY] [--tls-name NAME]
 #                      [--regen-tls-cert] | --insecure-lan]
 #
+# Runs the panel as a dedicated hardened service user (`parental-controls`
+# by default): a system account with a nologin shell, no home and a locked
+# password, holding no sudo of its own — it only ever receives the scoped
+# sudoers grants rendered below. Pass --user (or set SERVICE_USER in the
+# environment) to override the account; the shared human/agent login account
+# must never own this network-exposed process, so $SUDO_USER is deliberately
+# NOT the default.
+#
 # Defaults keep the panel on localhost only (127.0.0.1:5000, no firewall
 # change). --bind/--port render into the service unit; --open-firewall opens
 # the chosen port in the default firewalld zone. A non-loopback --bind
@@ -32,7 +40,12 @@ set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/opt/parental-controls"
-SERVICE_USER="${SUDO_USER:-}"
+# Dedicated hardened service user. Explicit --user (or SERVICE_USER in the
+# environment) wins; otherwise the default below. Never $SUDO_USER: that is
+# the shared human/agent login account and must not own a network-exposed
+# panel process.
+DEFAULT_SERVICE_USER="parental-controls"
+SERVICE_USER="${SERVICE_USER:-$DEFAULT_SERVICE_USER}"
 BIND_HOST="127.0.0.1"
 BIND_PORT="5000"
 OPEN_FIREWALL=0
@@ -75,12 +88,25 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 if [ -z "$SERVICE_USER" ]; then
-    echo "Could not determine service user (no --user and no SUDO_USER)." >&2
+    echo "Could not determine service user (no --user and empty SERVICE_USER)." >&2
     exit 1
 fi
+# Create the dedicated service user idempotently. A system account: nologin
+# shell, no home, locked password, no sudo of its own. Skipped when the
+# account already exists, so re-runs (migration included) never reset it.
+# Only the default account is auto-created: a custom --user must already
+# exist, so a typo can never conjure a stray login account.
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-    echo "User '$SERVICE_USER' does not exist." >&2
-    exit 1
+    if [ "$SERVICE_USER" != "$DEFAULT_SERVICE_USER" ]; then
+        echo "User '$SERVICE_USER' does not exist (only the default '$DEFAULT_SERVICE_USER' is auto-created)." >&2
+        exit 1
+    fi
+    NOLOGIN=/usr/sbin/nologin
+    [ -x "$NOLOGIN" ] || NOLOGIN=/sbin/nologin
+    run useradd --system --no-create-home --shell "$NOLOGIN" "$SERVICE_USER"
+    # Belt and braces: a system account is born without a password hash, and
+    # locking it refuses password auth even if one ever appears.
+    run usermod -L "$SERVICE_USER"
 fi
 command -v python3 >/dev/null || { echo "python3 not found." >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemctl not found." >&2; exit 1; }
@@ -183,6 +209,8 @@ for f in bedtime.json budgets.json process_prefs.json; do
         echo "Seeded $f from checkout"
     fi
 done
+# Ownership migration only: live state files (excluded from the sync above)
+# keep their bytes; only their owner moves to the service user.
 run chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 # Templates are installed from the checkout (canonical), falling back to the
@@ -191,10 +219,22 @@ TEMPLATE_DIR="$INSTALL_DIR"
 [ -f "$SOURCE_DIR/systemd/parental-controls.service" ] && TEMPLATE_DIR="$SOURCE_DIR"
 
 echo "== 2/8 venv + dependencies (as $SERVICE_USER) =="
+# The service user is intentionally homeless (system account, nologin
+# shell), so HOME-based tooling (pip's cache) would fall back to / and fail
+# ("directory '/.cache/pip' ... not owned ... cache has been disabled").
+# Point HOME and the cache at directories the service user owns instead;
+# verified for a homeless account (venv create + wheel install + import).
+VENV_HOME="$INSTALL_DIR"
+VENV_CACHE="$INSTALL_DIR/.cache"
+run mkdir -p "$VENV_CACHE"
+run chown "$SERVICE_USER:$SERVICE_USER" "$VENV_CACHE"
 if [ ! -d "$INSTALL_DIR/.venv" ]; then
-    as_user python3 -m venv "$INSTALL_DIR/.venv"
+    as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
+        python3 -m venv "$INSTALL_DIR/.venv"
 fi
-as_user "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
+as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
+    PIP_CACHE_DIR="$VENV_CACHE/pip" \
+    "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
 
 echo "== 2b/8 TLS certificate =="
 if [ "$MODE" != "tls" ]; then
@@ -331,7 +371,10 @@ fi
 
 echo "== 5/8 auth store dir =="
 run mkdir -p /etc/parental-controls
-run chown "$SERVICE_USER:$SERVICE_USER" /etc/parental-controls
+# Migration, never reset: recursive chown moves existing auth.json / TLS
+# material / audit data from the old owner to the service user byte-identical
+# (only ownership changes); the mode stays 0700 on the directory.
+run chown -R "$SERVICE_USER:$SERVICE_USER" /etc/parental-controls
 run chmod 700 /etc/parental-controls
 
 # Recovery CLI. The panel locks a parent out of the web UI the moment they
@@ -412,6 +455,30 @@ fi
 echo "== 8/8 verify =="
 sleep 3
 systemctl is-active parental-controls.service
+# The panel must run as the dedicated service user — never as the shared
+# human/agent login account — and the auth store must be owned and writable
+# by it (password changes, lockouts and revocations persist there; startup
+# fails closed otherwise).
+UNIT_USER="$(systemctl show -p User --value parental-controls.service)"
+if [ "$UNIT_USER" = "$SERVICE_USER" ]; then
+    echo "unit User=$UNIT_USER (expected $SERVICE_USER)"
+else
+    echo "WARNING: parental-controls.service runs as '$UNIT_USER', expected '$SERVICE_USER'; re-run install.sh." >&2
+fi
+AUTH_FILE="/etc/parental-controls/auth.json"
+if [ -f "$AUTH_FILE" ]; then
+    AUTH_OWNER="$(stat -c %U "$AUTH_FILE")"
+    if [ "$AUTH_OWNER" = "$SERVICE_USER" ]; then
+        echo "auth store owned by $SERVICE_USER"
+    else
+        echo "WARNING: $AUTH_FILE owned by '$AUTH_OWNER', expected '$SERVICE_USER'; re-run install.sh." >&2
+    fi
+fi
+if as_user test -w /etc/parental-controls; then
+    echo "auth store writable by $SERVICE_USER"
+else
+    echo "WARNING: /etc/parental-controls is not writable by $SERVICE_USER." >&2
+fi
 PROBE_HOST="$BIND_HOST"
 [ "$PROBE_HOST" = "0.0.0.0" ] && PROBE_HOST="127.0.0.1"
 if [ "$MODE" = "tls" ]; then
