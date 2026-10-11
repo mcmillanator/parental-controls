@@ -1,0 +1,162 @@
+{
+  "name": "20_bonus_grant_shortcuts",
+  "steps": [
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*No bonus time active*"
+    },
+    {
+      "type": "click",
+      "selector": "xpath=//button[normalize-space(text())='+15m']",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*Bonus active*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*min left*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges .badge-bonus",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "click",
+      "selector": "xpath=//button[normalize-space(text())='+30m']",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*Bonus active*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*min left*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges .badge-bonus",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "click",
+      "selector": "xpath=//button[normalize-space(text())='+1h']",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*Bonus active*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*min left*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges .badge-bonus",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "click",
+      "selector": "xpath=//button[normalize-space(text())='+1h30']",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*Bonus active*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*min left*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges .badge-bonus",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "click",
+      "selector": "xpath=//button[normalize-space(text())='+2h']",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*Bonus active*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": "glob:*min left*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges .badge-bonus",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "a9ae44db-9509-4db7-87ba-05762da3d15a"
+}

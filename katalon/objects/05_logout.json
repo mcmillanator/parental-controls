@@ -1,0 +1,30 @@
+{
+  "name": "05_logout",
+  "steps": [
+    {
+      "type": "click",
+      "selector": "a[href=\"/logout\"]",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "900"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#username",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyText",
+      "selector": "h1",
+      "parentSelectors": [],
+      "value": "Parental Controls"
+    }
+  ],
+  "uuid": "0f7e3c36-a774-4c12-88a5-c91079c84929"
+}

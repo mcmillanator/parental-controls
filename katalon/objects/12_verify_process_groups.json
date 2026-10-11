@@ -1,0 +1,56 @@
+{
+  "name": "12_verify_process_groups",
+  "steps": [
+    {
+      "type": "verifyElementVisible",
+      "selector": "#process-section",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyText",
+      "selector": ".refresh-info",
+      "parentSelectors": [],
+      "value": "Status updates automatically every 10 seconds"
+    },
+    {
+      "type": "if",
+      "condition": "document.querySelector('#process-section .group-row') !== null",
+      "children": [
+        {
+          "type": "verifyElementVisible",
+          "selector": "#process-section .process-name",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#process-section .btn-group-toggle",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#process-section .group-chevron",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#process-section .btn-hide",
+          "parentSelectors": [],
+          "value": ""
+        }
+      ],
+      "elseSteps": [
+        {
+          "type": "verifyText",
+          "selector": "#process-section",
+          "parentSelectors": [],
+          "value": "glob:*No processes found or error loading processes*"
+        }
+      ]
+    }
+  ],
+  "uuid": "95f09c9c-f168-49d2-8b6a-f448d8a3737a"
+}

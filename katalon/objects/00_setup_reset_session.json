@@ -1,0 +1,38 @@
+{
+  "name": "00_setup_reset_session",
+  "steps": [
+    {
+      "type": "deleteCookies",
+      "selector": "",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "navigate",
+      "url": "${BASE_URL}/"
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "800"
+    },
+    {
+      "type": "if",
+      "condition": "document.getElementById('password') === null",
+      "children": [
+        {
+          "type": "abortTest",
+          "message": "Setup failed: after clearing cookies, ${BASE_URL}/ did not land on the login page. Check BASE_URL in the Recorder Variables table."
+        }
+      ]
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#username",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "c9b2ec61-bd58-4318-8dea-8de1b8279f53"
+}

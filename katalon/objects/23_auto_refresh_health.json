@@ -1,0 +1,46 @@
+{
+  "name": "23_auto_refresh_health",
+  "steps": [
+    {
+      "type": "verifyText",
+      "selector": ".refresh-info",
+      "parentSelectors": [],
+      "value": "Status updates automatically every 10 seconds"
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "11000"
+    },
+    {
+      "type": "if",
+      "condition": "!!(document.getElementById('toast') && getComputedStyle(document.getElementById('toast')).display !== 'none' && document.getElementById('toast').classList.contains('toast-error'))",
+      "children": [
+        {
+          "type": "abortTest",
+          "message": "The 10-second live refresh reported an error (red toast on screen)."
+        }
+      ]
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-status-text",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#process-section",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "8d769bfd-0618-407c-8f3b-12316bbf4b98"
+}

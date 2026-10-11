@@ -1,0 +1,13 @@
+{
+  "name": "90_example_drag_and_drop",
+  "steps": [
+    {
+      "type": "dragAndDrop",
+      "selector": "#bonus-hours",
+      "target": "#bonus-minutes",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "e512fd97-9210-4d46-8b41-5be83aab8dd0"
+}
