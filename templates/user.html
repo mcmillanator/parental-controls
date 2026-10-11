@@ -130,6 +130,7 @@
 
     <h1>User: {{ username }}</h1>
     <p class="subtitle">Account management and process details</p>
+    {% include '_insecure_banner.html' %}
 
     {% if user %}
     {% set bedtime = user.bedtime %}

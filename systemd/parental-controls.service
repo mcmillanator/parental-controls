@@ -7,12 +7,14 @@ Type=simple
 User=@SERVICE_USER@
 WorkingDirectory=@APP_DIR@
 ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-serve --host=@BIND_HOST@ --port=@BIND_PORT@ wsgi:application'
+@TLS_EXECSTART@
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 # Auth store location (0600; owned by the service user so password changes,
 # lockouts and revocations can persist — root can always read it).
 Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json
+@TLS_ENV_LINE@
 
 # Filesystem hardening. The app dir holds writable JSON state; the auth
 # store dir must stay writable for password changes/lockouts/revocation

@@ -4,10 +4,20 @@
 #
 #   sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST]
 #                     [--port PORT] [--open-firewall] [--dry-run]
+#                     [--tls [--tls-cert CERT --tls-key KEY] [--tls-name NAME]
+#                      [--regen-tls-cert] | --insecure-lan]
 #
 # Defaults keep the panel on localhost only (127.0.0.1:5000, no firewall
 # change). --bind/--port render into the service unit; --open-firewall opens
-# the chosen port in the default firewalld zone.
+# the chosen port in the default firewalld zone. A non-loopback --bind
+# refuses plain HTTP: pass --tls for a self-signed certificate (generated
+# with the openssl CLI into /etc/parental-controls/tls/, or supply your
+# own pair with --tls-cert/--tls-key) or --insecure-lan to knowingly stay
+# on plain HTTP (every page then shows a warning banner).
+#
+# --tls never implies --open-firewall: pass it explicitly to expose the
+# port. Generated certificates are never overwritten on re-run (stored
+# browser trust would break); --regen-tls-cert forces rotation.
 #
 # The app is staged into a system location (default /opt/parental-controls)
 # so the deployed systemd units never reference the checkout path (e.g. a
@@ -27,6 +37,20 @@ BIND_HOST="127.0.0.1"
 BIND_PORT="5000"
 OPEN_FIREWALL=0
 DRY_RUN=0
+TLS_MODE=0
+INSECURE_LAN=0
+TLS_CERT_IN=""
+TLS_KEY_IN=""
+TLS_NAME=""
+REGEN_TLS_CERT=0
+TLS_CERT="/etc/parental-controls/tls/server.crt"
+TLS_KEY="/etc/parental-controls/tls/server.key"
+TLS_URL_NAME=""
+
+[ -f "$SOURCE_DIR/tls_lib.sh" ] \
+    || { echo "Missing $SOURCE_DIR/tls_lib.sh — run install.sh from the app checkout." >&2; exit 1; }
+# shellcheck disable=SC1091
+. "$SOURCE_DIR/tls_lib.sh"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -36,6 +60,12 @@ while [ $# -gt 0 ]; do
         --port) BIND_PORT="$2"; shift 2 ;;
         --open-firewall) OPEN_FIREWALL=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --tls) TLS_MODE=1; shift ;;
+        --tls-cert) TLS_CERT_IN="$2"; shift 2 ;;
+        --tls-key) TLS_KEY_IN="$2"; shift 2 ;;
+        --tls-name) TLS_NAME="$2"; shift 2 ;;
+        --regen-tls-cert) REGEN_TLS_CERT=1; shift ;;
+        --insecure-lan) INSECURE_LAN=1; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -62,10 +92,40 @@ esac
 case "$BIND_HOST" in
     ''|*[!A-Za-z0-9.:-]*) echo "Invalid --bind: '$BIND_HOST'." >&2; exit 2 ;;
 esac
-if [ "$BIND_HOST" != "127.0.0.1" ] && [ "$BIND_HOST" != "localhost" ] \
-   && [ "$BIND_HOST" != "::1" ]; then
+if [ -n "$TLS_CERT_IN" ] || [ -n "$TLS_KEY_IN" ] || [ "$REGEN_TLS_CERT" -eq 1 ]; then
+    # Owner certs and regen only make sense with TLS: imply it.
+    TLS_MODE=1
+fi
+if [ -n "$TLS_CERT_IN" ] || [ -n "$TLS_KEY_IN" ]; then
+    if [ -z "$TLS_CERT_IN" ] || [ -z "$TLS_KEY_IN" ]; then
+        echo "--tls-cert and --tls-key must both be given." >&2
+        exit 2
+    fi
+fi
+if [ -n "$TLS_NAME" ]; then
+    case "$TLS_NAME" in
+        *[!A-Za-z0-9.:-]*) echo "Invalid --tls-name: '$TLS_NAME'." >&2; exit 2 ;;
+    esac
+fi
+if [ "$TLS_MODE" -eq 1 ] && [ "$INSECURE_LAN" -eq 1 ]; then
+    echo "--tls and --insecure-lan are mutually exclusive." >&2
+    exit 2
+fi
+if [ "$TLS_MODE" -eq 1 ]; then
+    command -v openssl >/dev/null \
+        || { echo "openssl not found: install openssl or supply --tls-cert/--tls-key (TLS validation, fingerprint and expiry need it)." >&2; exit 2; }
+fi
+MODE="$(tls_decide_mode "$BIND_HOST" "$TLS_MODE" "$INSECURE_LAN")"
+if [ "$MODE" = "refuse-plain-lan" ]; then
+    echo "refusing plain-HTTP LAN bind (session cookies travel in the clear); re-run with --tls (recommended) or --insecure-lan." >&2
+    exit 2
+fi
+if [ "$MODE" = "insecure" ]; then
     echo "WARNING: --bind $BIND_HOST exposes the panel beyond this machine" >&2
-    echo "without TLS; session cookies travel in the clear (MVP has no TLS)." >&2
+    echo "without TLS; session cookies travel in the clear. Re-run install with --tls to encrypt logins." >&2
+fi
+if tls_is_loopback "$BIND_HOST" && [ "$INSECURE_LAN" -eq 1 ]; then
+    echo "(note: --insecure-lan has no effect on a loopback bind)" >&2
 fi
 [ -f "$SOURCE_DIR/app.py" ] || { echo "No app.py in $SOURCE_DIR — run install.sh from the app checkout." >&2; exit 1; }
 
@@ -130,9 +190,94 @@ if [ ! -d "$INSTALL_DIR/.venv" ]; then
 fi
 as_user "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
 
+echo "== 2b/8 TLS certificate =="
+if [ "$MODE" != "tls" ]; then
+    echo "(skipped — pass --tls for an encrypted LAN bind)"
+else
+    TLS_DIR="/etc/parental-controls/tls"
+    run mkdir -p "$TLS_DIR"
+    run chown "$SERVICE_USER:$SERVICE_USER" "$TLS_DIR" /etc/parental-controls
+    run chmod 700 "$TLS_DIR" /etc/parental-controls
+    if [ -n "$TLS_CERT_IN" ]; then
+        # Owner-supplied rotation: validated here, copied byte-for-byte
+        # into the store (0600, service-user-owned). Never staged from
+        # the checkout: absolute owner paths only (see tls_lib.sh).
+        tls_validate_owner_pair "$TLS_CERT_IN" "$TLS_KEY_IN" || exit 2
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "[dry-run] install owner cert $TLS_CERT_IN -> $TLS_CERT (0600)"
+        else
+            if [ -f "$TLS_CERT" ]; then
+                stamp="$(date +%Y%m%d%H%M%S)"
+                cp "$TLS_CERT" "$TLS_CERT.bak-$stamp"
+                cp "$TLS_KEY" "$TLS_KEY.bak-$stamp"
+                echo "Backed up existing pair to *.bak-$stamp"
+            fi
+            cp "$TLS_CERT_IN" "$TLS_CERT"
+            cp "$TLS_KEY_IN" "$TLS_KEY"
+            chown "$SERVICE_USER:$SERVICE_USER" "$TLS_CERT" "$TLS_KEY"
+            chmod 600 "$TLS_CERT" "$TLS_KEY"
+            echo "Installed owner-supplied certificate."
+        fi
+        TLS_URL_NAME="${TLS_NAME:-owner-supplied}"
+    elif [ -f "$TLS_CERT" ] && [ -f "$TLS_KEY" ] \
+        && [ "$REGEN_TLS_CERT" -eq 0 ]; then
+        # Never silently regenerated on re-run: a fresh fingerprint would
+        # break every parent's stored trust-on-first-use decision.
+        echo "Keeping existing certificate (never regenerated on re-run)."
+        TLS_URL_NAME="${TLS_NAME:-existing}"
+    else
+        # (Re)generation needs a LAN identity for CN/SAN. --bind 0.0.0.0
+        # is a wildcard, never a cert identity — hence --tls-name.
+        if [ -z "$TLS_NAME" ]; then
+            LAN_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' \
+                | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+                | grep -v '^127\.' | head -n 1)"
+            if [ -z "$LAN_IP" ]; then
+                echo "Could not detect a LAN address; re-run with --tls-name <lan-ip-or-name>." >&2
+                exit 2
+            fi
+            SHORT="$(hostname -f 2>/dev/null | cut -d. -f1)"
+            TLS_URL_NAME="$LAN_IP"
+            CN="$LAN_IP"
+            SAN="DNS:localhost,IP:127.0.0.1,IP:::1,IP:$LAN_IP"
+            if [ -n "$SHORT" ] && [ "$SHORT" != "$LAN_IP" ]; then
+                SAN="$SAN,DNS:$SHORT"
+            fi
+        else
+            TLS_URL_NAME="$TLS_NAME"
+            CN="$TLS_NAME"
+            SAN="DNS:localhost,IP:127.0.0.1,IP:::1,$(tls_san_entry "$TLS_NAME")"
+        fi
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "[dry-run] openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=$CN -addext SAN=$SAN -> $TLS_CERT/$TLS_KEY (0600)"
+        else
+            if [ "$REGEN_TLS_CERT" -eq 1 ] && [ -f "$TLS_CERT" ]; then
+                stamp="$(date +%Y%m%d%H%M%S)"
+                cp "$TLS_CERT" "$TLS_CERT.bak-$stamp"
+                cp "$TLS_KEY" "$TLS_KEY.bak-$stamp"
+                echo "Backed up existing pair to *.bak-$stamp"
+            fi
+            tls_generate_selfsigned "$TLS_CERT" "$TLS_KEY" "$CN" "$SAN"
+            chown "$SERVICE_USER:$SERVICE_USER" "$TLS_CERT" "$TLS_KEY"
+            echo "Generated self-signed certificate (10y, CN=$CN)."
+        fi
+    fi
+    if [ "$DRY_RUN" -eq 0 ]; then
+        echo "TLS certificate ${TLS_CERT}:"
+        openssl x509 -in "$TLS_CERT" -noout -fingerprint -sha256
+        openssl x509 -in "$TLS_CERT" -noout -ext subjectAltName || true
+        openssl x509 -in "$TLS_CERT" -noout -enddate
+        echo "Panel URL: https://${TLS_URL_NAME}:${BIND_PORT}"
+        echo "Verify the fingerprint above at the browser's first certificate warning (trust on first use)."
+    fi
+fi
+
 echo "== 3/8 systemd units (bind $BIND_HOST:$BIND_PORT) =="
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
+# The healthcheck probe needs --tls exactly when the panel serves TLS.
+HEALTH_TLS=""
+[ "$MODE" = "tls" ] && HEALTH_TLS=" --tls"
 # Track whether any unit actually changed: a changed unit needs a service
 # restart to take effect (`enable --now` never restarts a running service,
 # which silently left a new --bind unlistened). Unchanged re-installs leave
@@ -144,6 +289,11 @@ for unit in parental-controls.service parental-controls-enforce.service parental
     sed -e "s|@APP_DIR@|$INSTALL_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
         -e "s|@BIND_HOST@|$BIND_HOST|g" -e "s|@BIND_PORT@|$BIND_PORT|g" \
         "$TEMPLATE_DIR/systemd/$unit" > "$TMPD/$unit"
+    # TLS variant second pass: loopback deletes the placeholder lines
+    # (byte-identical to the pre-TLS rendering); tls/insecure render
+    # their ExecStart/env lines. See tls_lib.sh.
+    tls_apply_variant "$TMPD/$unit" "$MODE" "$INSTALL_DIR" "$BIND_HOST" \
+        "$BIND_PORT" "$TLS_CERT" "$TLS_KEY" "$HEALTH_TLS"
     if [ ! -f /etc/systemd/system/"$unit" ] \
        || ! cmp -s "$TMPD/$unit" /etc/systemd/system/"$unit"; then
         UNITS_CHANGED=1
@@ -258,15 +408,38 @@ sleep 3
 systemctl is-active parental-controls.service
 PROBE_HOST="$BIND_HOST"
 [ "$PROBE_HOST" = "0.0.0.0" ] && PROBE_HOST="127.0.0.1"
-code=$(curl -s -o /dev/null -w "%{http_code}" "http://${PROBE_HOST}:${BIND_PORT}/" || true)
+if [ "$MODE" = "tls" ]; then
+    # Validated against the installed cert (--cacert: this probe must
+    # actually verify what it connects to; verification is skipped only
+    # in the credential-less healthcheck.sh probe).
+    code=$(curl -s -o /dev/null -w "%{http_code}" --cacert "$TLS_CERT" \
+        "https://${PROBE_HOST}:${BIND_PORT}/" || true)
+else
+    code=$(curl -s -o /dev/null -w "%{http_code}" \
+        "http://${PROBE_HOST}:${BIND_PORT}/" || true)
+fi
 echo "GET / -> $code (302 login redirect expected)"
 if [ "$code" != "302" ]; then
     echo "WARNING: unexpected status; check journalctl -u parental-controls.service" >&2
     case "$BIND_HOST" in
         127.0.0.1|localhost|::1) ;;
         *) echo "HINT: for a LAN bind, an unreachable probe can also mean the host" >&2
-           echo "firewall is blocking ${BIND_PORT}/tcp — re-run with --open-firewall." >&2 ;;
+           echo "firewall is blocking ${BIND_PORT}/tcp — re-run with --open-firewall." >&2
+           if [ "$MODE" = "tls" ]; then
+               echo "HINT: probed https://${PROBE_HOST}:${BIND_PORT}/; opening http:// in a browser fails — that scheme mismatch is why." >&2
+           fi ;;
     esac
+fi
+if [ "$MODE" = "tls" ]; then
+    echo "TLS certificate ${TLS_CERT}:"
+    openssl x509 -in "$TLS_CERT" -noout -fingerprint -sha256
+    openssl x509 -in "$TLS_CERT" -noout -enddate
+    TLS_DAYS="$(tls_expiry_days "$TLS_CERT")"
+    if [ "$TLS_DAYS" -lt 30 ]; then
+        echo "WARNING: TLS certificate expires in ${TLS_DAYS} days — re-run with --regen-tls-cert before it lapses." >&2
+    fi
+elif [ "$MODE" = "insecure" ]; then
+    echo "WARNING: insecure LAN mode (plain HTTP); session cookies travel in the clear — re-run install with --tls to encrypt logins." >&2
 fi
 
 echo
@@ -294,7 +467,11 @@ case "$BIND_HOST" in
     127.0.0.1|localhost|::1)
         echo "  2. From your machine: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>, open http://localhost:${BIND_PORT}" ;;
     *)
-        echo "  2. Open http://${BIND_HOST}:${BIND_PORT} from a machine on the LAN" ;;
+        if [ "$MODE" = "tls" ]; then
+            echo "  2. Open https://${TLS_URL_NAME}:${BIND_PORT} from a machine on the LAN (verify the printed fingerprint at the browser warning)"
+        else
+            echo "  2. Open http://${BIND_HOST}:${BIND_PORT} from a machine on the LAN"
+        fi ;;
 esac
 echo "  3. Log in and change the password immediately (forced on first login)."
 echo "  4. Monitoring: parental-controls-healthcheck.timer probes the panel every"
