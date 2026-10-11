@@ -3,13 +3,18 @@
 A web UI for managing user account lock/unlock, bedtimes, and per-category
 app time budgets on Bazzite.
 
+Release-ready 1.0 — parent-facing summary, deploy steps and rollback guide:
+`RELEASE.md`.
+
 ## Features
 
 - Lists all human users on the system (UID >= 1000, discovered dynamically)
 - Shows lock/unlock status for each user
 - Lock button: locks the account (`usermod -L`) and the screen, session preserved
 - Unlock button: runs `sudo usermod -U <user>`
-- Emergency logout button: locks the account AND terminates all sessions
+- Emergency logout button: locks the account AND terminates all sessions (the
+  only action that ends a session)
+- Parent-only access: child accounts can never log in (`AUTH_DESIGN.md`)
 - Per-user details pages: bedtime schedule, account status, processes grouped
   by app category with Hide/Show-hidden filtering; duplicate processes
   grouped into one expandable row per command with a count badge
@@ -17,10 +22,13 @@ app time budgets on Bazzite.
   (background plumbing hides by default; real apps stay visible) and shows
   human-friendly app names from installed `.desktop` files where known
 - Per-category daily time budgets enforced with the cgroup freezer
-  (pause-not-kill, auto-resume at reset)
+  (pause-not-kill, auto-resume at reset), with a watchdog that thaws a
+  genuinely stuck freeze
 - Bedtime windows with pre-lock warnings and manual-override precedence;
-  parent-granted bonus time (one-click shortcuts + custom minutes) keeps the
-  account unlocked past bedtime until the bonus expires, then re-locks
+  parent-granted bonus time (15/30/60/90/120-minute shortcuts plus a custom
+  hours+minutes entry, 5-minute minimum, no stacking cap) keeps the account
+  unlocked past bedtime until the bonus expires, then re-locks
+- All clock times shown in 12-hour format
 - Status/process/budget cells update in place every 10 seconds (no page reloads;
   forms are never touched); errors display as toasts
 
@@ -52,7 +60,13 @@ sudo parental-controls add-admin <username>   # app-only admin (or wheel row)
 sudo parental-controls remove-admin <username>
 ```
 
-The CLI is `cli.py` (install as `/usr/local/bin/parental-controls`).
+The CLI is `cli.py`. `install.sh` does **not** put it on `PATH`; run it from
+the install dir with that venv's interpreter (it needs argon2-cffi), or copy it
+to `/usr/local/bin/parental-controls` once:
+
+```bash
+sudo @APP_DIR@/.venv/bin/python @APP_DIR@/cli.py unfreeze-all
+```
 Sessions are server-side (30-min idle / 12-h absolute); every POST needs
 the `X-CSRF-Token` header or `csrf_token` form field.
 
@@ -119,6 +133,8 @@ Every POST needs the `X-CSRF-Token` header or `csrf_token` form field.
 | POST | `/api/unlock` | Unlock a user (form: `username`) |
 | POST | `/api/logout` | Emergency logout: lock + terminate all sessions |
 | POST | `/api/bedtime` | Set/clear bedtime (`username`, `start`, `end`, days) |
+| POST | `/api/bonus` | Grant bonus time (`username`, `minutes` and/or `hours`) |
+| POST | `/api/bonus/revoke` | Revoke bonus time and re-lock if still in bedtime |
 | GET/POST | `/api/budgets`, `/api/budgets/resume`, `/api/budgets/<user>` | Budget limits, status, manual resume |
 | POST | `/api/process-prefs` | Hide/show a process comm for a user |
 
@@ -197,7 +213,8 @@ system Python has no Flask:
 
 Notes:
 
-- Stdlib `unittest` only — no pytest. ~186 tests, roughly one minute.
+- Stdlib `unittest` only — no pytest. 13 test files, 300+ test methods,
+  roughly a minute for the mocked tests (the live ones are slow on purpose).
 - Most tests are mocked/integration tests using the Flask test client, but a
   few are **live**: `test_lock_usermod_real.py` creates a throwaway account,
   really runs `usermod`/`loginctl` against it, and deletes it in teardown.
