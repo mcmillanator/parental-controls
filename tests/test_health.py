@@ -45,6 +45,7 @@ SAMPLE_RENDER = {
     '@SERVICE_USER@': 'pcsuser',
     '@BIND_HOST@': '127.0.0.1',
     '@BIND_PORT@': '5051',
+    '@HEALTH_TLS@': '',
 }
 
 NOTIFY_TOKENS = ('notify-send', 'systemd-run', 'zenity', 'wall ', 'wall\t',
@@ -195,6 +196,23 @@ class TestUnitsRender(unittest.TestCase):
         self.assertNotIn('127.0.0.1', execstart)
         self.assertNotIn('5000', execstart)
 
+    def test_tls_flag_renders_into_the_probe_command(self):
+        template = read(SERVICE_UNIT)
+        execstart = next(l for l in template.splitlines()
+                         if l.startswith('ExecStart='))
+        self.assertIn('@HEALTH_TLS@', execstart)
+        tls_render = dict(SAMPLE_RENDER, **{'@HEALTH_TLS@': ' --tls'})
+        body = template
+        for placeholder, value in tls_render.items():
+            body = body.replace(placeholder, value)
+        tls_line = next(l for l in body.splitlines()
+                        if l.startswith('ExecStart='))
+        self.assertTrue(tls_line.rstrip().endswith('--tls'), tls_line)
+        # Loopback default rendering carries no --tls flag.
+        plain_line = next(l for l in render(template).splitlines()
+                          if l.startswith('ExecStart='))
+        self.assertNotIn('--tls', plain_line)
+
     def test_service_runs_as_the_service_user_oneshot(self):
         body = render(read(SERVICE_UNIT))
         self.assertIn(f'User={SAMPLE_RENDER["@SERVICE_USER@"]}', body)
@@ -324,6 +342,12 @@ class TestInstallerWiring(unittest.TestCase):
         self.assertIn('journalctl -u parental-controls-healthcheck.service',
                       summary)
         self.assertIn('systemctl --failed', summary)
+
+    def test_tls_variant_is_applied_after_value_substitution(self):
+        script = read('install.sh')
+        self.assertIn('. "$SOURCE_DIR/tls_lib.sh"', script)
+        self.assertIn('tls_apply_variant', script)
+        self.assertIn('HEALTH_TLS', script)
 
 
 class TestProbeIsSafe(unittest.TestCase):

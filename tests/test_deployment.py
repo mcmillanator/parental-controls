@@ -707,6 +707,8 @@ class TestNoHardcodedPaths(unittest.TestCase):
         'sudoers-parental-controls',
         'sudoers-parental-controls-budgets',
         'sudo-audit.md',
+        'tls_serve.py',
+        'tls_lib.sh',
     ]
 
     def test_no_checkout_home_paths_in_deployment_files(self):
@@ -800,6 +802,20 @@ class TestBindOptions(unittest.TestCase):
         script = read('install.sh')
         self.assertIn('--open-firewall', script)
         self.assertIn('re-run with --open-firewall', script)
+
+    def test_tls_flags_are_parsed(self):
+        script = read('install.sh')
+        for flag in ('--tls)', '--tls-cert)', '--tls-key)', '--tls-name)',
+                     '--regen-tls-cert)', '--insecure-lan)'):
+            self.assertIn(flag, script)
+
+    def test_tls_variant_placeholders_live_in_the_panel_unit(self):
+        unit = read(os.path.join('systemd', 'parental-controls.service'))
+        self.assertIn('@TLS_EXECSTART@', unit)
+        self.assertIn('@TLS_ENV_LINE@', unit)
+        self.assertIn('tls_serve.py', read('tls_lib.sh'))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'tls_serve.py')))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, 'tls_lib.sh')))
 
 
 class TestSudoersTemplates(unittest.TestCase):

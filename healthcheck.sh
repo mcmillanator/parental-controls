@@ -30,6 +30,13 @@
 #
 # Usage: healthcheck.sh [--unit UNIT] [--host HOST] [--port PORT]
 #                        [--auth-store PATH] [--timeout SECONDS]
+#                        [--tls] [--cert PATH]
+#
+# --tls probes https:// (with -k: the healthcheck authenticates nothing and
+# sends no credentials, so skipping verification is safe here; -k must
+# never appear in any other project script) and warns when the TLS cert
+# at --cert (default /etc/parental-controls/tls/server.crt) expires in
+# under 30 days (warning-only, exit 0).
 #
 # Exit status: 0 = healthy, 1 = unhealthy, 2 = bad usage.
 # Runs as @SERVICE_USER@ in production; flags exist so the tests can point it
@@ -42,10 +49,12 @@ PORT="5000"
 AUTH_STORE="/etc/parental-controls/auth.json"
 TIMEOUT="10"
 PROBE_PATH="/"
+USE_TLS=0
+CERT="/etc/parental-controls/tls/server.crt"
 
 usage() {
     # The header comment is the help text (and the design note).
-    sed -n '2,36p' "$0" | sed 's/^#\( \|$\)//'
+    sed -n '2,43p' "$0" | sed 's/^#\( \|$\)//'
 }
 
 while [ $# -gt 0 ]; do
@@ -60,6 +69,9 @@ while [ $# -gt 0 ]; do
                 AUTH_STORE="$2"; shift 2 ;;
         --timeout) [ $# -ge 2 ] || { echo "healthcheck: --timeout needs a value" >&2; exit 2; }
                 TIMEOUT="$2"; shift 2 ;;
+        --tls) USE_TLS=1; shift ;;
+        --cert) [ $# -ge 2 ] || { echo "healthcheck: --cert needs a value" >&2; exit 2; }
+                CERT="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "healthcheck: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -112,11 +124,20 @@ case "$probe_host" in
     0.0.0.0|"")   probe_host="127.0.0.1" ;;
     ::|"[::]")   probe_host="::1" ;;
 esac
-url="http://${probe_host}:${PORT}${PROBE_PATH}"
+if [ "$USE_TLS" -eq 1 ]; then
+    scheme="https"
+    curl_tls=(-k)
+else
+    scheme="http"
+    curl_tls=()
+fi
+url="${scheme}://${probe_host}:${PORT}${PROBE_PATH}"
 
 # 2. The port. %{redirect_url} gives the Location target, so one request
 # answers both "did it serve" and "did it serve the login page".
-info="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
+# -k is TLS-only (self-signed cert): the probe authenticates nothing and
+# sends no credentials, so skipping verification is safe exactly here.
+info="$(curl -sS "${curl_tls[@]}" -o /dev/null -w '%{http_code} %{redirect_url}' \
         --max-time "$TIMEOUT" "$url" 2>"$errfile")" && rc=0 || rc=$?
 code="${info%% *}"
 target="${info#* }"
@@ -170,3 +191,21 @@ fi
 
 echo "healthcheck OK: ${UNIT} ${unit_state:-state unqueried}," \
      "GET ${PROBE_PATH} -> ${code}, auth store ${AUTH_STORE} usable"
+
+# 4. TLS cert expiry (TLS mode only). Warning-only: a coming expiry must
+# not page as a failure and must not restart anything (exit stays 0).
+if [ "$USE_TLS" -eq 1 ]; then
+    if [ -f "$CERT" ] && command -v openssl >/dev/null 2>&1 \
+        && enddate="$(openssl x509 -in "$CERT" -noout -enddate 2>/dev/null \
+            | cut -d= -f2-)" && [ -n "$enddate" ]; then
+        end_epoch="$(date -d "$enddate" +%s 2>/dev/null || echo 0)"
+        days=$(( (end_epoch - $(date +%s)) / 86400 ))
+        if [ "$days" -lt 30 ]; then
+            warn "TLS cert ${CERT} expires in ${days} days (${enddate})" \
+                 "-- re-run install with --regen-tls-cert before it lapses"
+        fi
+    else
+        warn "TLS enabled but cert ${CERT} is unreadable;" \
+             "skipping expiry check"
+    fi
+fi

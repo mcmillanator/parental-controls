@@ -6,7 +6,7 @@ After=network.target
 Type=oneshot
 User=@SERVICE_USER@
 WorkingDirectory=@APP_DIR@
-ExecStart=/bin/bash @APP_DIR@/healthcheck.sh --host @BIND_HOST@ --port @BIND_PORT@
+ExecStart=/bin/bash @APP_DIR@/healthcheck.sh --host @BIND_HOST@ --port @BIND_PORT@@HEALTH_TLS@
 # Backstop for a wedged probe; curl's own --max-time (10s) is the first line
 # of defence and a killed oneshot is still recorded as a failed unit.
 TimeoutStartSec=60

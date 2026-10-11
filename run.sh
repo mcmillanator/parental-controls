@@ -19,7 +19,7 @@ echo "Installing dependencies..."
 HOST=127.0.0.1
 if [ "${1:-}" = "--allow-lan" ]; then
     HOST=0.0.0.0
-    echo "WARNING: bound to all interfaces without TLS; session cookies travel in the clear."
+    echo "WARNING: bound to all interfaces without TLS; session cookies travel in the clear (dev-only; production LAN requires install.sh --tls)."
 fi
 
 # Production WSGI server (waitress) serving the fail-closed wsgi entrypoint.

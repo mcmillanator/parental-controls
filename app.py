@@ -36,6 +36,17 @@ app.jinja_env.filters['slugify_id'] = (
 # are always set; CSRF tokens are the primary cross-site defense.
 app.config['SECURE_COOKIES'] = os.environ.get('PARENTAL_TLS', '') == '1'
 
+# Set by install.sh --insecure-lan (Environment=PARENTAL_INSECURE_LAN=1,
+# rendered only in that unit variant): every page shows a persistent
+# banner warning that logins travel in the clear. Absent otherwise.
+app.config['INSECURE_LAN'] = (
+    os.environ.get('PARENTAL_INSECURE_LAN', '') == '1')
+
+
+@app.context_processor
+def _insecure_lan_banner():
+    return {'insecure_lan': app.config.get('INSECURE_LAN', False)}
+
 MIN_UID = 1000
 MAX_UID = 60000
 
@@ -2020,7 +2031,9 @@ if __name__ == '__main__':
     host = '0.0.0.0' if args.allow_lan else '127.0.0.1'
     if args.allow_lan:
         print('WARNING: --allow-lan: bound to all interfaces without TLS; '
-              'session cookies travel in the clear.', flush=True)
+              'session cookies travel in the clear '
+              '(dev-only; production LAN requires install.sh --tls).',
+              flush=True)
     t = threading.Thread(target=bedtime_loop, daemon=True)
     t.start()
     app.run(host=host, port=args.port, debug=False)
