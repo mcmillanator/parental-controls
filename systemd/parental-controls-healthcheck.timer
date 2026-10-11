@@ -1,0 +1,13 @@
+[Unit]
+Description=Probe the parental-controls panel every 5 minutes
+
+[Timer]
+# Wait for the panel to come up on a cold boot before the first probe; the
+# service itself is enabled at multi-user.target with Restart=always.
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=parental-controls-healthcheck.service
+
+[Install]
+WantedBy=timers.target

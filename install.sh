@@ -16,7 +16,8 @@
 #
 # Steps: stage app -> venv + deps (as the service user) -> render + install
 # systemd units -> render + install sudoers files (visudo-validated) ->
-# auth store dir -> enable + start service and enforcement timer -> verify.
+# auth store dir -> enable + start service, enforcement timer and health-check
+# timer -> verify (including one live health probe).
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -137,7 +138,8 @@ trap 'rm -rf "$TMPD"' EXIT
 # which silently left a new --bind unlistened). Unchanged re-installs leave
 # the running service alone.
 UNITS_CHANGED=0
-for unit in parental-controls.service parental-controls-enforce.service parental-controls-enforce.timer; do
+for unit in parental-controls.service parental-controls-enforce.service parental-controls-enforce.timer \
+            parental-controls-healthcheck.service parental-controls-healthcheck.timer; do
     [ -f "$TEMPLATE_DIR/systemd/$unit" ] || { echo "Missing $TEMPLATE_DIR/systemd/$unit" >&2; exit 1; }
     sed -e "s|@APP_DIR@|$INSTALL_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
         -e "s|@BIND_HOST@|$BIND_HOST|g" -e "s|@BIND_PORT@|$BIND_PORT|g" \
@@ -197,6 +199,7 @@ echo "== 7/8 enable + start =="
 run systemctl daemon-reload
 run systemctl enable --now parental-controls.service
 run systemctl enable --now parental-controls-enforce.timer
+run systemctl enable --now parental-controls-healthcheck.timer
 # Restart when the configuration changed. Two cases: the rendered units
 # differ from the installed ones, or the installed units are newer than the
 # running process (left over by an installer run without restart support).
@@ -242,6 +245,24 @@ if [ "$code" != "302" ]; then
 fi
 
 echo
+echo "-- health-check timer --"
+if systemctl is-enabled -q parental-controls-healthcheck.timer \
+   && systemctl is-active -q parental-controls-healthcheck.timer; then
+    echo "parental-controls-healthcheck.timer enabled and active (probes every 5 min)"
+else
+    echo "WARNING: parental-controls-healthcheck.timer is not enabled+active;" >&2
+    echo "run: sudo systemctl enable --now parental-controls-healthcheck.timer" >&2
+fi
+# Run one probe now (the same script the timer runs) so a broken panel is
+# reported at install time instead of silently on the first tick.
+if systemctl start --wait --quiet parental-controls-healthcheck.service; then
+    echo "health probe -> OK"
+else
+    echo "WARNING: health probe FAILED - the panel process is up but not serving" >&2
+    echo "correctly; details: journalctl -u parental-controls-healthcheck.service" >&2
+fi
+
+echo
 echo "Installed into $INSTALL_DIR (listening on ${BIND_HOST}:${BIND_PORT}). Next steps:"
 echo "  1. Get the one-time admin credential: journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'"
 case "$BIND_HOST" in
@@ -251,3 +272,7 @@ case "$BIND_HOST" in
         echo "  2. Open http://${BIND_HOST}:${BIND_PORT} from a machine on the LAN" ;;
 esac
 echo "  3. Log in and change the password immediately (forced on first login)."
+echo "  4. Monitoring: parental-controls-healthcheck.timer probes the panel every"
+echo "     5 min. On failure the unit shows up in 'systemctl --failed' and"
+echo "     'journalctl -u parental-controls-healthcheck.service' (it never notifies"
+echo "     a child). Recover with: sudo systemctl restart parental-controls.service"
