@@ -742,7 +742,9 @@ class TestInstallerStaging(unittest.TestCase):
         tamper-evident audit log is never clobbered by a checkout copy."""
         script = read('install.sh')
         for name in ('bedtime.json', 'budgets.json', 'process_prefs.json',
-                     'auth.json', 'audit.jsonl'):
+                     'auth.json', 'audit.jsonl',
+                     'state.db', 'state.db-wal', 'state.db-shm',
+                     'state.db.bak.*'):
             self.assertIn(f'--exclude=/{name}', script,
                           f'rsync must exclude {name}')
             self.assertIn(f"--exclude='./{name}'", script,

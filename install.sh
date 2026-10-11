@@ -159,6 +159,8 @@ if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
             --exclude=/bedtime.json --exclude=/budgets.json \
             --exclude=/process_prefs.json --exclude=/auth.json \
             --exclude=/audit.jsonl \
+            --exclude=/state.db --exclude=/state.db-wal \
+            --exclude=/state.db-shm --exclude=/state.db.bak.* \
             "$SOURCE_DIR/" "$INSTALL_DIR/"
     else
         # Minimal fallback without rsync: copy code, keep existing state.
@@ -167,6 +169,8 @@ if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
             --exclude='./bedtime.json' --exclude='./budgets.json' \
             --exclude='./process_prefs.json' --exclude='./auth.json' \
             --exclude='./audit.jsonl' \
+            --exclude='./state.db' --exclude='./state.db-wal' \
+            --exclude='./state.db-shm' --exclude='./state.db.bak.*' \
             -cf - . ) | ( cd "$INSTALL_DIR" && tar -xf - )
     fi
     echo "Synced code from $SOURCE_DIR"
