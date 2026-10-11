@@ -77,6 +77,16 @@
             font-size: 0.75rem;
             font-weight: 600;
         }
+        .badge-frozen {
+            display: inline-block;
+            background: #4a90d9;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .btn-freeze { background: #4a90d9; color: #fff; }
         .process-row { background: #1a1a3e; margin: 0.2rem 0; padding: 0.3rem; border-radius: 4px; }
         .process-name { font-weight: 500; }
         .process-pid { font-size: 0.75rem; color: #888; margin-left: 0.5rem; }
@@ -270,9 +280,9 @@
                     <td id="budget-used-{{ cat }}">{{ b.used_minutes }} min</td>
                     <td id="budget-left-{{ cat }}">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes }} min{% else %}—{% endif %}</td>
                     <td id="budget-status-{{ cat }}">
-                        {% if b.paused %}<span class="badge-paused">Paused — out of time</span>
-                        <button type="button" class="btn-unlock" onclick="resumeCategory('{{ username }}', '{{ cat }}')">Resume</button>
-                        {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% else %}OK{% endif %}
+                        {% if b.frozen %}{% if b.paused and b.manual_frozen %}<span class="badge-paused">Frozen — out of time + manual</span>{% elif b.paused %}<span class="badge-paused">Paused — out of time</span>{% else %}<span class="badge-frozen">Frozen — by parent</span>{% endif %}
+                        <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
+                        {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% if b.minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>{% endif %}{% elif b.minutes %}OK <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% else %}<span title="Set a limit first">OK</span>{% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -313,7 +323,12 @@
                         <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                     </td>
                     <td>{{ group.max_elapsed or '—' }}</td>
-                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button></td>
+                    {# Visible groups are always single-category by construction
+                       (get_user_live buckets by category BEFORE group_by_comm),
+                       so the row's section category is the freeze target.
+                       Hidden groups may span categories ("Mixed") and get no
+                       button — those categories freeze from the Budgets table. #}
+                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -428,6 +443,23 @@
                 '<tbody>' + rows + '</tbody></table></div></td>';
         }
 
+        // Freeze/Unfreeze toggle for a visible process-group row. The row's
+        // section category is the freeze target: visible groups are always
+        // single-category by construction (server buckets by category
+        // BEFORE group_by_comm), so no mixed case exists here. State is
+        // read from the latest /live budget payload (Option A — no per-group
+        // payload keys); hidden rows ('hidden') never get a button.
+        function freezeToggleHtml(cat) {
+            if (cat === 'hidden') return '';
+            const b = (LIVE_DATA && LIVE_DATA.budget && LIVE_DATA.budget[cat]) || null;
+            if (!b) return '';
+            if (b.frozen) {
+                return ' <button type="button" class="btn-unlock" onclick="unfreezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Unfreeze</button>';
+            }
+            if (!b.minutes) return '';
+            return ' <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Freeze</button>';
+        }
+
         function groupRowsHtml(cat, group) {
             const key = groupKey(cat, group.comm);
             const isOpen = expanded.has(key);
@@ -445,7 +477,8 @@
                 '<span class="group-chevron">' + (isOpen ? '▼' : '▶') + '</span></button>';
             const action = cat === 'hidden'
                 ? '<button type="button" class="btn-show-hidden" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
-                : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>';
+                : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>' +
+                    freezeToggleHtml(cat);
             let middle;
             // Friendly app name where known; keys, buttons, and titles
             // below stay on comm so Hide/PIDs/expand behavior is unchanged.
@@ -645,13 +678,24 @@
                 if (usedEl) usedEl.textContent = `${b.used_minutes} min`;
                 if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? `${b.remaining_minutes} min` : '—';
                 if (statusEl) {
-                    if (b.paused) {
-                        statusEl.innerHTML = `<span class="badge-paused">Paused — out of time</span> ` +
-                            `<button type="button" class="btn-unlock" onclick="resumeCategory('${PAGE_USERNAME}', '${cat}')">Resume</button>`;
+                    if (b.frozen) {
+                        let badge;
+                        if (b.paused && b.manual_frozen) {
+                            badge = '<span class="badge-paused">Frozen — out of time + manual</span>';
+                        } else if (b.paused) {
+                            badge = '<span class="badge-paused">Paused — out of time</span>';
+                        } else {
+                            badge = '<span class="badge-frozen">Frozen — by parent</span>';
+                        }
+                        statusEl.innerHTML = badge + ' ' +
+                            `<button type="button" class="btn-unlock" onclick="unfreezeCategory('${PAGE_USERNAME}', '${cat}')">Unfreeze</button>`;
                     } else if (b.exhausted) {
-                        statusEl.innerHTML = '<span class="badge-paused">Exhausted</span>';
+                        statusEl.innerHTML = '<span class="badge-paused">Exhausted</span>' +
+                            (b.minutes ? ` <button type="button" class="btn-freeze" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>` : '');
+                    } else if (b.minutes) {
+                        statusEl.innerHTML = `OK <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>`;
                     } else {
-                        statusEl.textContent = 'OK';
+                        statusEl.innerHTML = '<span title="Set a limit first">OK</span>';
                     }
                 }
             }
@@ -922,9 +966,30 @@
             }
         }
 
-        async function resumeCategory(username, category) {
+        // Deliberate parent actions, instantly reversible — no confirm
+        // (same convention as one-click bonus grants and Hide/Show).
+        async function freezeCategory(username, category) {
             try {
-                const resp = await fetch('/api/budgets/resume', {
+                const resp = await fetch('/api/budgets/freeze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast('Frozen ' + category, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function unfreezeCategory(username, category) {
+            try {
+                const resp = await fetch('/api/budgets/unfreeze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
                     body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
@@ -939,6 +1004,12 @@
             } catch (e) {
                 showToast('Error: ' + e.message, true);
             }
+        }
+
+        async function resumeCategory(username, category) {
+            // Back-compat alias: the server keeps /api/budgets/resume, and
+            // old callers land here. New UI calls unfreezeCategory.
+            await unfreezeCategory(username, category);
         }
 
         // Targeted refresh: only status, processes, and budget cells update.
