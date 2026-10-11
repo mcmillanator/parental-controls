@@ -101,12 +101,8 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
         echo "User '$SERVICE_USER' does not exist (only the default '$DEFAULT_SERVICE_USER' is auto-created)." >&2
         exit 1
     fi
-    NOLOGIN=/usr/sbin/nologin
-    [ -x "$NOLOGIN" ] || NOLOGIN=/sbin/nologin
-    run useradd --system --no-create-home --shell "$NOLOGIN" "$SERVICE_USER"
-    # Belt and braces: a system account is born without a password hash, and
-    # locking it refuses password auth even if one ever appears.
-    run usermod -L "$SERVICE_USER"
+    # Account creation itself is deferred to ensure_service_user, below the
+    # run()/as_user() helper definitions it uses.
 fi
 command -v python3 >/dev/null || { echo "python3 not found." >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemctl not found." >&2; exit 1; }
@@ -170,6 +166,29 @@ as_user() {
         sudo -u "$SERVICE_USER" "$@"
     fi
 }
+
+# Create the dedicated service user idempotently (called after the helpers
+# above are defined). A system account: nologin shell, no home, locked
+# password, no sudo of its own — it only ever receives the scoped sudoers
+# grants. Skipped when the account already exists, so re-runs (including the
+# stan → service-user migration) never reset it. Only the default account is
+# auto-created; a custom --user must already exist, so a typo can never
+# conjure a stray login account.
+ensure_service_user() {
+    id "$SERVICE_USER" >/dev/null 2>&1 && return 0
+    [ "$SERVICE_USER" = "$DEFAULT_SERVICE_USER" ] || {
+        echo "User '$SERVICE_USER' does not exist (only the default '$DEFAULT_SERVICE_USER' is auto-created)." >&2
+        exit 1
+    }
+    NOLOGIN=/usr/sbin/nologin
+    [ -x "$NOLOGIN" ] || NOLOGIN=/sbin/nologin
+    run useradd --system --no-create-home --shell "$NOLOGIN" "$SERVICE_USER"
+    # Belt and braces: a system account is born without a password hash, and
+    # locking it refuses password auth even if one ever appears.
+    run usermod -L "$SERVICE_USER"
+}
+
+ensure_service_user
 
 echo "== 1/8 stage app into $INSTALL_DIR =="
 run mkdir -p "$INSTALL_DIR"
