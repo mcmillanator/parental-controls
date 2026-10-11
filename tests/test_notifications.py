@@ -9,7 +9,6 @@ verify notify_user fails silently — and it skips itself if bluefox ever
 grows a session.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -215,11 +214,10 @@ class TestBedtimeWarnedState(unittest.TestCase):
         ]
         for p in self.patches:
             p.start()
-        with open(self.file, 'w') as f:
-            json.dump({'testchild': {
-                'start': '21:00', 'end': '22:00',
-                'days': [MONDAY.weekday()],
-                'locked_by_bedtime': False}}, f)
+        app.save_bedtime({'testchild': {
+            'start': '21:00', 'end': '22:00',
+            'days': [MONDAY.weekday()],
+            'locked_by_bedtime': False}})
 
     def tearDown(self):
         for p in self.patches:
@@ -228,8 +226,7 @@ class TestBedtimeWarnedState(unittest.TestCase):
         self.tmp.cleanup()
 
     def _entry(self):
-        with open(self.file) as f:
-            return json.load(f)['testchild']
+        return app.load_bedtime()['testchild']
 
     def test_warn_once_then_lock_then_clear(self):
         # 10 min before: exactly one pre-warning, no lock.
@@ -384,9 +381,8 @@ class TestBudgetWarnings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             budgets_file = os.path.join(d, 'budgets.json')
             entry = self._entry(used_sec=56 * 60.0)
-            with open(budgets_file, 'w') as f:
-                json.dump({'testchild': entry}, f)
             with mock.patch.object(budgets, 'BUDGETS_FILE', budgets_file):
+                budgets.save_budgets({'testchild': entry})
                 summaries = budgets.tick_budgets(
                     {}, datetime(2026, 10, 12, 15, 0),
                     procs_provider=lambda u: [steam_proc()],

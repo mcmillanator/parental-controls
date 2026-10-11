@@ -9,7 +9,6 @@ import subprocess
 import pwd
 import html
 import os
-import json
 import re
 import secrets
 import threading
@@ -22,6 +21,7 @@ from flask import (Flask, render_template, request, jsonify, redirect,
 
 import auth
 import budgets
+import store
 
 app = Flask(__name__)
 
@@ -258,23 +258,20 @@ def run_lock_command(username, action):
 
 
 # ---------------------------------------------------------------------------
-# Bedtime settings storage (simple JSON file)
+# Bedtime settings storage (SQLite via store.py; BEDTIME_FILE is kept as the
+# legacy import source and rollback mirror — the db is the single source
+# of truth and the JSON file is never read back after migration)
 # ---------------------------------------------------------------------------
 
 def load_bedtime():
-    """Load bedtime settings from JSON file. Returns dict keyed by username."""
-    try:
-        with open(BEDTIME_FILE, 'r') as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+    """Load bedtime settings. Returns dict keyed by username."""
+    return store.load_table(store.db_path_for(BEDTIME_FILE), 'bedtime')
 
 
 def save_bedtime(data):
-    """Persist bedtime settings to JSON file."""
-    with open(BEDTIME_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    """Persist bedtime settings (atomic commit + rollback mirror)."""
+    store.save_table(store.db_path_for(BEDTIME_FILE), 'bedtime',
+                     data, BEDTIME_FILE)
 
 
 def note_manual_unlock(username):
@@ -316,7 +313,7 @@ def clear_manual_override(username):
 # Bonus time (parent-granted extra minutes past bedtime)
 # ---------------------------------------------------------------------------
 #
-# Live state is stored inside the user's bedtime.json entry (no new file,
+# Live state is stored inside the user's bedtime entry (no new file,
 # no migration):
 #   bonus_until     ISO timestamp when the grant expires
 #   bonus_minutes   minutes granted by the most recent grant

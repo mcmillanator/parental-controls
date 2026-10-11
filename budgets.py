@@ -2,7 +2,7 @@
 """Phase 1: process filtering, app categorization, per-category time budgets.
 
 Prototype mindset: stdlib only (no Flask import here so unit tests run with
-system python3), JSON files like bedtime.json, no DB.
+system python3), SQLite runtime state via store.py, no other DB.
 
 Budget model
 ------------
@@ -38,13 +38,14 @@ resume manually, and everything auto-unfreezes at reset.
 
 import glob
 import grp
-import json
 import os
 import pwd
 import re
 import shlex
 import subprocess
 from datetime import datetime
+
+import store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROCESS_PREFS_FILE = os.path.join(BASE_DIR, 'process_prefs.json')
@@ -229,23 +230,21 @@ def is_never_pause(proc):
 
 
 # ---------------------------------------------------------------------------
-# process_prefs.json — per-user Hide / Show-hidden state
+# process_prefs — per-user Hide / Show-hidden state (SQLite table holding
+# the same JSON document per user; PROCESS_PREFS_FILE is the legacy
+# import source and rollback mirror)
 # Shape: {username: {"hidden_comm": [...], "shown_comm": [...]}}
 # Effective hidden = (default_hidden | hidden_comm) - shown_comm
 # ---------------------------------------------------------------------------
 
 def load_prefs():
-    try:
-        with open(PROCESS_PREFS_FILE, 'r') as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+    return store.load_table(store.db_path_for(PROCESS_PREFS_FILE),
+                            'process_prefs')
 
 
 def save_prefs(data):
-    with open(PROCESS_PREFS_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    store.save_table(store.db_path_for(PROCESS_PREFS_FILE),
+                     'process_prefs', data, PROCESS_PREFS_FILE)
 
 
 def set_pref(username, comm, action):
@@ -791,7 +790,8 @@ def compute_deltas(last_cpu, procs):
 
 
 # ---------------------------------------------------------------------------
-# budgets.json
+# budgets store (SQLite table holding the same JSON document per user;
+# BUDGETS_FILE is the legacy import source and rollback mirror)
 # Shape: {username: {"limits": {cat: minutes}, "day": "YYYY-MM-DD",
 #   "used_seconds": {cat: float}, "last_cpu": {pid: {comm, cpu}},
 #   "paused": {cat: bool}, "resumed": {cat: bool},
@@ -800,17 +800,12 @@ def compute_deltas(last_cpu, procs):
 # ---------------------------------------------------------------------------
 
 def load_budgets():
-    try:
-        with open(BUDGETS_FILE, 'r') as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+    return store.load_table(store.db_path_for(BUDGETS_FILE), 'budgets')
 
 
 def save_budgets(data):
-    with open(BUDGETS_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    store.save_table(store.db_path_for(BUDGETS_FILE), 'budgets',
+                     data, BUDGETS_FILE)
 
 
 def blank_entry():
@@ -1115,7 +1110,7 @@ def _read_effective_frozen(cgroup_dir):
 def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
     """One watchdog pass: thaw stuck/orphan freezes, report foreign groups.
 
-    budgets_data: budgets.json-shaped dict (default: loaded from disk).
+    budgets_data: budget-store-shaped dict (default: loaded from the store).
     cgroup_root: directory to scan (default: real /sys/fs/cgroup).
     thaw_fn: callable(username, category) -> (ok, msg) used for the
       unfreeze write (default: set_frozen(..., False) on the real tree,
@@ -1477,7 +1472,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
                  index=None, act=True, notify=None, run_watchdog=True,
                  cgroup_root=None):
-    """Run one budget tick for every user in budgets.json.
+    """Run one budget tick for every user in the budget store.
 
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
     procs_provider: callable(username) -> procs (default: live ps snapshot).

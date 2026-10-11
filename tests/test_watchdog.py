@@ -194,9 +194,7 @@ class TestTickWiring(unittest.TestCase):
             old_file = budgets.BUDGETS_FILE
             budgets.BUDGETS_FILE = os.path.join(root, 'budgets.json')
             try:
-                import json
-                with open(budgets.BUDGETS_FILE, 'w') as f:
-                    json.dump(data, f)
+                budgets.save_budgets(data)
                 summaries = budgets.tick_budgets(
                     {}, datetime.now(),
                     procs_provider=lambda u: [],
@@ -221,9 +219,7 @@ class TestTickWiring(unittest.TestCase):
             old_file = budgets.BUDGETS_FILE
             budgets.BUDGETS_FILE = os.path.join(root, 'budgets.json')
             try:
-                import json
-                with open(budgets.BUDGETS_FILE, 'w') as f:
-                    json.dump(data, f)
+                budgets.save_budgets(data)
                 summaries = budgets.tick_budgets(
                     {}, datetime.now(),
                     procs_provider=lambda u: [],
@@ -241,12 +237,10 @@ class TestTickWiring(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             budgets.BUDGETS_FILE = os.path.join(root, 'budgets.json')
             try:
-                import json
-                with open(budgets.BUDGETS_FILE, 'w') as f:
-                    json.dump({}, f)
+                budgets.save_budgets({})
                 summaries = budgets.tick_budgets(
                     {}, datetime.now(), procs_provider=lambda u: [],
-                    run_watchdog=False)
+                    prefs={}, run_watchdog=False)
             finally:
                 budgets.BUDGETS_FILE = old_file
             self.assertFalse(any(s.get('user') == '_watchdog'

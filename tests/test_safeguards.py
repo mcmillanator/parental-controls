@@ -12,7 +12,6 @@ sessions, or cgroups. Run with system python3:
 Flask-dependent UI tests skip gracefully when Flask is not installed.
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -112,14 +111,13 @@ class TestBudgetWheelSkip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             budgets_file = os.path.join(d, 'budgets.json')
             entry = self._exhausted_entry()
-            with open(budgets_file, 'w') as f:
-                json.dump({'fakeadmin': entry, 'kid': self._exhausted_entry()},
-                          f)
             provider = mock.Mock(return_value=[])
             now = datetime(2026, 10, 7, 15, 0)
             with mock.patch.object(budgets, 'BUDGETS_FILE', budgets_file), \
                  mock.patch.object(budgets, 'is_admin_protected',
                                    side_effect=lambda u: u == 'fakeadmin'):
+                budgets.save_budgets({'fakeadmin': entry,
+                                      'kid': self._exhausted_entry()})
                 summaries = tick_budgets({}, now, procs_provider=provider,
                                          prefs={}, index={}, act=False)
         by_user = {s['user']: s for s in summaries}
