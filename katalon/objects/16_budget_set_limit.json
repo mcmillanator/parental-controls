@@ -1,0 +1,42 @@
+{
+  "name": "16_budget_set_limit",
+  "steps": [
+    {
+      "type": "input",
+      "selector": "#budget-${TEST_CATEGORY}",
+      "parentSelectors": [],
+      "value": "${BUDGET_MINUTES}"
+    },
+    {
+      "type": "click",
+      "selector": "#budget-${TEST_CATEGORY} + button",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "2000"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#toast",
+      "parentSelectors": [],
+      "value": "glob:*Budget saved for*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "#budget-status-${TEST_CATEGORY}",
+      "parentSelectors": [],
+      "value": "glob:*OK*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#budget-status-${TEST_CATEGORY} .btn-freeze",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "00fb01dd-c4c2-4c9e-888d-452143e2591c"
+}

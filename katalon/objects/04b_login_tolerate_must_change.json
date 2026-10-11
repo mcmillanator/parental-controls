@@ -1,0 +1,56 @@
+{
+  "name": "04b_login_tolerate_must_change",
+  "steps": [
+    {
+      "type": "input",
+      "selector": "#username",
+      "parentSelectors": [],
+      "value": "${ADMIN_USER}"
+    },
+    {
+      "type": "input",
+      "selector": "#password",
+      "parentSelectors": [],
+      "value": "${ADMIN_PASSWORD}"
+    },
+    {
+      "type": "click",
+      "selector": "button[type=\"submit\"]",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "1500"
+    },
+    {
+      "type": "if",
+      "condition": "document.getElementById('current') !== null",
+      "children": [
+        {
+          "type": "verifyElementVisible",
+          "selector": "#new",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#confirm",
+          "parentSelectors": [],
+          "value": ""
+        }
+      ],
+      "elseSteps": [
+        {
+          "type": "verifyElementVisible",
+          "selector": "#admin-panel",
+          "parentSelectors": [],
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "uuid": "dca93119-6b20-4238-8515-5140944bf6cd"
+}

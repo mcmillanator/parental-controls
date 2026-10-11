@@ -1,0 +1,74 @@
+{
+  "name": "19_bonus_verify_status",
+  "steps": [
+    {
+      "type": "verifyElementVisible",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='+15m']",
+      "parentSelectors": [],
+      "value": "+15m"
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='+30m']",
+      "parentSelectors": [],
+      "value": "+30m"
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='+1h']",
+      "parentSelectors": [],
+      "value": "+1h"
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='+1h30']",
+      "parentSelectors": [],
+      "value": "+1h30"
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='+2h']",
+      "parentSelectors": [],
+      "value": "+2h"
+    },
+    {
+      "type": "verifyText",
+      "selector": "xpath=//button[normalize-space(text())='Grant custom']",
+      "parentSelectors": [],
+      "value": "Grant custom"
+    },
+    {
+      "type": "if",
+      "condition": "document.getElementById('bonus-status').textContent.indexOf('Bonus active') !== -1",
+      "children": [
+        {
+          "type": "verifyElementVisible",
+          "selector": "#bonus-status .badge-bonus",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#bonus-status .btn-lock",
+          "parentSelectors": [],
+          "value": ""
+        }
+      ],
+      "elseSteps": [
+        {
+          "type": "verifyText",
+          "selector": "#bonus-status",
+          "parentSelectors": [],
+          "value": "glob:*No bonus time active*"
+        }
+      ]
+    }
+  ],
+  "uuid": "62990043-1ba5-40b8-8b4b-110123c8f47f"
+}

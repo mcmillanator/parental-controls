@@ -1,0 +1,62 @@
+{
+  "name": "24_manual_lock",
+  "steps": [
+    {
+      "type": "if",
+      "condition": "document.querySelector('#account-actions .btn-lock') === null",
+      "children": [
+        {
+          "type": "verifyText",
+          "selector": "#account-status-text",
+          "parentSelectors": [],
+          "value": "Locked"
+        }
+      ],
+      "elseSteps": [
+        {
+          "type": "click",
+          "selector": "#account-actions .btn-lock",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "closeAlert",
+          "selector": "",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "waitFor",
+          "selector": "",
+          "parentSelectors": [],
+          "value": "2000"
+        },
+        {
+          "type": "verifyText",
+          "selector": "#toast",
+          "parentSelectors": [],
+          "value": "glob:*Locked*"
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#account-status.status-locked",
+          "parentSelectors": [],
+          "value": ""
+        },
+        {
+          "type": "verifyElementVisible",
+          "selector": "#account-actions .btn-unlock",
+          "parentSelectors": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-actions .btn-logout",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "5c07b5e2-1a39-4235-8689-7e561c7e2d01"
+}

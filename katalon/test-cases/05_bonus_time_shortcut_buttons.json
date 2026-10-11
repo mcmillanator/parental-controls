@@ -1,0 +1,72 @@
+{
+  "name": "05_bonus_time_shortcut_buttons",
+  "steps": [
+    {
+      "type": "objectReference",
+      "name": "00_setup_reset_session",
+      "uuid": "c9b2ec61-bd58-4318-8dea-8de1b8279f53",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "01_set_test_config",
+      "uuid": "cebb33ab-d474-4226-801b-c868ea4c5bee",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "02_open_login_page",
+      "uuid": "63e4a9e5-d7fa-4eff-8750-280ed91e790e",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "04_login_good_password",
+      "uuid": "9a2df969-d48e-4357-8a69-7e88cf7eaf49",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "09_navigate_to_index",
+      "uuid": "3d640df1-4a1f-4863-89ee-2593eee86c39",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "10_open_user_details",
+      "uuid": "86c6e2cc-f69d-4fe6-81f8-758de915fafe",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "19_bonus_verify_status",
+      "uuid": "62990043-1ba5-40b8-8b4b-110123c8f47f",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "20_bonus_grant_shortcuts",
+      "uuid": "a9ae44db-9509-4db7-87ba-05762da3d15a",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "22_bonus_revoke",
+      "uuid": "280b9ff0-a59c-49a7-8848-4db86d55ae28",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "19_bonus_verify_status",
+      "uuid": "62990043-1ba5-40b8-8b4b-110123c8f47f",
+      "value": ""
+    },
+    {
+      "type": "objectReference",
+      "name": "05_logout",
+      "uuid": "0f7e3c36-a774-4c12-88a5-c91079c84929",
+      "value": ""
+    }
+  ],
+  "uuid": "c40d6723-e854-4e7b-8bea-c5e62c80e8a9"
+}

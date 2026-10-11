@@ -1,0 +1,84 @@
+{
+  "name": "10_open_user_details",
+  "steps": [
+    {
+      "type": "verifyElementVisible",
+      "selector": "#row-${TEST_USER}",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "click",
+      "selector": "#row-${TEST_USER} .btn-details",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "waitFor",
+      "selector": "",
+      "parentSelectors": [],
+      "value": "1800"
+    },
+    {
+      "type": "verifyText",
+      "selector": "h1",
+      "parentSelectors": [],
+      "value": "glob:*User:*"
+    },
+    {
+      "type": "verifyText",
+      "selector": "a.back-link",
+      "parentSelectors": [],
+      "value": "glob:*Back to Parental Controls*"
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-status",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-status-text",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-badges",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#account-actions",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#bonus-status",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#process-section",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#budget-${TEST_CATEGORY}",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#budget-status-${TEST_CATEGORY}",
+      "parentSelectors": [],
+      "value": ""
+    }
+  ],
+  "uuid": "86c6e2cc-f69d-4fe6-81f8-758de915fafe"
+}
