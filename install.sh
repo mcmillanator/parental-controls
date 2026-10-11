@@ -98,6 +98,7 @@ if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
             --exclude=/.git \
             --exclude=/bedtime.json --exclude=/budgets.json \
             --exclude=/process_prefs.json --exclude=/auth.json \
+            --exclude=/audit.jsonl \
             "$SOURCE_DIR/" "$INSTALL_DIR/"
     else
         # Minimal fallback without rsync: copy code, keep existing state.
@@ -105,6 +106,7 @@ if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
             --exclude='*/__pycache__' --exclude='*.pyc' \
             --exclude='./bedtime.json' --exclude='./budgets.json' \
             --exclude='./process_prefs.json' --exclude='./auth.json' \
+            --exclude='./audit.jsonl' \
             -cf - . ) | ( cd "$INSTALL_DIR" && tar -xf - )
     fi
     echo "Synced code from $SOURCE_DIR"

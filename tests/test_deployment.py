@@ -733,6 +733,19 @@ class TestInstallerStaging(unittest.TestCase):
         script = read('install.sh')
         self.assertIn('s|@SERVICE_USER@|${SERVICE_USER}|g', script)
 
+    def test_runtime_state_never_staged(self):
+        """Every runtime state file must be excluded from BOTH staging
+        paths (rsync primary + tar fallback) so a deploy can never
+        overwrite — or delete via --delete — live state, and so the
+        tamper-evident audit log is never clobbered by a checkout copy."""
+        script = read('install.sh')
+        for name in ('bedtime.json', 'budgets.json', 'process_prefs.json',
+                     'auth.json', 'audit.jsonl'):
+            self.assertIn(f'--exclude=/{name}', script,
+                          f'rsync must exclude {name}')
+            self.assertIn(f"--exclude='./{name}'", script,
+                          f'tar fallback must exclude {name}')
+
 
 class TestBindOptions(unittest.TestCase):
     def test_safe_defaults(self):
