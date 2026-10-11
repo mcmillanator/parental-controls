@@ -107,8 +107,16 @@ def is_admin_protected(username):
 
 
 def valid_username(username):
-    """Guard against path traversal before a username touches cgroup paths."""
-    return bool(username) and bool(_USERNAME_RE.match(username))
+    """Guard against path traversal before a username touches cgroup paths.
+
+    Beyond the charset check this rejects a leading '-': usernames reach
+    privileged commands as bare argv elements, and a name like '-x'
+    would be parsed as an option rather than a login. No real account
+    can begin with '-' (mirrors app.valid_username), so this costs
+    nothing and closes an argument-injection path.
+    """
+    return (bool(username) and not username.startswith('-')
+            and bool(_USERNAME_RE.match(username)))
 
 
 def valid_category(category):
@@ -795,6 +803,7 @@ def compute_deltas(last_cpu, procs):
 # Shape: {username: {"limits": {cat: minutes}, "day": "YYYY-MM-DD",
 #   "used_seconds": {cat: float}, "last_cpu": {pid: {comm, cpu}},
 #   "paused": {cat: bool}, "resumed": {cat: bool},
+#   "manual_frozen": {cat: bool}, "manual_frozen_at": {cat: iso},
 #   "warned_low": {cat: "YYYY-MM-DD"}, "warned_paused": {cat: "YYYY-MM-DD"},
 #   "was_in_bedtime": bool}}
 # ---------------------------------------------------------------------------
@@ -815,7 +824,8 @@ def save_budgets(data):
 
 def blank_entry():
     return {'limits': {}, 'day': None, 'used_seconds': {}, 'last_cpu': {},
-            'paused': {}, 'resumed': {}, 'warned_low': {},
+            'paused': {}, 'resumed': {}, 'manual_frozen': {},
+            'manual_frozen_at': {}, 'warned_low': {},
             'warned_paused': {}, 'was_in_bedtime': False,
             'last_tick': None}
 
@@ -835,9 +845,12 @@ def set_limit(username, category, minutes):
     limits = entry.setdefault('limits', {})
     if minutes <= 0:
         limits.pop(category, None)
-        # Dropping the limit releases any freeze for that category.
+        # Dropping the limit releases any freeze for that category
+        # (auto-pause AND manual freeze alike).
         entry.get('paused', {}).pop(category, None)
         entry.get('resumed', {}).pop(category, None)
+        entry.get('manual_frozen', {}).pop(category, None)
+        entry.get('manual_frozen_at', {}).pop(category, None)
         try:
             save_budgets(data)
         except OSError as e:
@@ -862,17 +875,22 @@ def budget_status(username, data=None):
     limits = entry.get('limits', {})
     used = entry.get('used_seconds', {})
     paused = entry.get('paused', {})
+    manual_frozen = entry.get('manual_frozen', {})
     status = {}
     for cat in CATEGORIES:
         limit_min = float(limits.get(cat, 0) or 0)
         used_sec = float(used.get(cat, 0) or 0)
+        is_paused = bool(paused.get(cat, False))
+        is_manual = bool(manual_frozen.get(cat, False))
         status[cat] = {
             'minutes': limit_min,
             'used_minutes': int(round(used_sec / 60.0)),
             'remaining_minutes': int(round(max(0.0, limit_min * 60 - used_sec) / 60.0))
             if limit_min > 0 else None,
-            'paused': bool(paused.get(cat, False)),
+            'paused': is_paused,
             'exhausted': bool(limit_min > 0 and used_sec >= limit_min * 60),
+            'manual_frozen': is_manual,
+            'frozen': bool(is_paused or is_manual),
         }
     return status
 
@@ -1124,7 +1142,8 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
 
     Returns a summary dict {thawed, legit, clean, unknown, skipped, note}.
     Only OUR managed groups are ever thawed, and only when truly frozen
-    (desired AND effective) with NO paused flag for that user/category.
+    (desired AND effective) with NO paused/manual-frozen flag for that
+    user/category.
     Foreign `parental-*` groups are logged loudly and reported in
     `unknown` but NEVER touched.
     """
@@ -1196,13 +1215,16 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
                 name + ' (transition: freeze=1, frozen 0)')
             continue
         # Truly frozen (desired + effective). Legitimate ONLY when the
-        # budget state marks this user/category paused.
+        # budget state marks this user/category paused (auto-exhaustion)
+        # OR manually frozen by the parent.
         try:
-            paused = bool((budgets_data.get(username) or {})
-                          .get('paused', {}).get(category, False))
+            user_entry = budgets_data.get(username) or {}
+            paused = bool(user_entry.get('paused', {}).get(category, False))
+            manual = bool(user_entry.get('manual_frozen', {})
+                           .get(category, False))
         except (AttributeError, TypeError):
-            paused = False
-        if paused:
+            paused, manual = False, False
+        if paused or manual:
             summary['legit'].append(name)
             continue
         print(f'WATCHDOG: STUCK freeze detected: {name} is frozen '
@@ -1334,6 +1356,8 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         entry['used_seconds'] = {}
         entry['paused'] = {}
         entry['resumed'] = {}
+        entry['manual_frozen'] = {}
+        entry['manual_frozen_at'] = {}
         entry['warned_low'] = {}
         entry['warned_paused'] = {}
         entry['day'] = today_str
@@ -1366,6 +1390,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     used = entry.setdefault('used_seconds', {})
     paused = entry.setdefault('paused', {})
     resumed = entry.setdefault('resumed', {})
+    manual_frozen = entry.setdefault('manual_frozen', {})
     warned_low = entry.setdefault('warned_low', {})
     warned_paused = entry.setdefault('warned_paused', {})
 
@@ -1406,7 +1431,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
                      'Less than 5 minutes of %s time left today.' % label,
                      category + ' (low)'):
                 warned_low[category] = today_str
-        if exhausted and not paused.get(category) and not resumed.get(category):
+        if exhausted and not paused.get(category) and not resumed.get(category) and not manual_frozen.get(category):
             if not act:
                 paused[category] = True
                 summary['froze'].append(category + ' (dry-run)')
@@ -1461,6 +1486,33 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
                 else:
                     summary['note'] = (f're-freeze aborted for {category}: '
                                        f'{reason}')
+        elif manual_frozen.get(category) and act:
+            # Manually-frozen steady state: the parent deliberately froze
+            # this category, so the tick must neither thaw it nor record
+            # an auto-pause — just re-assert the freeze for late starters
+            # (apps launched after the click), under the same safety
+            # gates. Fail-closed: a safety failure leaves the freeze in
+            # place and records a note (no notify — the parent sees the
+            # state in the UI).
+            ok, _msg = ensure_cgroup(username, category)
+            if ok:
+                current = set(cgroup_members(username, category))
+                for proc in members:
+                    if proc['pid'] not in current:
+                        migrate_pid(username, category, proc['pid'])
+                expected = {p['pid']: p for p in members}
+                safe, reason = verify_freeze_safety(
+                    username, cgroup_members(username, category), expected)
+                if safe:
+                    ok, msg = set_frozen(username, category, True)
+                    if ok:
+                        summary['froze'].append(category + ' (manual)')
+                    else:
+                        summary['note'] = (f'manual re-freeze failed for '
+                                           f'{category}: {msg}')
+                else:
+                    summary['note'] = (f'manual re-freeze aborted for '
+                                       f'{category}: {reason}')
         elif members and act and not paused.get(category):
             # Pre-place matching processes so a later freeze is instant.
             # No budget configured -> code never reaches here (limits gate
@@ -1511,6 +1563,7 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
                               'unfroze': [], 'note': note})
             continue
         for key in ('limits', 'used_seconds', 'last_cpu', 'paused', 'resumed',
+                    'manual_frozen', 'manual_frozen_at',
                     'warned_low', 'warned_paused'):
             entry.setdefault(key, {})
         if procs_provider is not None:
@@ -1539,8 +1592,87 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     return summaries
 
 
-def resume_category(username, category):
-    """Manual Resume: unfreeze and inhibit re-freeze until the next reset."""
+def freeze_category(username, category):
+    """Manual Freeze: freeze a category cgroup on the parent's click.
+
+    Records ``manual_frozen[category]`` (plus ``manual_frozen_at``) so the
+    tick re-asserts the freeze for late starters and the watchdog treats
+    it as legitimate. ``paused`` is left untouched — a manual freeze is
+    not an exhaustion, and unfreezing a dually-marked category clears
+    both. Fail-closed throughout: any cgroup/safety failure returns
+    ``(False, reason)`` WITHOUT persisting ``manual_frozen``.
+
+    Uses only the existing privileged helpers (ensure_cgroup,
+    migrate_pid, set_frozen, cgroup_members) — no new privilege grants.
+    """
+    if not valid_username(username):
+        return False, 'Invalid username'
+    if not valid_category(category):
+        return False, f'Unknown category: {category}'
+    if is_admin_protected(username):
+        return False, (f'Refused: {username} is an admin and cannot '
+                       'be frozen')
+    data = load_budgets()
+    entry = data.get(username, {})
+    if float((entry.get('limits', {}) or {}).get(category, 0) or 0) <= 0:
+        return False, 'Set a time limit for this category first'
+    limits = entry.get('limits', {})
+    try:
+        prefs = load_prefs()
+    except Exception:
+        prefs = None
+    try:
+        index = build_desktop_index(username)
+    except Exception:
+        index = None
+    try:
+        procs = list_user_processes(username)
+    except Exception as e:
+        return False, f'could not snapshot processes: {e}'
+    members = freezable_members(procs, username, category, limits, prefs,
+                                index)
+    ok, msg = ensure_cgroup(username, category)
+    if not ok:
+        return False, msg
+    for proc in members:
+        # Individual migrate failures are ignored: the readback safety
+        # gate below is authoritative (matches the tick's ignore-and-verify
+        # order).
+        migrate_pid(username, category, proc['pid'])
+    current = cgroup_members(username, category)
+    safe, reason = verify_freeze_safety(username, current,
+                                        {p['pid']: p for p in members})
+    if not safe:
+        return False, reason
+    if not members and not current:
+        # Nothing running yet: record the freeze without writing
+        # cgroup.freeze. The tick's manual-frozen branch freezes late
+        # starters under the same gates.
+        pass
+    else:
+        ok, msg = set_frozen(username, category, True)
+        if not ok:
+            return False, msg
+    try:
+        data = load_budgets()
+        entry = data.setdefault(username, blank_entry())
+        entry.setdefault('manual_frozen', {})[category] = True
+        entry.setdefault('manual_frozen_at', {})[category] = \
+            datetime.now().isoformat()
+        save_budgets(data)
+    except OSError as e:
+        return False, str(e)
+    label = CATEGORY_LABELS.get(category, category)
+    return True, f'Frozen {label} (manual freeze)'
+
+
+def unfreeze_category(username, category):
+    """Manual Unfreeze: thaw and inhibit re-freeze until the next reset.
+
+    Subsumes the old Resume: clears BOTH ``paused`` and ``manual_frozen``
+    (plus ``manual_frozen_at``) and sets ``resumed`` so the tick does not
+    instantly re-freeze an exhausted category.
+    """
     if not valid_username(username):
         return False, 'Invalid username'
     if not valid_category(category):
@@ -1552,11 +1684,23 @@ def resume_category(username, category):
         data = load_budgets()
         entry = data.setdefault(username, blank_entry())
         entry.get('paused', {}).pop(category, None)
+        entry.get('manual_frozen', {}).pop(category, None)
+        entry.get('manual_frozen_at', {}).pop(category, None)
         entry.setdefault('resumed', {})[category] = True
         save_budgets(data)
     except OSError as e:
         return False, str(e)
     return True, 'Resumed; will not re-pause until the next reset'
+
+
+def resume_category(username, category):
+    """Manual Resume: unfreeze and inhibit re-freeze until the next reset.
+
+    Thin alias over :func:`unfreeze_category` (kept so the existing
+    ``/api/budgets/resume`` endpoint and CLI-adjacent callers keep
+    working with the exact same return contract).
+    """
+    return unfreeze_category(username, category)
 
 
 # ---------------------------------------------------------------------------

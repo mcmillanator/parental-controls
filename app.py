@@ -1421,6 +1421,58 @@ def api_budgets_resume():
     return jsonify({'success': True, 'message': msg})
 
 
+@app.route('/api/budgets/freeze', methods=['POST'])
+@require_admin
+def api_budgets_freeze():
+    """Manually freeze a budgeted category (parent's Freeze button)."""
+    username = request.form.get('username', '').strip()
+    category = request.form.get('category', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    if not budgets.valid_category(category):
+        return jsonify({'success': False,
+                        'error': f'Unknown category: {category}'}), 400
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+    if budgets.is_admin_protected(username):
+        return jsonify({'success': False,
+                        'error': (f'Refused: {username} is an admin and '
+                                  'cannot be frozen')}), 403
+    ok, msg = budgets.freeze_category(username, category)
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/budgets/unfreeze', methods=['POST'])
+@require_admin
+def api_budgets_unfreeze():
+    """Manually unfreeze a frozen category (parent's Unfreeze button)."""
+    username = request.form.get('username', '').strip()
+    category = request.form.get('category', '').strip()
+    if not username:
+        return jsonify({'success': False, 'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    if not budgets.valid_category(category):
+        return jsonify({'success': False,
+                        'error': f'Unknown category: {category}'}), 400
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+    if budgets.is_admin_protected(username):
+        return jsonify({'success': False,
+                        'error': (f'Refused: {username} is an admin and '
+                                  'cannot be frozen')}), 403
+    ok, msg = budgets.unfreeze_category(username, category)
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
 @app.route('/api/budgets/<username>')
 @require_admin
 def api_budgets_get(username):
