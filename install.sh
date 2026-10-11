@@ -234,6 +234,12 @@ run chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 # Templates are installed from the checkout (canonical), falling back to the
 # staged copy if the checkout's are somehow absent.
+# Units are read from the checkout when running from one (the normal case),
+# falling back to the staged copy when the installer runs from the install
+# dir itself. Requirements are ALWAYS installed from the staged copy under
+# $INSTALL_DIR: pip runs as the service user, which cannot traverse a home
+# directory (the agent's home is mode 0700 by default), while $INSTALL_DIR
+# is owned by that user.
 TEMPLATE_DIR="$INSTALL_DIR"
 [ -f "$SOURCE_DIR/systemd/parental-controls.service" ] && TEMPLATE_DIR="$SOURCE_DIR"
 
@@ -253,7 +259,7 @@ if [ ! -d "$INSTALL_DIR/.venv" ]; then
 fi
 as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
     PIP_CACHE_DIR="$VENV_CACHE/pip" \
-    "$INSTALL_DIR/.venv/bin/pip" install -r "$TEMPLATE_DIR/requirements.txt"
+    "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
 echo "== 2b/8 TLS certificate =="
 if [ "$MODE" != "tls" ]; then
