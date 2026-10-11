@@ -122,23 +122,29 @@ class ProbeServer:
         self.thread.join(timeout=5)
 
 
-def systemctl_shim(directory, state, rc=0):
+def systemctl_shim(directory, state, rc=0, unqueryable=False):
     """A fake `systemctl` that only answers `is-active`.
 
     Put its directory first on PATH. Lets the probe be tested without any real
-    unit being created, started, stopped or restarted.
+    unit being created, started, stopped or restarted. `unqueryable` mimics a
+    manager the probe cannot talk to at all (no stdout state, error on stderr).
     """
     bindir = os.path.join(directory, 'shimbin')
     os.makedirs(bindir, exist_ok=True)
     path = os.path.join(bindir, 'systemctl')
     with open(path, 'w', encoding='utf-8') as fh:
-        fh.write('#!/bin/sh\nprintf \'%s\\n\' "' + state + '"\nexit '
-                 + str(rc) + '\n')
+        if unqueryable:
+            fh.write('#!/bin/sh\necho "Failed to connect to bus: '
+                     'No such file or directory" >&2\nexit 1\n')
+        else:
+            fh.write('#!/bin/sh\nprintf \'%s\\n\' "' + state + '"\nexit '
+                     + str(rc) + '\n')
     os.chmod(path, 0o755)
     return bindir
 
 
-def run_probe(*args, state='active', env=None, timeout=60):
+def run_probe(*args, state='active', env=None, timeout=60,
+              unqueryable=False):
     """Run healthcheck.sh with a shimmed systemctl -> CompletedProcess.
 
     --unit defaults to a stand-in name so no test can ever query (let alone
@@ -149,7 +155,7 @@ def run_probe(*args, state='active', env=None, timeout=60):
         args = ('--unit', 'pc-test.service', *args)
     tmpdir = tempfile.mkdtemp(prefix='pc-health-')
     try:
-        bindir = systemctl_shim(tmpdir, state)
+        bindir = systemctl_shim(tmpdir, state, unqueryable=unqueryable)
         environ = dict(os.environ)
         if env:
             environ.update(env)
@@ -373,6 +379,17 @@ class TestProbeReportsHealthy(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('healthcheck OK', proc.stdout)
         self.assertIn('302', proc.stdout)
+        self.assertIn('pc-test.service active', proc.stdout)
+
+    def test_unqueryable_systemd_degrades_to_the_http_probe(self):
+        """A manager the probe cannot query must not cry wolf forever."""
+        with ProbeServer() as srv:
+            proc = run_probe('--host', '127.0.0.1', '--port', str(srv.port),
+                             unqueryable=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('could not query the state of pc-test.service',
+                      proc.stderr)
+        self.assertNotIn('HEALTHCHECK FAILED', proc.stderr)
 
     def test_plain_200_is_healthy(self):
         with ProbeServer(code=200, location=None) as srv:
@@ -429,6 +446,11 @@ class TestProbeReportsUnhealthy(unittest.TestCase):
         with ProbeServer(code=302, location='/captive-portal') as srv:
             proc = run_probe('--host', '127.0.0.1', '--port', str(srv.port))
         self.assertFailed(proc, 'expected the login redirect')
+
+    def test_unqueryable_systemd_still_fails_when_the_port_is_dead(self):
+        proc = run_probe('--host', '127.0.0.1', '--port', str(free_port()),
+                         unqueryable=True)
+        self.assertFailed(proc, 'nothing is listening')
 
 
 class TestProbeAuthStore(unittest.TestCase):

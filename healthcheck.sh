@@ -8,7 +8,8 @@
 #
 # Checks, in order:
 #   1. parental-controls.service reports "active" (not inactive/failed/
-#      activating).
+#      activating). A systemctl that cannot be queried at all is reported
+#      as a warning, not a failure: the port probe below decides instead.
 #   2. GET http://<bind host>:<port>/ answers 200, or the 302 login redirect.
 #      An unauthenticated GET needs no credentials, and a hung process is
 #      caught by curl's --max-time, not by a connection refusal.
@@ -44,7 +45,7 @@ PROBE_PATH="/"
 
 usage() {
     # The header comment is the help text (and the design note).
-    sed -n '2,35p' "$0" | sed 's/^#\( \|$\)//'
+    sed -n '2,36p' "$0" | sed 's/^#\( \|$\)//'
 }
 
 while [ $# -gt 0 ]; do
@@ -87,9 +88,22 @@ command -v curl >/dev/null 2>&1 || fail "curl not found on PATH"
 command -v python3 >/dev/null 2>&1 || \
     fail "python3 not found on PATH (needed to validate the auth store)"
 
-# 1. The unit itself. `is-active` is a read-only query, so this works unprivileged.
-state="$(systemctl is-active "$UNIT" 2>&1 || true)"
-[ "$state" = "active" ] || fail "$UNIT is '$state', want 'active'"
+errfile="$(mktemp)"
+trap 'rm -f "$errfile"' EXIT
+
+# 1. The unit itself. `is-active` is a read-only query, so this works
+# unprivileged. If systemctl cannot reach the system manager at all (no
+# stdout state), say so and let the HTTP probe below decide: a permanently
+# unqueryable manager is a broken probe, not a broken panel, and must not
+# cry wolf every five minutes.
+unit_state="$(systemctl is-active "$UNIT" 2>"$errfile")" || true
+case "$unit_state" in
+    active) ;;
+    '') warn "could not query the state of ${UNIT}" \
+              "(systemctl: $(tr '\n' ' ' <"$errfile" | cut -c1-160))" \
+              "; falling back to the HTTP probe" ;;
+    *)  fail "${UNIT} is '${unit_state}', want 'active'" ;;
+esac
 
 # A wildcard bind is not a usable probe target; loopback answers the same
 # socket. Mirrors the probe in install.sh's verify step.
@@ -102,8 +116,6 @@ url="http://${probe_host}:${PORT}${PROBE_PATH}"
 
 # 2. The port. %{redirect_url} gives the Location target, so one request
 # answers both "did it serve" and "did it serve the login page".
-errfile="$(mktemp)"
-trap 'rm -f "$errfile"' EXIT
 info="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
         --max-time "$TIMEOUT" "$url" 2>"$errfile")" && rc=0 || rc=$?
 code="${info%% *}"
@@ -156,5 +168,5 @@ else
          "bootstrapped and nobody can log in until an admin is added"
 fi
 
-echo "healthcheck OK: ${UNIT} active, GET ${PROBE_PATH} -> ${code}," \
-     "auth store ${AUTH_STORE} usable"
+echo "healthcheck OK: ${UNIT} ${unit_state:-state unqueried}," \
+     "GET ${PROBE_PATH} -> ${code}, auth store ${AUTH_STORE} usable"
