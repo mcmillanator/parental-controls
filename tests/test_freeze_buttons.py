@@ -11,7 +11,6 @@ or sudo.
 
 import inspect
 import io
-import json
 import os
 import sys
 import tempfile
@@ -41,41 +40,35 @@ BASH_PROC = {'pid': 9002, 'comm': 'bash',
              'args': '', 'etime': '01:00:00', 'cpu_seconds': 5.0}
 
 
-def _write_budgets(path, data):
-    with open(path, 'w') as f:
-        json.dump(data, f)
-
-
-def _read_budgets(path):
-    with open(path) as f:
-        return json.load(f)
-
-
 class _BudgetsFileMixin:
-    """Point budgets.BUDGETS_FILE at a temp file for the duration of a test."""
+    """Point budgets.BUDGETS_FILE at a temp dir for the duration of a test.
+
+    Budget state lives in a SQLite database next to BUDGETS_FILE, so
+    the whole directory is temp (the db travels with the file). Helpers
+    go through the budgets load/save API: the JSON file itself is only a
+    rollback mirror and is never read back.
+    """
 
     def setUp(self):
         super().setUp()
-        tmp = tempfile.NamedTemporaryFile(suffix='.json', delete=False)
-        tmp.close()
-        self._budgets_path = tmp.name
-        _write_budgets(self._budgets_path, {})
+        self._tmp = tempfile.TemporaryDirectory()
+        self._budgets_path = os.path.join(self._tmp.name, 'budgets.json')
         patcher = mock.patch.object(budgets, 'BUDGETS_FILE',
                                     self._budgets_path)
         self.addCleanup(patcher.stop)
         patcher.start()
-        self.addCleanup(os.unlink, self._budgets_path)
+        self.addCleanup(self._tmp.cleanup)
 
     def write_entry(self, username, **overrides):
         entry = budgets.blank_entry()
         entry.update(overrides)
-        data = _read_budgets(self._budgets_path)
+        data = budgets.load_budgets()
         data[username] = entry
-        _write_budgets(self._budgets_path, data)
+        budgets.save_budgets(data)
         return entry
 
     def read_entry(self, username):
-        return _read_budgets(self._budgets_path)[username]
+        return budgets.load_budgets()[username]
 
 
 class _NoPrivilegedHelpersMixin:
@@ -113,9 +106,8 @@ class _NoPrivilegedHelpersMixin:
             mock.patch.object(budgets, 'is_admin_protected',
                               return_value=False),
         ]
-        _write_budgets(self._budgets_path,
-                       {KID: dict(budgets.blank_entry(),
-                                 limits=dict(limits))})
+        budgets.save_budgets({KID: dict(budgets.blank_entry(),
+                                        limits=dict(limits))})
         return stack
 
 
@@ -234,7 +226,7 @@ class TestFreezeUnits(_BudgetsFileMixin, _NoPrivilegedHelpersMixin,
         self.assertIn(str(stray), msg)
         froze.assert_not_called()
         self.assertNotIn('manual_frozen',
-                         _read_budgets(self._budgets_path).get(KID, {}).get(
+                         budgets.load_budgets().get(KID, {}).get(
                              'manual_frozen', {}))
 
     def test_f_u5_never_pause_member_in_cgroup_aborts(self):

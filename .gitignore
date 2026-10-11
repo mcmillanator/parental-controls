@@ -29,3 +29,7 @@ process_prefs.json
 auth.json
 audit.jsonl
 .auth-*
+# SQLite runtime state (database, WAL/SHM sidecars, migration backups,
+# atomic-write temp files)
+state.db*
+*.json.tmp.*

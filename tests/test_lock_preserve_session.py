@@ -127,29 +127,28 @@ class _AdminSessionMixin:
 
 
 class _BedtimeFileMixin:
-    """Point app.BEDTIME_FILE at a temp file for the duration of a test."""
+    """Point app.BEDTIME_FILE at a temp dir for the duration of a test.
+
+    Bedtime state lives in a SQLite database next to BEDTIME_FILE, so
+    the whole directory is temp (the db travels with the file). Helpers
+    go through the app's load/save API: the JSON file itself is only a
+    rollback mirror and is never read back.
+    """
 
     def setUp(self):
         super().setUp()
-        self._bedtime = tempfile.mktemp(suffix='.json')
+        self._tmp = tempfile.TemporaryDirectory()
+        self._bedtime = os.path.join(self._tmp.name, 'bedtime.json')
         patcher = mock.patch.object(app, 'BEDTIME_FILE', self._bedtime)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.addCleanup(self._remove_bedtime)
-
-    def _remove_bedtime(self):
-        try:
-            os.unlink(self._bedtime)
-        except OSError:
-            pass
+        self.addCleanup(self._tmp.cleanup)
 
     def write_bedtime(self, data):
-        with open(self._bedtime, 'w') as f:
-            json.dump(data, f)
+        app.save_bedtime(data)
 
     def read_bedtime(self):
-        with open(self._bedtime) as f:
-            return json.load(f)
+        return app.load_bedtime()
 
 
 class TestLockNeverTerminates(_AdminSessionMixin, _BedtimeFileMixin,
