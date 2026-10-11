@@ -1533,7 +1533,8 @@ def api_budgets_freeze():
         return jsonify({'success': False,
                         'error': (f'Refused: {username} is an admin and '
                                   'cannot be frozen')}), 403
-    ok, msg = budgets.freeze_category(username, category)
+    ok, msg = budgets.freeze_category(username, category,
+                                      actor=_req_actor())
     if not ok:
         return jsonify({'success': False, 'error': msg}), 400
     return jsonify({'success': True, 'message': msg})
@@ -1559,7 +1560,8 @@ def api_budgets_unfreeze():
         return jsonify({'success': False,
                         'error': (f'Refused: {username} is an admin and '
                                   'cannot be frozen')}), 403
-    ok, msg = budgets.unfreeze_category(username, category)
+    ok, msg = budgets.unfreeze_category(username, category,
+                                        actor=_req_actor())
     if not ok:
         return jsonify({'success': False, 'error': msg}), 400
     return jsonify({'success': True, 'message': msg})

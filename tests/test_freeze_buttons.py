@@ -193,7 +193,7 @@ class TestFreezeUnits(_BudgetsFileMixin, _NoPrivilegedHelpersMixin,
         # bash excluded at match time: never migrated, never verified.
         self.assertEqual(migrated, [STEAM_PROC['pid']])
         self.assertEqual(seen['expected'], {STEAM_PROC['pid']})
-        froze.assert_called_once_with(KID, 'games', True)
+        froze.assert_called_once_with(KID, 'games', True, actor='system')
         # Same gate, direct: sneaky bash with a games-flavoured cmdline.
         self.assertEqual(budgets.freezable_members(
             [dict(BASH_PROC)], KID, 'games', {'games': 60},
@@ -373,7 +373,7 @@ class TestFreezeUnits(_BudgetsFileMixin, _NoPrivilegedHelpersMixin,
                                return_value=(True, '')) as froze:
             ok, msg = budgets.set_limit(KID, 'games', 0)
         self.assertTrue(ok, msg)
-        froze.assert_called_once_with(KID, 'games', False)
+        froze.assert_called_once_with(KID, 'games', False, actor='system')
         entry = self.read_entry(KID)
         self.assertEqual(entry.get('manual_frozen', {}), {})
         self.assertEqual(entry.get('manual_frozen_at', {}), {})
@@ -395,13 +395,13 @@ class TestFreezeEndpoints(_AdminSessionMixin, unittest.TestCase):
                                           'category': 'games'})
             self.assertEqual(resp.status_code, 200)
             self.assertTrue(resp.get_json()['success'])
-            frz.assert_called_once_with(KID, 'games')
+            frz.assert_called_once_with(KID, 'games', actor='qaadmin')
             resp = self.authed_post('/api/budgets/unfreeze',
                                     data={'username': KID,
                                           'category': 'games'})
             self.assertEqual(resp.status_code, 200)
             self.assertTrue(resp.get_json()['success'])
-            unfrz.assert_called_once_with(KID, 'games')
+            unfrz.assert_called_once_with(KID, 'games', actor='qaadmin')
 
     def test_f_e1_resume_alias_clears_manual_freeze(self):
         """Resume endpoint subsumed by unfreeze (single operation)."""
@@ -416,7 +416,7 @@ class TestFreezeEndpoints(_AdminSessionMixin, unittest.TestCase):
         body = resp.get_json()
         self.assertTrue(body['success'])
         self.assertIn('will not re-pause', body['message'])
-        unfrz.assert_called_once_with(KID, 'games')
+        unfrz.assert_called_once_with(KID, 'games', actor='qaadmin')
 
     def test_f_e2_invalid_username_rejected_before_delegate(self):
         """F-E2: bad usernames -> 400 on both endpoints, no delegate."""
@@ -654,7 +654,7 @@ class TestFreezeDeploy(unittest.TestCase):
                                return_value=(True, 'aliased')) as unfrz:
             self.assertEqual(budgets.resume_category(KID, 'games'),
                              (True, 'aliased'))
-            unfrz.assert_called_once_with(KID, 'games')
+            unfrz.assert_called_once_with(KID, 'games', actor='system')
         # All three budget endpoints are registered.
         rules = {r.rule for r in app.app.url_map.iter_rules()}
         for rule in ('/api/budgets/freeze', '/api/budgets/unfreeze',
