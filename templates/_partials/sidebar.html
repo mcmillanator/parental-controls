@@ -13,6 +13,7 @@
      current_user : signed-in actor
      current_tier : 'wheel' | 'app-only' (adds the wheel mark)
    ========================================================================== #}
+{% from '_partials/macros.html' import pc_nav_link %}
 {% set _active = active_nav|default('') %}
 <aside class="pc-sidebar" aria-label="Sections">
   <div class="pc-sidebar__brand">
@@ -44,10 +45,7 @@
       ('settings', 'pc-i-settings', 'Settings', url_for('settings')),
     ] %}
     {% for key, icon, label, href in _nav %}
-    <a class="pc-navlink" href="{{ href }}"{% if _active == key %} aria-current="page"{% endif %}>
-      <svg class="pc-navlink__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>
-      <span>{{ label }}</span>
-    </a>
+    {{ pc_nav_link(key, icon, label, href, _active, 'navlink') }}
     {% endfor %}
   </nav>
 

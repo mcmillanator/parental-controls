@@ -15,6 +15,7 @@
    #device-selector/switchDevice JS.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty %}
+{% from '_partials/macros.html' import pc_status_pill, pc_button %}
 
 {% block title %}Parental Controls — Overview{% endblock %}
 {# Overview is the wide screen (audit + user are narrow). #}
@@ -94,19 +95,16 @@
                     {% if user.bedtime and user.bedtime.start %}· Bedtime {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }} ({% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
                 </p>
             </div>
-            <span class="pc-pill pc-pill--{{ cls }} pc-status pc-status--{{ cls }} status-{{ cls }}">
-                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if cls == 'locked' else 'unlock' if cls == 'unlocked' else 'alert' }}"/></svg>
-                {{ user.status_detail }}
-            </span>
+            {{ pc_status_pill(cls, user.status_detail, 'pc-i-' ~ ('lock' if cls == 'locked' else 'unlock' if cls == 'unlocked' else 'alert')) }}
             {% if user.wheel %}<span class="badge-protected pc-pill pc-pill--protected"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>Protected</span>{% endif %}
             {% if user.in_bedtime %}<span class="pc-chip pc-chip--bedtime badge-bedtime"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock"/></svg>In Bedtime</span>{% endif %}
             {% if user.in_bedtime and user.bedtime and user.bedtime.manual_override %}<span class="pc-chip pc-chip--override badge-override">Override</span>{% endif %}
         </div>
         <div class="pc-account__actions pc-row" data-label="Actions">
             {% if user.wheel %}
-            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Lock</button>
-            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Unlock</button>
-            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Emergency logout</button>
+            {{ pc_button('Lock', 'neutral', extra='disabled aria-disabled="true"') }}
+            {{ pc_button('Unlock', 'neutral', extra='disabled aria-disabled="true"') }}
+            {{ pc_button('Emergency logout', 'neutral', extra='disabled aria-disabled="true"') }}
             <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
             <span class="pc-meta">wheel admins can never be locked or removed.</span>
             {% else %}
@@ -139,7 +137,7 @@
         <div id="admin-list" class="pc-stack"></div>
         <div id="admin-add" class="pc-row">
             <input type="text" id="new-admin-username" class="pc-input" placeholder="new admin username" aria-label="new admin username">
-            <button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="addAdmin()">Add admin</button>
+            {{ pc_button('Add admin', 'primary', cls='btn-unlock', extra='onclick="addAdmin()"') }}
             <span class="pc-hint">Wheel admins only. System accounts (except wheel) can never be added.</span>
         </div>
     </div>
@@ -155,7 +153,7 @@
         </div>
         <p class="pc-meta">Confirmation required.</p>
         <label class="pc-switch"><input type="checkbox"> Confirm lock action</label>
-        <button type="button" class="pc-btn pc-btn--primary pc-btn--block">Lock Sam</button>
+        {{ pc_button('Lock Sam', 'primary', block=true) }}
         <p class="pc-hint">Irreversible actions require an explicit confirmation and are logged with actor + timestamp.</p>
     </article>
     <article class="pc-card pc-card--secondary" aria-labelledby="design-thesis">
@@ -168,7 +166,7 @@
                 <h3 class="pc-card__title" id="empty-specimen">No human accounts found</h3>
                 <p class="pc-meta">Check the machine connection</p>
             </div>
-            <button type="button" class="pc-btn pc-btn--ghost" onclick="refreshTable()">Refresh</button>
+            {{ pc_button('Refresh', 'ghost', extra='onclick="refreshTable()"') }}
         </div>
     </article>
 </section>

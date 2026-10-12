@@ -9,6 +9,7 @@
      current_tier : 'wheel' | 'app-only' (adds the wheel mark)
 #}
 {% set _active = active_nav|default('') %}
+{% from '_partials/macros.html' import pc_nav_link %}
 {% set _nav = [
   ('overview', 'pc-i-home', 'Overview', url_for('index')),
   ('time', 'pc-i-clock', 'Time rules', url_for('time_rules')),
@@ -24,9 +25,7 @@
 
   <nav class="pc-appbar__nav" aria-label="Primary">
     {% for key, icon, label, href in _nav %}
-    <a class="pc-btn pc-btn--ghost" href="{{ href }}"{% if _active == key %} aria-current="page"{% endif %}>
-      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>{{ label }}
-    </a>
+    {{ pc_nav_link(key, icon, label, href, _active, 'appbar') }}
     {% endfor %}
   </nav>
 

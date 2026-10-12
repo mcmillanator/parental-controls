@@ -66,6 +66,7 @@ class SettingsRenderTest(_AdminSessionMixin, unittest.TestCase):
         html = self.render()
         self.assertIn('id="settings-notifications"', html)
         self.assertIn("Send pre-lock warnings to child's desktop", html)
+        self.assertIn('id="prelock-warning" disabled', html)
         self.assertIn('id="warning-leadtime"', html)
         self.assertIn('You have 15 minutes before bedtime', html)
         self.assertIn('Test notification', html)
@@ -128,9 +129,13 @@ class SettingsSourceTest(unittest.TestCase):
         self.assertIn('<legend', self.src)
 
     def test_placeholders_are_disabled(self):
-        # The not-yet-backed features render disabled, not invented.
-        self.assertIn('id="prelock-warning" disabled', self.src)
-        self.assertIn('id="https-enabled" disabled', self.src)
+        # The not-yet-backed features render disabled, not invented. The
+        # toggles now go through the shared pc_toggle macro
+        # (templates/_partials/macros.html), so the source asserts the macro
+        # call + the rendered page asserts the disabled attribute.
+        self.assertIn("pc_toggle('prelock-warning'", self.src)
+        self.assertIn("pc_toggle('https-enabled'", self.src)
+        self.assertIn('disabled=true', self.src)
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@
    <details>, no JS framework). 44px targets, aria-current on the active
    destination. #}
 {% set _active = active_nav|default('') %}
+{% from '_partials/macros.html' import pc_nav_link %}
 {% set _nav = [
   ('overview', 'pc-i-home', 'Home', url_for('index')),
   ('time', 'pc-i-clock', 'Time', url_for('time_rules')),
@@ -13,10 +14,7 @@
 ] %}
 <nav class="pc-tabbar" aria-label="Primary navigation">
   {% for key, icon, label, href in _nav %}
-  <a class="pc-tab" href="{{ href }}"{% if _active == key %} aria-current="page"{% endif %}>
-    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>
-    <span>{{ label }}</span>
-  </a>
+  {{ pc_nav_link(key, icon, label, href, _active, 'tab') }}
   {% endfor %}
   <details class="pc-tabmenu">
     <summary class="pc-tab" aria-label="Account menu">

@@ -206,7 +206,9 @@ class ShellSourceTest(unittest.TestCase):
         for label in SECTIONS:
             with self.subTest(label=label):
                 self.assertIn(label, self.sidebar)
-        self.assertIn('aria-current="page"', self.sidebar)
+        # the nav links (with their aria-current marker) come from the shared
+        # pc_nav_link macro
+        self.assertIn('pc_nav_link(', self.sidebar)
 
     def test_tabbar_has_four_tabs_and_settings_in_the_menu(self):
         for label in ('Home', 'Time', 'Activity', 'Admin'):
@@ -214,13 +216,13 @@ class ShellSourceTest(unittest.TestCase):
                 self.assertIn("'%s'" % label, self.tabbar)
         # Settings is sidebar-only / account-menu on phones, not a tab.
         self.assertIn('Settings', self.tabbar)
-        self.assertIn('aria-current="page"', self.tabbar)
+        self.assertIn('pc_nav_link(', self.tabbar)
 
     def test_appbar_has_theme_help_and_account(self):
         self.assertIn('pc-theme-toggle', self.appbar)
         self.assertIn('#pc-i-sun', self.appbar)
         self.assertIn('#pc-i-help', self.appbar)
-        self.assertIn('aria-current="page"', self.appbar)
+        self.assertIn('pc_nav_link(', self.appbar)
         self.assertIn('pcToggleTheme', self.appbar)
 
     def test_css_defines_the_shell(self):

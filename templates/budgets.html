@@ -9,6 +9,7 @@
    endpoints; nothing here invents backend state.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty, pc_skeleton %}
+{% from '_partials/macros.html' import pc_badge %}
 
 {% block title %}Parental Controls — Time budgets{% endblock %}
 {% block shell_class %}{% endblock %}
@@ -99,13 +100,13 @@
                     <a class="pc-hint" href="/processes?user={{ username }}" title="Set a per-app override on the Processes screen">App override</a>
                 </div>
                 <span id="budget-status-{{ cat }}">
-                    {% if b.frozen and b.paused and b.manual_frozen %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit (manual)</span>
-                    {% elif b.paused %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit</span>
-                    {% elif b.frozen %}<span class="badge-frozen pc-chip pc-chip--info">Frozen — by parent</span>
-                    {% elif b.exhausted %}<span class="badge-paused pc-chip pc-chip--danger">Exhausted</span>
-                    {% elif b.minutes %}<span class="badge-frozen pc-chip pc-chip--ok">Active</span>
-                    {% else %}<span class="pc-chip pc-chip--neutral">Unlimited</span>{% endif %}
-                    {% if b.window_active %}<span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}
+                    {% if b.frozen and b.paused and b.manual_frozen %}{{ pc_badge('danger', 'Paused at limit (manual)', 'badge-paused') }}
+                    {% elif b.paused %}{{ pc_badge('danger', 'Paused at limit', 'badge-paused') }}
+                    {% elif b.frozen %}{{ pc_badge('info', 'Frozen — by parent', 'badge-frozen') }}
+                    {% elif b.exhausted %}{{ pc_badge('danger', 'Exhausted', 'badge-paused') }}
+                    {% elif b.minutes %}{{ pc_badge('ok', 'Active', 'badge-frozen') }}
+                    {% else %}{{ pc_badge('neutral', 'Unlimited') }}{% endif %}
+                    {% if b.window_active %}{{ pc_badge('info', 'Window active', 'badge-window') }}{% endif %}
                 </span>
             </div>
             <dl class="pc-catcard__dl">

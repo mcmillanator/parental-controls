@@ -516,10 +516,14 @@ class PartialTest(unittest.TestCase):
         self.assertIn('{% macro pc_confirm_dialog(', body)
 
     def test_appbar_and_tabbar_mark_the_active_destination(self):
-        for name in ('appbar.html', 'tabbar.html'):
+        # The aria-current marker is emitted by the shared pc_nav_link macro
+        # (templates/_partials/macros.html); the nav partials call it.
+        macro = read(PARTIAL_DIR / 'macros.html')
+        self.assertIn('aria-current="page"', macro)
+        for name in ('appbar.html', 'tabbar.html', 'sidebar.html'):
             body = read(PARTIAL_DIR / name)
             with self.subTest(partial=name):
-                self.assertIn('aria-current="page"', body)
+                self.assertIn('pc_nav_link(', body)
 
     def test_icons_are_an_inline_svg_sprite(self):
         body = read(PARTIAL_DIR / 'icons.html')

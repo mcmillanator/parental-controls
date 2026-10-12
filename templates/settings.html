@@ -8,6 +8,7 @@
    clearly-labelled disabled placeholder rather than inventing state.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty %}
+{% from '_partials/macros.html' import pc_toggle, pc_device_card, pc_button %}
 
 {% block title %}Parental Controls — Settings{% endblock %}
 {% block shell_class %}{% endblock %}
@@ -47,10 +48,7 @@
 <div class="col-12 col-xl-6">
 <fieldset class="pc-fieldset" id="settings-notifications">
     <legend class="pc-fieldset__legend">Notifications</legend>
-    <label class="pc-switch">
-        <input type="checkbox" id="prelock-warning" disabled>
-        <span>Send pre-lock warnings to child's desktop</span>
-    </label>
+    {{ pc_toggle('prelock-warning', "Send pre-lock warnings to child's desktop", disabled=true) }}
     <p class="pc-field__hint">Warning delivery is not configurable from here yet.</p>
     <div class="pc-field">
         <label class="pc-field__label" for="warning-leadtime">Warning lead-time</label>
@@ -64,9 +62,7 @@
         <h3 class="pc-card__title">Warning copy preview</h3>
         <p id="warning-preview">You have 15 minutes before bedtime</p>
     </div>
-    <button type="button" class="pc-btn pc-btn--ghost" onclick="testNotification()">
-        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-send"/></svg>Test notification
-    </button>
+    {{ pc_button('Test notification', 'ghost', icon='pc-i-send', extra='onclick="testNotification()"') }}
 </fieldset>
 
 {# Local access #}
@@ -78,10 +74,7 @@
         <input id="local-url" class="pc-input" type="text" readonly value="{{ machine_url|default('localhost') }}">
         <span class="pc-field__hint">Open the panel on the machine itself; LAN access is opt-in at install time.</span>
     </div>
-    <label class="pc-switch">
-        <input type="checkbox" id="https-enabled" disabled>
-        <span>Optional HTTPS enabled</span>
-    </label>
+    {{ pc_toggle('https-enabled', 'Optional HTTPS enabled', disabled=true) }}
     <p class="pc-field__hint">HTTPS is a deploy-time choice (install.sh --tls), not a runtime toggle.</p>
     <p class="pc-meta">LAN access is available when the local service is reachable on the home network.</p>
     <p class="pc-row" id="cert-status">
@@ -106,13 +99,7 @@
         </article>
 
         {% for d in devices %}
-        <article class="pc-card" data-device="{{ d.name }}">
-            <div class="pc-card__header">
-                <h3 class="pc-card__title">{{ d.name }}</h3>
-                <span class="pc-chip pc-chip--neutral">Registered</span>
-            </div>
-            {% if d.hostname %}<p class="pc-meta">{{ d.hostname }}</p>{% endif %}
-        </article>
+        {{ pc_device_card(d.name, d.hostname or '', chip='Registered') }}
         {% endfor %}
 
         <article class="pc-card pc-placeholder">
