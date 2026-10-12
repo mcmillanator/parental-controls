@@ -122,7 +122,7 @@
     <p class="subtitle">Logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})
         &nbsp;·&nbsp; <a href="/admin/audit" style="color: #4ecca3;">Admin console</a>
         &nbsp;·&nbsp; <a href="/change-password" style="color: #4ecca3;">Change password</a>
-        &nbsp;·&nbsp; <a href="/logout" style="color: #e94560;">Log out</a></p>
+        &nbsp;·&nbsp; <a href="/logout" style="color: #e94560;">Log out</a></p>{% if devices_enabled %}<div class="device-bar" id="device-selector" style="margin-bottom:1rem;"><label for="device-select" style="color:#888;font-size:0.85rem;">Device:</label> <select id="device-select" onchange="switchDevice(this.value)" style="padding:0.3rem;border-radius:4px;border:1px solid #0f3460;background:#1a1a3e;color:#e0e0e0;"><option value=""{% if not selected_device %} selected{% endif %}>This box</option>{% for d in devices %}<option value="{{ d.name }}"{% if selected_device == d.name %} selected{% endif %}>{{ d.name }}{% if d.hostname %} ({{ d.hostname }}){% endif %}</option>{% endfor %}</select>{% if device_error %} <span class="device-error" style="color:#e94560;">{{ device_error }}</span>{% endif %}</div>{% endif %}
 
     <div class="table-responsive">
     <table class="table table-dark table-striped table-hover align-middle mb-0">
@@ -188,7 +188,25 @@
     <script>
         const DAY_LABELS = {{ day_labels|tojson }};
         const CSRF = document.querySelector('meta[name="csrf-token"]').content;
-
+{% if devices_enabled %}
+        // Device selector: when a remote box is selected, every /api/*
+        // fetch is rewritten to the authenticated hub proxy, which holds
+        // the per-box bearer token. No token ever reaches the browser.
+        const DEVICE = {{ selected_device|tojson }};
+        const API_PREFIX = DEVICE ? ('/api/device/' + encodeURIComponent(DEVICE) + '/v1') : '';
+        if (API_PREFIX) {
+            const _nativeFetch = window.fetch.bind(window);
+            window.fetch = (url, opts) => _nativeFetch(
+                (typeof url === 'string' && url.startsWith('/api/'))
+                    ? API_PREFIX + url.slice(4) : url, opts);
+        }
+        function switchDevice(name) {
+            const u = new URL(window.location.href);
+            if (name) { u.searchParams.set('device', name); }
+            else { u.searchParams.delete('device'); }
+            window.location.href = u.toString();
+        }
+{% endif %}
         function showToast(msg, isError) {
             const toast = document.getElementById('toast');
             toast.textContent = msg;

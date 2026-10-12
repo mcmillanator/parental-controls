@@ -1,0 +1,48 @@
+# Parental Controls — remote control agent (managed box).
+#
+# Serves the bearer-token machine link to the hub (MULTIDEVICE_PLAN.md §4.1)
+# on loopback by default: reach the hub over an SSH tunnel
+# (`ssh -L 5001:localhost:5001 <user>@boxB`). @APP_DIR@ is resolved by
+# install.sh at render time — never a checkout path.
+#
+# Hardening mirrors parental-controls.service: the agent runs as the same
+# dedicated service user, uses the same rendered sudoers and the same
+# state.db / audit.jsonl on this box, so it adds no new privileged surface
+# beyond a 0600 token file and a loopback listener.
+[Unit]
+Description=Bazzite Parental Controls remote agent
+After=network.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-serve --host=@AGENT_BIND_HOST@ --port=@AGENT_BIND_PORT@ wsgi_agent:application'
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+# Bearer token store (0600, owned by the service user). wsgi_agent.py fails
+# closed at startup when it is missing.
+Environment=PARENTAL_CONTROLS_AGENT_TOKEN_FILE=/etc/parental-controls/agent_token
+
+# Filesystem hardening: identical reasoning to parental-controls.service —
+# directory-level /etc must stay writable for `sudo usermod` lock/unlock, and
+# the agent writes the same state.db / audit.jsonl as the panel. No cgroup
+# CPU accounting is done here, but the freezer (budgets) shares the same
+# sudoers/cgroup paths, so ProtectControlGroups stays absent.
+ProtectSystem=strict
+ReadWritePaths=@APP_DIR@ /etc/parental-controls /etc
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectHostname=true
+ProtectClock=true
+LockPersonality=true
+
+# DELIBERATELY ABSENT (same as the panel): NoNewPrivileges / RestrictSUIDSGID
+# (the agent performs locks/freezes via passwordless sudo children) and
+# ProtectControlGroups (budget freezing writes cgroup.freeze via sudo tee).
+# Real confinement is the scoped sudoers allowlist.
+
+[Install]
+WantedBy=multi-user.target

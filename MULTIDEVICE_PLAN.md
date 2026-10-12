@@ -479,15 +479,105 @@ tests).
 
 ## 7. Deliverables for the implementer (summary checklist)
 
-- [ ] Behavior-preserving refactor: privileged verbs out of `@require_admin`
+- [x] Behavior-preserving refactor: privileged verbs out of `@require_admin`
       views into shared functions (existing 526 tests green after).
-- [ ] Agent (`agent.py`, `wsgi_agent.py`, systemd unit, loopback :5001) with
+      *Implemented as `device_policy.py` (shared refusal/validation) +
+      local-safe verb bodies in `agent.py`; see Phase-1 notes below for why
+      the app's view bodies were left in place.*
+- [x] Agent (`agent.py`, `wsgi_agent.py`, systemd unit, loopback :5001) with
       per-box bearer token auth and the §4.5 API.
-- [ ] Hub client (`remote.py`, stdlib), `devices.json` store, root-only CLI
+- [x] Hub client (`remote.py`, stdlib), `devices.json` store, root-only CLI
       verbs for device/token management.
-- [ ] Hub routes + device selector UI + per-box audit view with `chain_ok`.
-- [ ] `install.sh --enable-agent` (stages agent, mints token, renders unit).
-- [ ] ~85–95 new tests incl. the cross-box wheel-refusal suite; docs.
-- [ ] Hard rules respected throughout: no touching `tester`/`bluefox`/`stan`,
+- [x] Hub routes + device selector UI + per-box audit view with `chain_ok`.
+- [x] `install.sh --enable-agent` (stages agent, mints token, renders unit).
+- [x] ~85–95 new tests incl. the cross-box wheel-refusal suite; docs.
+- [x] Hard rules respected throughout: no touching `tester`/`bluefox`/`stan`,
       no restarting `parental-controls.service`, venv-only Python, no
       checkout-path hardcoding in any artifact (units keep `@APP_DIR@`).
+
+---
+
+## 8. Phase 1 — implementation notes (2026-10-12)
+
+Status: **implemented on `feature/multidevice`.** Single-box installs are
+byte-identical: no `devices.json` ⇒ the selector block renders nothing and
+`/api/devices` reports `multi_device: false`.
+
+### What shipped
+
+| Piece | File(s) |
+|---|---|
+| Shared per-box target policy | `device_policy.py` (`valid_username`, `wheel_refusal`, `freeze_refusal`, `budget_config_refusal`) |
+| Agent (managed box) | `agent.py`, `wsgi_agent.py`, `systemd/parental-controls-agent.service` |
+| Hub client + store + CLI | `remote.py` (`RemoteClient`, `proxy`, `devices.json` 0600, `device add/list/remove`) |
+| Hub routes + UI | `app.py` (`/api/devices`, `/api/device/<name>/v1/<path>`), `templates/index.html`, `templates/user.html` |
+| Installer | `install.sh --enable-agent` (`--agent-bind`, `--agent-port`, `--agent-insecure-lan`) |
+| Tests | `tests/test_multidevice_agent.py`, `tests/test_multidevice_hub.py`, `tests/test_multidevice_install.py`, `tests/test_multidevice_live.py` |
+
+### Agent API surface (all JSON; `Authorization: Bearer <token>`)
+
+`GET /api/v1/health` (no token), `GET /api/v1/users`,
+`GET /api/v1/user/<u>/live`, `GET /api/v1/audit?limit=N`,
+`GET|POST /api/v1/bedtime`, `POST /api/v1/lock`, `POST /api/v1/lock-screen`,
+`POST /api/v1/unlock`, `POST /api/v1/logout`,
+`POST /api/v1/bonus`, `POST /api/v1/bonus/revoke`,
+`POST /api/v1/process-prefs`, `POST /api/v1/budgets/freeze`,
+`POST /api/v1/budgets/unfreeze`. Writes carry `X-Panel-Actor`
+(and optional `X-Panel-Id`), recorded on the box as
+`remote:<actor>@<panel>` for the trail only.
+
+### Token model
+
+Per-box `secrets.token_urlsafe(32)`; agent stores it at
+`/etc/parental-controls/agent_token` (0600, service-user owned), hub stores
+it in `devices.json` (0600). Constant-time compare; missing/short/rotated ⇒
+401 (503 when unprovisioned). Never logged; `Authorization` is redacted and
+no token appears in any audit detail or error payload. No CSRF on the
+machine link (bearer header, not a cookie); the hub's own session+CSRF is
+unchanged.
+
+### Cross-box refusal
+
+`device_policy` calls the shared `auth.is_wheel_member` /
+`budgets.is_admin_protected` (live, local) and is invoked by both `app.py`
+and `agent.py`. `app.py`'s `_wheel_target_refused` /
+`_refuse_protected_budget_target` / freeze+unfreeze checks now delegate to
+it, so the two surfaces cannot drift. Tests pin that the agent refuses to
+lock/freeze a wheel member of **its own** box even when the caller claims to
+be a wheel admin on the hub.
+
+### Deviations from §5.1 (with reasons)
+
+1. **Privileged verb *bodies* were not physically moved out of `app.py`.**
+   The 769-test suite monkeypatches app-module names (`app.run_lock_command`,
+   `app.get_lock_status`, `app.load_bedtime`, `app.is_in_bedtime`,
+   `app.get_human_users`, `app.get_user_live`, `app._safe_notify`). Moving the
+   bodies into a stdlib module would silently break those patch points and
+   the behavior-preserving-refactor gate. Instead the *safety-critical*
+   decisions were extracted into the shared, Flask-free `device_policy.py`
+   (so the agent provably re-runs the same wheel/admin refusals against its
+   own box), and the agent re-implements the thin orchestration locally using
+   the same shared low-level modules (`auth`, `audit`, `budgets`, `store`)
+   and the same scoped sudoers. `tests/test_multidevice_install.py` proves
+   every `sudo` argv in `agent.py` is authorized by the existing templates.
+2. **Device management CLI lives in `remote.py`, not `cli.py`.**
+   `cli.py` was outside this workstream's file ownership; `python3 remote.py
+   device add|list|remove` keeps the token-minting/registration path root-only
+   and out of any browser surface without touching a concurrently-owned file.
+   Folding it into `parental-controls` subcommands is a small Phase-2 follow-up.
+3. **Remote user-detail *commands* on `user.html`** ride the same
+   `/api/device/<name>/v1/…` proxy via a template fetch shim (no per-call
+   rewrites). Server-side remote rendering is implemented for both `/` and
+   `/user/<u>`; deeper remote-only UI affordances (device management page,
+   LAN-TLS TOFU pin) remain Phase 2.
+
+### Cannot verify without two real boxes (human-run)
+
+- Real SSH-tunnel reachability and the first-token registration handshake.
+- That a real `sudo usermod -L` on box B succeeds under box B's rendered
+  sudoers when driven by the agent unit (mocked in tests; sudoers coverage is
+  asserted statically).
+- TLS/TOFU over LAN (Phase 2) and SQLite multi-writer contention with the
+  agent as a fourth writer on a live box.
+`tests/test_multidevice_live.py` is env-gated (`MULTIDEVICE_LIVE_URL`,
+`MULTIDEVICE_LIVE_TOKEN`) and skipped by default; it is read-only.

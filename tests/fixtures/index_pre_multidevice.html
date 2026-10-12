@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ g.csrf_token }}">
+    <title>Parental Controls — Bazzite</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            padding: 2rem;
+        }
+        h1 {
+            margin-bottom: 0.5rem;
+            font-size: 1.8rem;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #16213e;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+        }
+        th {
+            background: #0f3460;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        tr:nth-child(even) { background: #1a1a3e; }
+        tr:hover { background: #1f2b50; }
+        .status-locked { color: #e94560; font-weight: 600; }
+        .status-unlocked { color: #4ecca3; font-weight: 600; }
+        .status-unknown { color: #f0c040; font-weight: 600; }
+        button {
+            padding: 0.4rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: opacity 0.15s;
+        }
+        button:hover { opacity: 0.85; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-lock { background: #e94560; color: #fff; }
+        .btn-unlock { background: #4ecca3; color: #1a1a2e; }
+        .actions { display: flex; gap: 0.5rem; }
+        .badge-bedtime {
+            display: inline-block;
+            background: #6a4c93;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .badge-override {
+            display: inline-block;
+            background: #e67e22;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .bedtime-summary { color: #888; font-size: 0.8rem; margin-top: 0.5rem; }
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: none;
+            z-index: 100;
+        }
+        .toast-success { background: #4ecca3; color: #1a1a2e; }
+        .toast-error { background: #e94560; color: #fff; }
+        .refresh-info {
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 1rem;
+        }
+        /* Bootstrap dark-theme compatibility (minimal overrides, no behavior change) */
+        body { background: #1a1a2e; color: #e0e0e0; }
+        .table {
+            --bs-table-bg: #16213e;
+            --bs-table-striped-bg: #1a1a3e;
+            --bs-table-hover-bg: #1f2b50;
+            --bs-table-color: #e0e0e0;
+            --bs-table-border-color: #0f3460;
+            color: #e0e0e0;
+        }
+        .table thead th { background: #0f3460; color: #e0e0e0; }
+        .actions { flex-wrap: wrap; }
+        .page-wrap { max-width: 1100px; margin: 0 auto; }
+        @media (max-width: 576px) { body { padding: 1rem; } }
+    </style>
+</head>
+<body data-bs-theme="dark">
+    <div class="container-fluid page-wrap">
+    <h1>Parental Controls</h1>
+    <p class="subtitle">Manage user account lock status on this Bazzite system</p>
+    {% include '_insecure_banner.html' %}
+    <p class="subtitle">Logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})
+        &nbsp;·&nbsp; <a href="/admin/audit" style="color: #4ecca3;">Admin console</a>
+        &nbsp;·&nbsp; <a href="/change-password" style="color: #4ecca3;">Change password</a>
+        &nbsp;·&nbsp; <a href="/logout" style="color: #e94560;">Log out</a></p>
+
+    <div class="table-responsive">
+    <table class="table table-dark table-striped table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>UID</th>
+                <th>Status</th>
+                <th>Bedtime</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr id="row-{{ user.username }}">
+                <td><strong><a href="/user/{{ user.username }}" style="color: #e0e0e0; text-decoration: none;">{{ user.username }}</a></strong></td>
+                <td>{{ user.uid }}</td>
+                <td class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
+                    {{ user.status_detail }}
+                    {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
+                    {% if user.in_bedtime and user.bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}
+                </td>
+                <td>
+                    {% if user.bedtime and user.bedtime.start %}
+                        {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }}
+                        <br>
+                        <span class="bedtime-summary">{% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+                    {% else %}
+                        <span class="bedtime-summary">Not set</span>
+                    {% endif %}
+                </td>
+                <td class="actions">
+                    {% if user.locked != True %}
+                    <button type="button" class="btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
+                    {% endif %}
+                    {% if user.locked == True %}
+                    <button type="button" class="btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
+                    {% endif %}
+                    <button class="btn-details" style="background: #4ecca3; color: #1a1a2e; margin-left: 0.5rem;" onclick="window.location='/user/{{ user.username }}'">Details</button>
+                    </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    <p class="refresh-info">Status updates automatically every 10 seconds</p>
+    </div>
+
+    <div style="background: #16213e; border-radius: 8px; padding: 1rem; margin-top: 1.5rem;" id="admin-panel">
+        <h2 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Admins</h2>
+        <div id="admin-list" style="font-size: 0.9rem;"></div>
+        <div id="admin-add" style="margin-top: 0.75rem; font-size: 0.9rem;">
+            <input type="text" id="new-admin-username" placeholder="new admin username"
+                style="padding: 0.4rem; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a3e; color: #e0e0e0;">
+            <button type="button" class="btn-unlock" onclick="addAdmin()">Add admin</button>
+            <span style="color: #888; font-size: 0.8rem;">Wheel admins only. System accounts (except wheel) can never be added.</span>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        const DAY_LABELS = {{ day_labels|tojson }};
+        const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+
+        function showToast(msg, isError) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = isError ? 'toast-error' : 'toast-success';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 4000);
+        }
+
+        function esc(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // '21:00' -> '9:00 PM'. Display-only mirror of the server's
+        // format_12h(); storage and API payloads stay 24h/ISO.
+        function fmt12(hhmm) {
+            if (!hhmm) return '';
+            const parts = String(hhmm).slice(0, 5).split(':');
+            const h = parseInt(parts[0], 10);
+            const m = parts.length > 1 ? parts[1] : '00';
+            if (isNaN(h) || h < 0 || h > 23) return hhmm;
+            const suffix = h < 12 ? 'AM' : 'PM';
+            return `${h % 12 || 12}:${m} ${suffix}`;
+        }
+
+        function statusClass(locked) {
+            return locked === true ? 'locked' : locked === false ? 'unlocked' : 'unknown';
+        }
+
+        function rowHtml(u) {
+            const badges = (u.in_bedtime ? '<span class="badge-bedtime">In Bedtime</span>' : '') +
+                ((u.in_bedtime && u.bedtime && u.bedtime.manual_override) ? '<span class="badge-override">Override</span>' : '');
+            let bedtimeCell;
+            if (u.bedtime && u.bedtime.start) {
+                const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
+                bedtimeCell = `${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))}<br><span class="bedtime-summary">${esc(days)}</span>`;
+            } else {
+                bedtimeCell = '<span class="bedtime-summary">Not set</span>';
+            }
+            let actions = '';
+            if (u.locked !== true) {
+                actions += `<button type="button" class="btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
+            }
+            if (u.locked === true) {
+                actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
+            }
+            actions += `<button class="btn-details" style="background: #4ecca3; color: #1a1a2e; margin-left: 0.5rem;" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
+            return `<tr id="row-${esc(u.username)}">` +
+                `<td><strong><a href="/user/${encodeURIComponent(u.username)}" style="color: #e0e0e0; text-decoration: none;">${esc(u.username)}</a></strong></td>` +
+                `<td>${esc(u.uid)}</td>` +
+                `<td class="status-${statusClass(u.locked)}">${esc(u.status_detail)}${badges}</td>` +
+                `<td>${bedtimeCell}</td>` +
+                `<td class="actions">${actions}</td></tr>`;
+        }
+
+        async function refreshTable() {
+            try {
+                const resp = await fetch('/api/users');
+                const users = await resp.json();
+                document.querySelector('tbody').innerHTML = users.map(rowHtml).join('');
+            } catch (e) {
+                showToast(`Refresh failed: ${e.message}`, true);
+            }
+        }
+
+        async function lockUser(username) {
+            if (!confirm('Lock account for "' + username + '"? They will be unable to log in until unlocked.')) return;
+            try {
+                const resp = await fetch('/api/lock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: `username=${encodeURIComponent(username)}`
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`Locked ${username}`, false);
+                    refreshTable();
+                } else {
+                    showToast(`Error: ${data.message}`, true);
+                }
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function unlockUser(username) {
+            if (!confirm('Unlock account for "' + username + '"?')) return;
+            try {
+                const resp = await fetch('/api/unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: `username=${encodeURIComponent(username)}`
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`Unlocked ${username}`, false);
+                    refreshTable();
+                } else {
+                    showToast(`Error: ${data.message}`, true);
+                }
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        // Targeted refresh: only the table body is re-rendered, every 10s.
+        setInterval(refreshTable, 10000);
+
+        async function refreshAdmins() {
+            try {
+                const resp = await fetch('/api/admins');
+                const data = await resp.json();
+                if (!data.success) return;
+                const el = document.getElementById('admin-list');
+                el.innerHTML = data.admins.map(a =>
+                    `${esc(a.username)} <span style="color:#888;">(${esc(a.tier || 'revoked')}${a.locked ? ', locked' : ''}${a.must_change ? ', must change password' : ''})</span>` +
+                    (a.username !== data.self ? ` <button type="button" class="btn-lock" style="padding: 0.15rem 0.6rem; font-size: 0.75rem;" onclick="removeAdmin('${esc(a.username)}')">Remove</button>` : ' <span style="color:#888;">(you)</span>')
+                ).join('<br>') || '<span style="color:#888;">No admins</span>';
+            } catch (e) { /* leave panel as-is on failure */ }
+        }
+
+        async function addAdmin() {
+            const input = document.getElementById('new-admin-username');
+            const username = input.value.trim();
+            if (!username) return;
+            try {
+                const resp = await fetch('/api/admins', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: `username=${encodeURIComponent(username)}`
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`Admin ${username} created. Password (shown ONCE): ${data.password}`, false);
+                    input.value = '';
+                    refreshAdmins();
+                } else {
+                    showToast(`Error: ${data.error}`, true);
+                }
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function removeAdmin(username) {
+            if (!confirm(`Remove admin "${username}"? They lose access immediately.`)) return;
+            try {
+                const resp = await fetch('/api/admins/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                    body: `username=${encodeURIComponent(username)}`
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`Removed ${username}`, false);
+                    refreshAdmins();
+                } else {
+                    showToast(`Error: ${data.error}`, true);
+                }
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        refreshAdmins();
+    </script>
+</body>
+</html>

@@ -53,6 +53,13 @@ OPEN_FIREWALL=0
 DRY_RUN=0
 TLS_MODE=0
 INSECURE_LAN=0
+# Remote agent (MULTIDEVICE_PLAN.md Phase 1). Off by default: an existing
+# install is unchanged, and rollback is simply not passing --enable-agent.
+ENABLE_AGENT=0
+AGENT_BIND_HOST="127.0.0.1"
+AGENT_BIND_PORT="5001"
+AGENT_INSECURE_LAN=0
+AGENT_TOKEN_FILE="/etc/parental-controls/agent_token"
 TLS_CERT_IN=""
 TLS_KEY_IN=""
 TLS_NAME=""
@@ -88,6 +95,10 @@ while [ $# -gt 0 ]; do
         --tls-name) TLS_NAME="$2"; shift 2 ;;
         --regen-tls-cert) REGEN_TLS_CERT=1; shift ;;
         --insecure-lan) INSECURE_LAN=1; shift ;;
+        --enable-agent) ENABLE_AGENT=1; shift ;;
+        --agent-bind) AGENT_BIND_HOST="$2"; shift 2 ;;
+        --agent-port) AGENT_BIND_PORT="$2"; shift 2 ;;
+        --agent-insecure-lan) AGENT_INSECURE_LAN=1; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -123,6 +134,32 @@ esac
 case "$BIND_HOST" in
     ''|*[!A-Za-z0-9.:-]*) echo "Invalid --bind: '$BIND_HOST'." >&2; exit 2 ;;
 esac
+case "$AGENT_BIND_PORT" in
+    ''|*[!0-9]*) echo "Invalid --agent-port: '$AGENT_BIND_PORT' (want 1-65535)." >&2; exit 2 ;;
+esac
+[ "$AGENT_BIND_PORT" -ge 1 ] && [ "$AGENT_BIND_PORT" -le 65535 ] || \
+    { echo "Invalid --agent-port: '$AGENT_BIND_PORT' (want 1-65535)." >&2; exit 2; }
+case "$AGENT_BIND_HOST" in
+    ''|*[!A-Za-z0-9.:-]*) echo "Invalid --agent-bind: '$AGENT_BIND_HOST'." >&2; exit 2 ;;
+esac
+# The agent speaks plain HTTP. Mirror the panel's localhost-first stance: a
+# non-loopback bind is refused unless the operator knowingly passes
+# --agent-insecure-lan (use an SSH tunnel instead).
+if [ "$ENABLE_AGENT" -eq 1 ]; then
+    case "$AGENT_BIND_HOST" in
+        127.0.0.1|::1|localhost) : ;;
+        *)
+            if [ "$AGENT_INSECURE_LAN" -ne 1 ]; then
+                echo "refusing a non-loopback --agent-bind without --agent-insecure-lan:" >&2
+                echo "the agent speaks plain HTTP (the bearer token would travel in the clear)." >&2
+                echo "Use an SSH tunnel (ssh -L ${AGENT_BIND_PORT}:localhost:${AGENT_BIND_PORT} <user>@box) or pass --agent-insecure-lan." >&2
+                exit 2
+            fi
+            echo "WARNING: --agent-bind $AGENT_BIND_HOST exposes the agent beyond this machine" >&2
+            echo "without TLS; the bearer token travels in the clear." >&2
+            ;;
+    esac
+fi
 if [ -n "$TLS_CERT_IN" ] || [ -n "$TLS_KEY_IN" ] || [ "$REGEN_TLS_CERT" -eq 1 ]; then
     # Owner certs and regen only make sense with TLS: imply it.
     TLS_MODE=1
@@ -165,6 +202,12 @@ for agent_file in session_agent.py focus_feed.py; do
     [ -f "$SOURCE_DIR/$agent_file" ] \
         || { echo "Missing $SOURCE_DIR/$agent_file — run install.sh from the app checkout." >&2; exit 1; }
 done
+if [ "$ENABLE_AGENT" -eq 1 ]; then
+    for agent_file in agent.py wsgi_agent.py device_policy.py remote.py; do
+        [ -f "$SOURCE_DIR/$agent_file" ] \
+            || { echo "Missing $SOURCE_DIR/$agent_file — run install.sh from the app checkout." >&2; exit 1; }
+    done
+fi
 
 run() {
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -485,6 +528,52 @@ elif [ ! -x "${INSTALL_DIR}/.venv/bin/python" ]; then
 else
     run install -m 0750 -o root -g root "$CLI_WRAPPER" /usr/local/bin/parental-controls
     echo "Installed recovery CLI: sudo parental-controls {unlock,unfreeze-all,reset-password,add-admin,remove-admin,lock-admin}"
+fi
+
+echo "== 5c/8 remote agent (hub -> this box) =="
+AGENT_UNIT="parental-controls-agent.service"
+if [ "$ENABLE_AGENT" -ne 1 ]; then
+    echo "(no --enable-agent: skipping the remote control agent)"
+else
+    [ -f "$TEMPLATE_DIR/systemd/$AGENT_UNIT" ] \
+        || { echo "Missing $TEMPLATE_DIR/systemd/$AGENT_UNIT" >&2; exit 1; }
+    # 1) Token: mint once, never rotate on re-run. 32 bytes of urlsafe
+    # entropy (>= 256 bits); 0600 owned by the service user, same protection
+    # pattern as auth.json. The token is printed ONCE so the operator can
+    # register the hub with it.
+    if [ -f "$AGENT_TOKEN_FILE" ]; then
+        echo "Agent token already present ($AGENT_TOKEN_FILE) — left unchanged."
+    elif [ "$DRY_RUN" -eq 1 ]; then
+        echo "[dry-run] mint agent token -> $AGENT_TOKEN_FILE (0600, owner $SERVICE_USER)"
+    else
+        run mkdir -p /etc/parental-controls
+        AGENT_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+        # Mint into the temp dir, then install with explicit 0600 ownership
+        # (mirrors the rendered-unit handling; no redirect ever lands outside
+        # $TMPD).
+        umask 077
+        printf '%s\n' "$AGENT_TOKEN" > "$TMPD/agent_token"
+        run install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_USER" \
+            "$TMPD/agent_token" "$AGENT_TOKEN_FILE"
+        echo "Agent token (shown ONCE — register it on the hub):"
+        echo "  $AGENT_TOKEN"
+        echo "On the hub: sudo ./install.sh (hub) && sudo python3 remote.py device add <name> --url http://localhost:${AGENT_BIND_PORT} --token <token>"
+        unset AGENT_TOKEN
+    fi
+    # 2) Render + install the unit (loopback by default).
+    sed -e "s|@APP_DIR@|$INSTALL_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
+        -e "s|@AGENT_BIND_HOST@|$AGENT_BIND_HOST|g" \
+        -e "s|@AGENT_BIND_PORT@|$AGENT_BIND_PORT|g" \
+        "$TEMPLATE_DIR/systemd/$AGENT_UNIT" > "$TMPD/$AGENT_UNIT"
+    echo "--- rendered $AGENT_UNIT ---"
+    grep -E "^(User|WorkingDirectory|ExecStart|Environment)=" "$TMPD/$AGENT_UNIT" || true
+    run cp "$TMPD/$AGENT_UNIT" /etc/systemd/system/"$AGENT_UNIT"
+    run chmod 644 /etc/systemd/system/"$AGENT_UNIT"
+    # 3) Enable/start only the agent; the panel service is never restarted
+    # here (AGENTS.md hard rule).
+    run systemctl daemon-reload
+    run systemctl enable --now "$AGENT_UNIT"
+    echo "Agent enabled on $AGENT_BIND_HOST:$AGENT_BIND_PORT (loopback + SSH tunnel by default)."
 fi
 
 echo "== 6/8 firewall =="

@@ -23,6 +23,8 @@ import adminstore
 import auth
 import audit
 import budgets
+import device_policy
+import remote
 import store
 
 app = Flask(__name__)
@@ -47,6 +49,21 @@ app.config['INSECURE_LAN'] = (
 @app.context_processor
 def _insecure_lan_banner():
     return {'insecure_lan': app.config.get('INSECURE_LAN', False)}
+
+
+@app.context_processor
+def _multidevice_gate():
+    """Feature gate (MULTIDEVICE_PLAN.md §5.5.3).
+
+    With no devices.json the selector block renders nothing, so single-box
+    installs are byte-identical to before. A corrupt store does not take
+    the panel down: it is reported via /api/devices instead.
+    """
+    try:
+        enabled = remote.devices_enabled()
+    except Exception:
+        enabled = False
+    return {'devices_enabled': enabled}
 
 MIN_UID = 1000
 MAX_UID = 60000
@@ -122,16 +139,10 @@ def valid_username(username):
     """True when `username` is safe to pass as a literal usermod/loginctl
     argument.
 
-    Beyond the usual charset check this rejects a leading '-': usernames
-    are interpolated as a bare argv element, and a name like '-x' is
-    parsed by usermod as an option rather than a login (verified:
-    `usermod -U -x` -> "invalid option"). No real account can begin with
-    '-', so rejecting one costs nothing and closes an argument-injection
-    path into a command that runs as root.
+    The rule lives in device_policy so the remote agent applies the exact
+    same check on its own box (MULTIDEVICE_PLAN.md §4.4).
     """
-    return bool(username) and not username.startswith('-') and all(
-        c.isalnum() or c in '_-.' for c in username
-    )
+    return device_policy.valid_username(username)
 
 
 def lock_user_sessions(username):
@@ -1023,12 +1034,12 @@ def _wheel_target_refused(username):
 
     Returns a 403 JSON response when `username` is a wheel member,
     else None. Enforced in the handler, never just hidden in the UI.
+    The decision itself lives in device_policy (shared with the agent) so
+    it is always made against the executing box's live wheel group.
     """
-    if auth.is_wheel_member(username):
-        return jsonify({
-            'success': False,
-            'error': (f'Refused: {username} is a wheel admin and can '
-                      'never be locked, terminated, or removed.')}), 403
+    refused = device_policy.wheel_refusal(username)
+    if refused:
+        return jsonify({'success': False, 'error': refused}), 403
     return None
 
 
@@ -1045,15 +1056,53 @@ def _refuse_protected_budget_target(username):
     Shared by the override/window writers: a wheel member's config must
     be untouchable, matching the freeze/unfreeze endpoints.
     """
-    refused = _wheel_target_refused(username)
-    if refused is not None:
-        return refused
-    if budgets.is_admin_protected(username):
-        return jsonify({
-            'success': False,
-            'error': (f'Refused: {username} is an admin and cannot be '
-                      'budget-managed')}), 403
+    refused = device_policy.budget_config_refusal(username)
+    if refused:
+        return jsonify({'success': False, 'error': refused}), 403
     return None
+
+
+def _refuse_frozen_target(username):
+    """403 for a wheel/admin-protected freeze target, else None."""
+    refused = device_policy.freeze_refusal(username)
+    if refused:
+        return jsonify({'success': False, 'error': refused}), 403
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Multi-device (MULTIDEVICE_PLAN.md Phase 1): hub -> agent routing
+# ---------------------------------------------------------------------------
+
+def _device_entries():
+    """Token-free device list for the UI. [] when the store is unreadable."""
+    try:
+        return [remote.describe_device(d) for d in remote.list_devices()]
+    except remote.DevicesError as e:
+        print(f'DEVICES FAIL-CLOSED: {e}', flush=True)
+        return []
+
+
+def _remote_proxy(entry, method, subpath, params=None):
+    """Thin seam over remote.proxy so tests can stub the transport.
+
+    Returns (status, payload, token_rejected). Raises remote.RemoteError on
+    a transport failure; callers must turn that into a visible error, never
+    a silent success.
+    """
+    return remote.proxy(entry, method, subpath, params=params,
+                        panel_actor=_req_actor())
+
+
+def _remote_users(entry):
+    """Return (users, error). users is None on failure (fail visible)."""
+    status, payload, rejected = _remote_proxy(entry, 'GET', '/users')
+    if rejected:
+        return None, f'{entry.get("name")}: token rejected — re-register'
+    if status != 200 or not isinstance(payload, list):
+        return None, (f'{entry.get("name")}: '
+                      f'{payload.get("error") or "unexpected response"}')
+    return payload, None
 
 
 # ---------------------------------------------------------------------------
@@ -1063,7 +1112,7 @@ def _refuse_protected_budget_target(username):
 @app.route('/')
 @require_admin
 def index():
-    """Render the main page with user list."""
+    """Render the main page with user list (optionally a remote device)."""
     users = get_human_users()
     bedtime = load_bedtime()
     user_data = []
@@ -1081,7 +1130,24 @@ def index():
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus_state(entry),
         })
-    return render_template('index.html', users=user_data, day_labels=DAY_LABELS)
+    devices = _device_entries()
+    selected_device = (request.args.get('device', '') or '').strip()
+    device_error = None
+    if selected_device:
+        device_entry = remote.get_device(selected_device)
+        if device_entry is None:
+            device_error = f'Unknown device: {selected_device}'
+            user_data = []
+        else:
+            try:
+                remote_users, device_error = _remote_users(device_entry)
+            except remote.RemoteError as e:
+                remote_users, device_error = None, str(e)
+            user_data = remote_users if remote_users is not None else []
+    return render_template('index.html', users=user_data, day_labels=DAY_LABELS,
+                           devices=devices, selected_device=selected_device,
+                           device_error=device_error)
+
 
 
 @app.route('/api/users')
@@ -1680,13 +1746,9 @@ def api_budgets_freeze():
     if not budgets.valid_category(category):
         return jsonify({'success': False,
                         'error': f'Unknown category: {category}'}), 400
-    refused = _wheel_target_refused(username)
+    refused = _refuse_frozen_target(username)
     if refused is not None:
         return refused
-    if budgets.is_admin_protected(username):
-        return jsonify({'success': False,
-                        'error': (f'Refused: {username} is an admin and '
-                                  'cannot be frozen')}), 403
     ok, msg = budgets.freeze_category(username, category,
                                       actor=_req_actor())
     if not ok:
@@ -1707,13 +1769,9 @@ def api_budgets_unfreeze():
     if not budgets.valid_category(category):
         return jsonify({'success': False,
                         'error': f'Unknown category: {category}'}), 400
-    refused = _wheel_target_refused(username)
+    refused = _refuse_frozen_target(username)
     if refused is not None:
         return refused
-    if budgets.is_admin_protected(username):
-        return jsonify({'success': False,
-                        'error': (f'Refused: {username} is an admin and '
-                                  'cannot be frozen')}), 403
     ok, msg = budgets.unfreeze_category(username, category,
                                         actor=_req_actor())
     if not ok:
@@ -1733,11 +1791,32 @@ def api_budgets_get(username):
 @app.route('/user/<username>')
 @require_admin
 def user_detail(username):
-    """Render the user details page for a specific user."""
-    data = get_user_live(username)
-    if data is None:
-        # Username not found
-        return "User not found", 404
+    """Render the user details page for a specific user.
+
+    With ?device=<name> the page is scoped to a registered box: the user
+    detail is read from that box's agent and the page's own fetches are
+    rewritten to the device proxy by the template's API shim.
+    """
+    selected_device = (request.args.get('device', '') or '').strip()
+    devices = _device_entries()
+    device_error = None
+    if selected_device:
+        entry = remote.get_device(selected_device)
+        if entry is None:
+            return 'Unknown device', 404
+        try:
+            payload, device_error = _remote_user_live(entry, username)
+        except remote.RemoteError as e:
+            payload, device_error = None, str(e)
+        if payload is None:
+            data = _empty_remote_live(username)
+        else:
+            data = _remote_live_context(username, payload)
+    else:
+        data = get_user_live(username)
+        if data is None:
+            # Username not found
+            return "User not found", 404
 
     return render_template('user.html', username=username,
                            user=data['user'],
@@ -1748,7 +1827,66 @@ def user_detail(username):
                            app_names=data.get('app_names') or [],
                            category_labels=budgets.CATEGORY_LABELS,
                            categories=budgets.CATEGORIES,
-                           day_labels=DAY_LABELS)
+                           day_labels=DAY_LABELS,
+                           devices=devices, selected_device=selected_device,
+                           device_error=device_error)
+
+
+def _remote_user_live(entry, username):
+    """(payload, error) for one remote user's live data (fail visible)."""
+    if not valid_username(username):
+        return None, 'Invalid username'
+    status, payload, rejected = _remote_proxy(
+        entry, 'GET', f'/user/{username}/live')
+    if rejected:
+        return None, f'{entry.get("name")}: token rejected — re-register'
+    if status != 200 or not payload.get('success'):
+        return None, (f'{entry.get("name")}: '
+                      f'{payload.get("error") or "unexpected response"}')
+    return payload, None
+
+
+def _remote_live_context(username, payload):
+    """Adapt an agent /user/<u>/live payload to the user.html context."""
+    return {
+        'user': {
+            'username': username,
+            'uid': payload.get('uid', ''),
+            'home': payload.get('home', ''),
+            'shell': payload.get('shell', ''),
+            'locked': payload.get('locked'),
+            'status_detail': payload.get('status_detail'),
+            'bedtime': payload.get('bedtime') or {},
+            'in_bedtime': payload.get('in_bedtime'),
+            'bonus': payload.get('bonus') or {},
+        },
+        'processes': payload.get('processes') or [],
+        'visible': payload.get('visible') or [],
+        'hidden': payload.get('hidden') or [],
+        'groups': payload.get('groups') or {c: [] for c in budgets.CATEGORIES},
+        'budget_state': payload.get('budget')
+        or budgets.budget_status(username, {},
+                                 overrides={'app_overrides': {},
+                                            'windows': []}),
+        'overrides': payload.get('overrides')
+        or {'app_overrides': {}, 'windows': []},
+        'app_names': payload.get('app_names') or [],
+    }
+
+
+def _empty_remote_live(username):
+    """Empty context for an unreachable device (no stale data, fail visible)."""
+    return {
+        'user': {'username': username, 'uid': '', 'home': '', 'shell': '',
+                 'locked': None, 'status_detail': 'unreachable',
+                 'bedtime': {}, 'in_bedtime': False, 'bonus': {}},
+        'processes': [], 'visible': [], 'hidden': [],
+        'groups': {c: [] for c in budgets.CATEGORIES},
+        'budget_state': budgets.budget_status(
+            username, {}, overrides={'app_overrides': {}, 'windows': []}),
+        'overrides': {'app_overrides': {}, 'windows': []},
+        'app_names': [],
+    }
 
 
 def get_user_live(username):
@@ -2160,6 +2298,89 @@ def api_audit():
     ok, bad_seq = audit.verify_chain()
     return jsonify({'success': True, 'entries': entries,
                     'chain_ok': ok, 'bad_seq': bad_seq, 'limit': limit})
+
+
+# ---------------------------------------------------------------------------
+# Device endpoints (hub). The human authenticates with a session here; the
+# *box* is addressed by the token stored in devices.json. Bearer tokens are
+# forwarded only to the target agent, never to the browser, never logged.
+# ---------------------------------------------------------------------------
+
+@app.route('/api/devices')
+@require_admin
+def api_devices():
+    """List registered devices with reachability.
+
+    Feature gate: with no devices.json this reports ``multi_device: false``
+    and an empty list — identical to single-box behavior.
+    """
+    enabled = remote.devices_enabled()
+    devices = []
+    error = None
+    try:
+        entries = remote.list_devices()
+    except remote.DevicesError as e:
+        entries = []
+        error = str(e)
+    for entry in entries:
+        info = remote.describe_device(entry)
+        online, reach_error = False, None
+        try:
+            status, payload, rejected = _remote_proxy(entry, 'GET', '/health')
+            if rejected:
+                reach_error = 'token rejected — re-register'
+            elif status == 200 and payload.get('success'):
+                online = True
+                info['box_id'] = payload.get('box_id')
+                info['version'] = payload.get('version')
+            else:
+                reach_error = payload.get('error') or 'unexpected response'
+        except remote.RemoteError as e:
+            reach_error = str(e)
+        info['online'] = online
+        info['error'] = reach_error
+        devices.append(info)
+    return jsonify({'success': True, 'multi_device': enabled,
+                    'devices': devices, 'error': error})
+
+
+@app.route('/api/device/<name>/v1/<path:subpath>',
+           methods=['GET', 'POST'])
+@require_admin
+def api_device_proxy(name, subpath):
+    """Forward an admin request to a registered box's agent.
+
+    The hub session + CSRF guard the browser side (unchanged); the agent
+    link is bearer-token authenticated with no CSRF. Unreachable targets
+    fail with a clear 502 — never a silent success. The dispatch is audited
+    on the hub; the agent audits the action on its own chain.
+    """
+    entry = remote.get_device(name)
+    if entry is None:
+        return jsonify({'success': False,
+                        'error': f'Unknown device: {name}'}), 404
+    params = request.form.to_dict() or request.args.to_dict()
+    try:
+        status, payload, rejected = _remote_proxy(entry, request.method,
+                                                  '/' + subpath, params)
+    except remote.RemoteError as e:
+        _safe_audit(_req_actor(), 'device.command', name,
+                    {'success': False, 'path': subpath, 'error': str(e)})
+        return jsonify({'success': False,
+                        'error': f'Device {name} unavailable: {e}'}), 502
+    if isinstance(payload, dict):
+        success = bool(payload.get('success'))
+    else:
+        success = 200 <= status < 300
+    _safe_audit(_req_actor(), 'device.command', name,
+                {'success': success, 'path': subpath,
+                 'status': status, 'via': 'hub'})
+    response = jsonify(payload)
+    if rejected:
+        response.status_code = 401
+        return response
+    response.status_code = status if 200 <= status < 600 else 502
+    return response
 
 
 @app.route('/admin/audit')
