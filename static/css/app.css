@@ -2124,54 +2124,9 @@ body.pc-reduced-motion *::after {
 /* =========================================================================
    REVISED-SPEC.md additions (design translation update).
 
-   * Overview is phone-first: no desktop sidebar, a simple header over a
-     single column, and the 4-tab bottom bar kept reachable at every width.
    * explicit pill colours for Online / Unlocked (#d7ebd7 on #003a05).
    * account cards, budget category cards and annotation blocks.
    ========================================================================= */
-
-/* --- Overview shell (Screen 1) ------------------------------------------- */
-.pc-layout--phone .pc-layout__main {
-  margin-left: 0;
-}
-.pc-layout--phone {
-  padding-bottom: var(--tabbar-h);
-}
-/* Overview's header is in the flow (not a fixed app bar), so the shell must
-   not reserve --nav-h of top padding for it — the canvas S1 puts the content
-   straight under the header. */
-.pc-layout--phone .pc-shell {
-  padding-top: var(--sp-4);
-}
-/* The 4-tab bar is the only navigation on Overview; keep it at every width
-   (the phone-only hide is for the sidebar-driven screens). */
-@media (min-width: 768px) {
-  .pc-layout--phone .pc-tabbar {
-    display: flex;
-  }
-}
-.pc-phoneheader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  min-height: var(--nav-h);
-  padding: 0 var(--sp-4);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-.pc-phoneheader__title {
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  color: var(--text);
-}
-.pc-phoneheader__status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
 
 /* --- Explicit status pills (mockup hexes) -------------------------------- */
 .pc-pill {
@@ -2236,6 +2191,18 @@ body.pc-reduced-motion *::after {
 .pc-account__actions {
   margin-top: var(--sp-3);
   flex-wrap: wrap;
+}
+/* Overview now shares the wide desktop shell (sidebar + app bar), so the
+   account cards no longer span the full 1120px main column on their own. Pair
+   them into a 2-column grid once the main column is wide enough; below that
+   they stay a single column (phone/tablet canvas S1). The single card of the
+   no-accounts empty state simply occupies the first grid cell. */
+@media (min-width: 1100px) {
+  .pc-accounts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
 }
 .pc-card--secondary {
   background: var(--surface-2);

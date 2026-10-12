@@ -59,11 +59,11 @@
             </main>
         </div>
 
-        {# The tab bar lives INSIDE .pc-layout (after .pc-layout__main): the
-           Overview keeps its 4-tab bar at every width via the descendant
-           selector `.pc-layout--phone .pc-tabbar`, which only matches when the
-           bar is a child of the phone-layout container. It stays
-           `position: fixed`, so DOM order does not change where it renders. #}
+        {# The tab bar lives INSIDE .pc-layout (after .pc-layout__main). It is
+           `position: fixed`, so DOM order does not change where it renders;
+           every section now navigates the same way (sidebar >=768px, tab bar
+           below). Placement inside the layout container is pinned by
+           tests/test_ui_shell.py as a regression guard. #}
         {% block tabbar %}{% include '_partials/tabbar.html' %}{% endblock %}
     </div>
 

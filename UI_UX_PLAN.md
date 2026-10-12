@@ -263,7 +263,7 @@ accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas Online/Unlocked pill
 | Component | Notes / current mapping |
 |---|---|
 | **App bar** | Sticky top; brand (below 768 px only — from tablet up the brand lives in the sidebar), account menu (Change password / Log out) and Help as `<details>` popovers, theme toggle (no JS framework) |
-| **Bottom tab bar** | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11). Hidden from 768 px up except on the phone-first Overview shell |
+| **Bottom tab bar** | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11). Hidden from 768 px up — every section navigates via the sidebar |
 | **Skip link** | "Skip to content" first focusable |
 | **Button** `.pc-btn` variants `--primary` (green: Unlock, Save, Set, Add), `--danger` (Lock, Clear, Remove, Emergency logout), `--warn` (Freeze), `--neutral` (Hide, secondary), `--ghost` (Load more, Details). Sizes: default 44 px; `--sm` **min 32 px** with 8 px spacing (fixes 2.5.8); `--icon`. |
 | **Chip / badge** `.pc-chip` variants `ok/danger/warn/info/override/bedtime/neutral/bonus`. Always **icon + text + color** (never color alone). |
@@ -884,11 +884,15 @@ this project's stack.
 
 ### 11.2 Shell / IA
 
-- **Overview (Screen 1) is phone-first:** a simple header (brand + "Local /
-  Online") over a single column and the 4-tab bar at every width —
-  **no desktop sidebar** (`base.html` `layout_class` = `pc-layout--phone`,
-  `_partials/phone_header.html`). S1 is a `mobile_android` mockup, so the
-  canvas does **not** support giving Overview a desktop sidebar.
+- **Overview (Screen 1) uses the shared shell** (owner decision, §11.7): the
+  same desktop sidebar (Overview / Time rules / Activity / Admin / Settings +
+  the "Selected machine" card), the same top app bar (brand, user chip, theme
+  toggle, Help) and the same phone bottom tab bar below 768 px as the other
+  five sections. The earlier phone-first shell (a simple brand header over a
+  single column, `pc-layout--phone`, `_partials/phone_header.html`) was
+  removed. Overview keeps its own content (sync banner, system summary, one
+  account card per human account, the confirmation specimen, the design thesis
+  and the empty state).
 - **Screens 3–6** use the **sidebar** (Overview / Time rules / Activity /
   Admin / Settings) from **768 px** (canvas S3/S4 are *tablet* screens and
   already show the 236 px sidebar), widening to 280 px at **960 px** (canvas
@@ -904,7 +908,7 @@ this project's stack.
 
 | Screen | Route | Shape |
 |---|---|---|
-| 1 Overview | `/` | header + 4-tab bar; sync banner, system summary, one **account card** per user, confirmation specimen, design thesis, empty state |
+| 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px), confirmation specimen, design thesis, empty state |
 | 2 Time rules | `/user/<u>` | manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, live countdown (`aria-live`), clear-schedule confirm, state specimen |
 | 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
 | 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, override + visibility cards |
@@ -966,8 +970,7 @@ Help's visible label; `#admin-specimens` and `#settings-annotations` are plain
 visible sections again (they were collapsed `<details>`) and the missing
 "Dialog"/"Focus ring" callouts plus the Audit/Admin card-header glyphs were
 added; Settings' Local access column was nested inside the Notifications
-column and now sits beside it; the Overview shell no longer reserves `--nav-h`
-of top padding for a header that is in the flow.
+column and now sits beside it.
 
 **Known canvas conflicts (owner decision).** (a) The canvas draws white text on
 the amber button `#c47f17`, which is 3.28:1 — below WCAG AA 4.5:1. The owner
@@ -980,4 +983,42 @@ swatches (`--pc-green-500` / `--pc-amber-400`) that carry no text. (b) The
 canvas' Settings screen (S6) renders `primary` as
 near-black and its switches dark, while S1–S5 render amber; the amber reading
 was taken as authoritative (5 of 6 screens + the brief). (c) The canvas does
-not specify a desktop Overview, so the phone-first shell was kept unconstrained.
+not specify a desktop Overview; the owner has since directed that Overview
+share the other five sections' shell (§11.7), so the earlier phone-first shell
+is no longer in play.
+
+### 11.7 Overview adopts the shared shell (owner request)
+
+Owner report: the Overview nav was disliked; Overview must use the **same nav
+and shell as every other page**. Implemented as a nav/shell change only —
+content is untouched.
+
+- `templates/index.html` no longer overrides `layout_class` / `sidebar` /
+  `appbar`; it inherits `base.html`'s defaults, so at ≥768 px it renders the
+  desktop sidebar (the 5-section nav with Overview marked `aria-current`, plus
+  the "Selected machine" card) and the top app bar (brand, user chip, theme
+  toggle, Help). Below 768 px it shows the phone bottom tab bar, hidden ≥768 px
+  like every other section. `active_nav` was already `'overview'` for the
+  `index` endpoint, so the sidebar marks Overview correctly with no app change.
+- **Dead code removed** (no remaining references): `_partials/phone_header.html`
+  and the `.pc-layout--phone` / `.pc-phoneheader` rules plus the
+  `@media (min-width: 768px){ .pc-layout--phone .pc-tabbar { display: flex } }`
+  re-show rule in `static/css/app.css`. The earlier tab-bar fix (the bar living
+  inside `.pc-layout` in `base.html`) is **kept**.
+- **Minimal responsive treatment** for the now-wide main column: the account
+  cards (`.pc-accounts`) pair into a 2-column grid at ≥1100 px
+  (`grid-template-columns: repeat(2, minmax(0,1fr))`); below that they stay a
+  single column. No new sections were invented.
+- **Selector contract unchanged**: every §7.4 pinned id/class (`#row-<user>`,
+  `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`/`.btn-logout`, `status-*`,
+  `pc-status--*`, `.refresh-info`, `#admin-panel`, `#admin-list`,
+  `#new-admin-username`, `#device-selector`, `#accounts`, `.pc-account`,
+  `data-label`, …) is preserved; **zero** `katalon/objects/*` changes.
+- **Test changes** (only the guards that pinned the phone-first Overview):
+  `tests/test_ui_shell.py` (shared-shell render check; the tab-bar-in-layout
+  regression retargeted to `.pc-layout`; the CSS guards now assert the
+  phone-shell selectors are gone), `tests/test_ui_a11y.py`
+  (`test_home_render_*` now asserts the sidebar + app bar and no phone shell).
+  `tests/test_ui_home.py` / `tests/test_ui_assets.py` needed no change (they
+  never pinned the phone header). Palette, AA-safe primary and shipped
+  behaviour are unchanged.

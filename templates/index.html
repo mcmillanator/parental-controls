@@ -2,11 +2,15 @@
 {# =========================================================================
    Overview (/ — Home), design-exports/REVISED-SPEC.md Screen 1.
 
-   Phone-first family board: a simple header (brand + "Local / Online") over a
-   single-column main with a 4-tab bottom nav — deliberately NO desktop
-   sidebar. Status-first: sync banner, system summary, one account card per
+   Status-first family board: sync banner, system summary, one account card per
    human account, the confirmation specimen, the design thesis and the empty
    state.
+
+   Overview uses the SAME shared shell as the other five sections (base.html
+   defaults): the desktop sidebar with the 5-section nav and the "Selected
+   machine" card, the top app bar (brand, user chip, theme toggle, Help) and the
+   phone bottom tab bar below 768px (hidden >=768px like every sidebar screen).
+   It no longer overrides layout_class / sidebar / appbar.
 
    Every selector pinned by the Katalon contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
@@ -20,12 +24,6 @@
 {% block title %}Parental Controls — Overview{% endblock %}
 {# Overview is the wide screen (audit + user are narrow). #}
 {% block shell_class %}{% endblock %}
-
-{# Overview drops the desktop sidebar and the full app bar: a simple header
-   over a single-column main, navigated by the 4-tab phone bottom bar. #}
-{% block layout_class %} pc-layout--phone{% endblock %}
-{% block sidebar %}{% endblock %}
-{% block appbar %}{% include '_partials/phone_header.html' %}{% endblock %}
 
 {% block content %}
 <p class="pc-eyebrow">Home</p>
