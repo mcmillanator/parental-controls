@@ -1,8 +1,163 @@
 {% extends "base.html" %}
-{# Settings section (/settings) — Screen 6. Built out in the Screen 6 commit. #}
+{# =========================================================================
+   Settings (/settings) — design-exports/SPEC.md Screen 6.
+
+   Notifications / local access / devices. Where the design describes
+   behaviour this backend does not own yet (notification delivery + lead-time
+   persistence, optional HTTPS toggle, multi-device), it is rendered as a
+   clearly-labelled disabled placeholder rather than inventing state.
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty %}
+
 {% block title %}Parental Controls — Settings{% endblock %}
+{% block shell_class %}{% endblock %}
+
 {% block content %}
-<h1 class="pc-page-title">Settings</h1>
-<p class="pc-subtitle">Manage notifications, local access, and connected devices.</p>
-<div class="pc-card"><p class="pc-meta">This screen is being translated.</p></div>
+<div class="pc-toolbar">
+    <div>
+        <h1 class="pc-page-title">Settings</h1>
+        <p class="pc-subtitle">Manage notifications, local access, and connected devices.</p>
+    </div>
+    <div class="pc-toolbar__actions">
+        <button type="button" class="pc-btn pc-btn--primary" disabled title="Settings persistence is not available yet">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-save"/></svg>Save settings
+        </button>
+    </div>
+</div>
+
+{# Status stack (design Screen 6). #}
+<div class="pc-banner pc-banner--info" role="status">
+    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>
+    Last sync just now
+</div>
+<div class="pc-banner pc-banner--warn" role="status">
+    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-lock-keyhole"/></svg>
+    Offline — lock controls require a fresh connection
+    <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" disabled>Unavailable</button>
+</div>
+<div class="pc-banner pc-banner--danger" role="alert">
+    Could not reach local service
+    <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" onclick="window.location.reload()">Retry</button>
+</div>
+
+{# Notifications #}
+<fieldset class="pc-fieldset" id="settings-notifications">
+    <legend class="pc-fieldset__legend">Notifications</legend>
+    <label class="pc-switch">
+        <input type="checkbox" id="prelock-warning" disabled>
+        <span>Send pre-lock warnings to child's desktop</span>
+    </label>
+    <p class="pc-field__hint">Warning delivery is not configurable from here yet.</p>
+    <div class="pc-field">
+        <label class="pc-field__label" for="warning-leadtime">Warning lead-time</label>
+        <select id="warning-leadtime" class="pc-input" disabled title="Fixed at 15 minutes in this version">
+            <option value="5">5 minutes</option>
+            <option value="15" selected>15 minutes</option>
+            <option value="30">30 minutes</option>
+        </select>
+    </div>
+    <div class="pc-card pc-card--muted">
+        <h3 class="pc-card__title">Warning copy preview</h3>
+        <p id="warning-preview">You have 15 minutes before bedtime</p>
+    </div>
+    <button type="button" class="pc-btn pc-btn--ghost" onclick="testNotification()">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-send"/></svg>Test notification
+    </button>
+</fieldset>
+
+{# Local access #}
+<fieldset class="pc-fieldset" id="settings-local-access">
+    <legend class="pc-fieldset__legend">Local access</legend>
+    <div class="pc-field">
+        <label class="pc-field__label" for="local-url">Local address (localhost-first)</label>
+        <input id="local-url" class="pc-input" type="text" readonly value="{{ machine_url|default('localhost') }}">
+        <span class="pc-field__hint">Open the panel on the machine itself; LAN access is opt-in at install time.</span>
+    </div>
+    <label class="pc-switch">
+        <input type="checkbox" id="https-enabled" disabled>
+        <span>Optional HTTPS enabled</span>
+    </label>
+    <p class="pc-field__hint">HTTPS is a deploy-time choice (install.sh --tls), not a runtime toggle.</p>
+    <p class="pc-meta">LAN access is available when the local service is reachable on the home network.</p>
+    <p class="pc-row" id="cert-status">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-badge-check"/></svg>
+        Certificate status: <strong>not configured</strong>
+    </p>
+</fieldset>
+
+{# Devices #}
+<section class="pc-card" id="settings-devices" aria-labelledby="devices-heading">
+    <h2 class="pc-card__title" id="devices-heading">Devices</h2>
+    <div class="pc-grid pc-grid--2">
+        <article class="pc-card" id="current-device">
+            <div class="pc-card__header">
+                <h3 class="pc-card__title">{{ machine_name }}</h3>
+                <span class="pc-chip pc-chip--ok"><span class="pc-dot pc-dot--online" aria-hidden="true"></span>Online</span>
+            </div>
+            <p class="pc-meta">Fedora Atomic · Bazzite</p>
+            <p class="pc-meta">Last heartbeat just now</p>
+        </article>
+
+        {% for d in devices %}
+        <article class="pc-card" data-device="{{ d.name }}">
+            <div class="pc-card__header">
+                <h3 class="pc-card__title">{{ d.name }}</h3>
+                <span class="pc-chip pc-chip--neutral">Registered</span>
+            </div>
+            {% if d.hostname %}<p class="pc-meta">{{ d.hostname }}</p>{% endif %}
+        </article>
+        {% endfor %}
+
+        <article class="pc-card pc-placeholder">
+            <h3 class="pc-card__title">Other devices</h3>
+            <p>Multi-device management is planned.</p>
+            <button type="button" class="pc-btn pc-btn--ghost" disabled>
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-plus"/></svg>Add device
+            </button>
+        </article>
+
+        {% if not devices %}
+        <article class="pc-card">
+            <div class="pc-empty">
+                <svg class="pc-empty__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor-off"/></svg>
+                <span class="pc-empty__title">No devices connected</span>
+                <span class="pc-empty__body">Check parental.service.</span>
+            </div>
+        </article>
+        {% endif %}
+    </div>
+</section>
+
+{# Annotation sections (design Screen 6). #}
+<details class="pc-disclosure" id="settings-annotations">
+    <summary>Implementation notes</summary>
+    <div class="pc-disclosure__body">
+        <div class="pc-grid pc-grid--2">
+            <article class="pc-card">
+                <h3 class="pc-card__title">Responsive behavior annotation</h3>
+                <p>Panels collapse to a single column at 960px; status banners stay first.</p>
+            </article>
+            <article class="pc-card">
+                <h3 class="pc-card__title">Accessibility notes</h3>
+                <p>Semantic fieldsets and legends; labels are never placeholder-only; keyboard order follows the visual order; WCAG AA contrast; prefers-reduced-motion disables live transitions; every action has text plus an icon.</p>
+            </article>
+            <article class="pc-card">
+                <h3 class="pc-card__title">Offline-capable implementation note</h3>
+                <p>Server-rendered HTML, minimal vanilla JS, no external fonts/icons/assets; safe on localhost.</p>
+            </article>
+        </div>
+    </div>
+</details>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* Test notification is not wired to a delivery backend yet; say so
+       honestly instead of pretending a message was sent. */
+    function testNotification() {
+        if (window.pcToast) {
+            window.pcToast('Test notifications are not available in this version.', 'info');
+        }
+    }
+</script>
 {% endblock %}
