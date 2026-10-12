@@ -159,6 +159,29 @@ Every POST needs the `X-CSRF-Token` header or `csrf_token` form field.
 | POST | `/api/budgets/unfreeze` | Manually thaw a category (`username`, `category`) |
 | GET | `/api/audit` | Admin-only: newest audit entries + `chain_ok` (`?limit=N`, default 100, max 1000) |
 | POST | `/api/process-prefs` | Hide/show a process comm for a user |
+| GET | `/api/devices` | Multi-device: registered boxes + reachability (`multi_device: false` in single-box mode) |
+| GET/POST | `/api/device/<name>/v1/<path>` | Multi-device: proxy one request to a registered box's agent (admin session + CSRF) |
+
+## Multi-device (one hub + managed boxes)
+
+Phase 1 of `MULTIDEVICE_PLAN.md`: one panel (hub) can moderate other Bazzite
+boxes that run a headless **agent**. All privileged work still happens on the
+box that executes it, with that box's live `wheel` group and its own sudoers
+and audit chain.
+
+```bash
+# On each managed box (loopback + SSH tunnel by default):
+sudo ./install.sh --enable-agent            # mints /etc/parental-controls/agent_token (0600), prints it ONCE
+
+# From the hub, over a tunnel (ssh -L 5001:localhost:5001 <user>@boxB):
+sudo python3 remote.py device add kidsbox \
+    --url http://localhost:5001 --token <printed-once>   # writes /etc/parental-controls/devices.json (0600)
+```
+
+With no `devices.json`, the hub is **byte-identical** to a single-box install.
+A device can be removed with `python3 remote.py device remove kidsbox` (or by
+deleting `devices.json`) — no state changes anywhere else. Plain-HTTP device
+URLs are refused unless loopback (or an explicit `--insecure-lan`).
 
 ## Deploying to a real machine
 

@@ -154,7 +154,7 @@
 <body data-bs-theme="dark">
     <div class="container-fluid page-wrap">
     <a href="/" class="back-link">← Back to Parental Controls</a>
-    <span style="float: right; font-size: 0.85rem;"><a href="/admin/audit" style="color: #4ecca3;">Admin console</a> · <a href="/change-password" style="color: #4ecca3;">Change password</a> · <a href="/logout" style="color: #e94560;">Log out</a></span>
+    <span style="float: right; font-size: 0.85rem;"><a href="/admin/audit" style="color: #4ecca3;">Admin console</a> · <a href="/change-password" style="color: #4ecca3;">Change password</a> · <a href="/logout" style="color: #e94560;">Log out</a></span>{% if devices_enabled %}<div class="device-bar" id="device-selector" style="margin:0.5rem 0;"><label for="device-select" style="color:#888;font-size:0.85rem;">Device:</label> <select id="device-select" onchange="switchDevice(this.value)" style="padding:0.3rem;border-radius:4px;border:1px solid #0f3460;background:#1a1a3e;color:#e0e0e0;"><option value=""{% if not selected_device %} selected{% endif %}>This box</option>{% for d in devices %}<option value="{{ d.name }}"{% if selected_device == d.name %} selected{% endif %}>{{ d.name }}{% if d.hostname %} ({{ d.hostname }}){% endif %}</option>{% endfor %}</select>{% if device_error %} <span class="device-error" style="color:#e94560;">{{ device_error }}</span>{% endif %}</div>{% endif %}
 
     <h1>User: {{ username }}</h1>
     <p class="subtitle">Account management and process details</p>
@@ -521,7 +521,26 @@
     <div id="toast"></div>
 
     <script>
-        const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+        const CSRF = document.querySelector('meta[name="csrf-token"]').content;{% if devices_enabled %}
+        // Device selector shim: when viewing a remote box every /api/*
+        // fetch is rewritten to the authenticated hub proxy, which holds
+        // the per-box bearer token. No token ever reaches the browser.
+        const DEVICE = {{ selected_device|tojson }};
+        const API_PREFIX = DEVICE ? ('/api/device/' + encodeURIComponent(DEVICE) + '/v1') : '';
+        if (API_PREFIX) {
+            const _nativeFetch = window.fetch.bind(window);
+            window.fetch = (url, opts) => _nativeFetch(
+                (typeof url === 'string' && url.startsWith('/api/'))
+                    ? API_PREFIX + url.slice(4) : url, opts);
+        }
+        function switchDevice(name) {
+            const u = new URL(window.location.href);
+            u.pathname = {{ username|tojson }} ? ('/user/' + encodeURIComponent({{ username|tojson }})) : u.pathname;
+            if (name) { u.searchParams.set('device', name); }
+            else { u.searchParams.delete('device'); }
+            window.location.href = u.toString();
+        }
+{% endif %}
         const PAGE_USERNAME = {{ username|tojson }};
         const CATEGORIES = {{ categories|tojson }};
         const CATEGORY_LABELS = {{ category_labels|tojson }};

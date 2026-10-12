@@ -36,6 +36,9 @@ overrides.json
 auth.json
 audit.jsonl
 .auth-*
+# Multi-device runtime state (hub token store + agent token; never commit)
+devices.json
+agent_token
 # SQLite runtime state (database, WAL/SHM sidecars, migration backups,
 # atomic-write temp files)
 state.db*
