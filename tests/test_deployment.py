@@ -1307,9 +1307,17 @@ class TestSudoersTemplates(unittest.TestCase):
             if 'systemd-run' not in line:
                 continue
             self.assertIn('^--machine=[A-Za-z0-9_.-]+@[.]host', line)
-            self.assertIn('--user notify-send -u critical', line)
-            # `--user *` would authorize any command in a child's session
-            # (sudoers(5): "Preventing shell escapes").
+            # Two scoped machine transports now exist: the notify path and the
+            # session-agent feed drain (SESSION_AGENT_PLAN.md §8.1). Each pins
+            # its payload exactly — never a bare `--user *`, which would
+            # authorize any command in a child's session (sudoers(5):
+            # "Preventing shell escapes").
+            if 'notify-send' in line:
+                self.assertIn('--user notify-send -u critical', line)
+            else:
+                self.assertIn(
+                    '--user --wait --collect cat '
+                    '/run/user/[0-9]+/parental-controls/focus[.]jsonl', line)
 
     def test_systemd_run_rule_matches_the_command_the_app_runs(self):
         self.assertTrue(

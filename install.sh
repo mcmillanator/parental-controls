@@ -4,6 +4,7 @@
 #
 #   sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST]
 #                     [--port PORT] [--open-firewall] [--dry-run]
+#                     [--session-user USER]... [--no-session-agent]
 #                     [--tls [--tls-cert CERT --tls-key KEY] [--tls-name NAME]
 #                      [--regen-tls-cert] | --insecure-lan]
 #
@@ -59,6 +60,11 @@ REGEN_TLS_CERT=0
 TLS_CERT="/etc/parental-controls/tls/server.crt"
 TLS_KEY="/etc/parental-controls/tls/server.key"
 TLS_URL_NAME=""
+# Managed children that should get the per-user focus session agent installed
+# (repeatable --session-user). Empty by default: a plain install ships the
+# panel only, and the agent is enabled per child, mirroring the per-user
+# focus_engine opt-in.
+SESSION_USERS=()
 
 [ -f "$SOURCE_DIR/tls_lib.sh" ] \
     || { echo "Missing $SOURCE_DIR/tls_lib.sh — run install.sh from the app checkout." >&2; exit 1; }
@@ -73,6 +79,9 @@ while [ $# -gt 0 ]; do
         --port) BIND_PORT="$2"; shift 2 ;;
         --open-firewall) OPEN_FIREWALL=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --session-user) SESSION_USERS+=("$2"); shift 2 ;;
+        --session-user=*) SESSION_USERS+=("${1#*=}"); shift ;;
+        --no-session-agent) SESSION_USERS=(); shift ;;
         --tls) TLS_MODE=1; shift ;;
         --tls-cert) TLS_CERT_IN="$2"; shift 2 ;;
         --tls-key) TLS_KEY_IN="$2"; shift 2 ;;
@@ -150,6 +159,12 @@ if tls_is_loopback "$BIND_HOST" && [ "$INSECURE_LAN" -eq 1 ]; then
     echo "(note: --insecure-lan has no effect on a loopback bind)" >&2
 fi
 [ -f "$SOURCE_DIR/app.py" ] || { echo "No app.py in $SOURCE_DIR — run install.sh from the app checkout." >&2; exit 1; }
+# Session-agent sources are staged into the install dir by the same rsync
+# below (stdlib-only: no new venv dependency). Fail early if absent.
+for agent_file in session_agent.py focus_feed.py; do
+    [ -f "$SOURCE_DIR/$agent_file" ] \
+        || { echo "Missing $SOURCE_DIR/$agent_file — run install.sh from the app checkout." >&2; exit 1; }
+done
 
 run() {
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -392,6 +407,51 @@ if [ "$DRY_RUN" -eq 1 ]; then
     visudo -c -f "$TMPD/sudoers-parental-controls-budgets"
 else
     visudo -c
+fi
+
+echo "== 4b/8 session agent (per-child user unit + linger) =="
+# The child-side agent (session_agent.py) is staged with the rest of the app
+# above; this step installs its systemd *user* unit into each managed child's
+# home and enables linger so the user manager (and thus the agent) starts at
+# boot and survives logout. Code is never re-staged here — the install dir is
+# the single source. @APP_DIR@ is resolved at render time; no checkout path.
+SESSION_AGENT_UNIT="systemd/parental-session-agent.service"
+[ -f "$TEMPLATE_DIR/$SESSION_AGENT_UNIT" ] \
+    || { echo "Missing $TEMPLATE_DIR/$SESSION_AGENT_UNIT" >&2; exit 1; }
+if [ "${#SESSION_USERS[@]}" -eq 0 ]; then
+    echo "(no --session-user given: skipping per-child agent; pass"
+    echo " --session-user <child> for each managed child to install it)"
+else
+    for session_user in "${SESSION_USERS[@]}"; do
+        case "$session_user" in
+            ''|*[!A-Za-z0-9_.-]*)
+                echo "Invalid --session-user: '$session_user'." >&2; exit 2 ;;
+        esac
+        if ! id "$session_user" >/dev/null 2>&1; then
+            echo "Unknown --session-user: '$session_user'." >&2; exit 1
+        fi
+        session_group="$(id -gn "$session_user")"
+        session_home="$(getent passwd "$session_user" | cut -d: -f6)"
+        [ -n "$session_home" ] \
+            || { echo "No home dir for --session-user '$session_user'." >&2; exit 1; }
+        session_udir="$session_home/.config/systemd/user"
+        sed -e "s|@APP_DIR@|$INSTALL_DIR|g" \
+            "$TEMPLATE_DIR/$SESSION_AGENT_UNIT" \
+            > "$TMPD/parental-session-agent.service"
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "[dry-run] install $TMPD/parental-session-agent.service -> $session_udir/parental-session-agent.service (owner $session_user)"
+            echo "[dry-run] loginctl enable-linger $session_user"
+        else
+            install -d -m 0755 -o "$session_user" -g "$session_group" \
+                "$session_home/.config" "$session_home/.config/systemd" \
+                "$session_udir"
+            install -m 0644 -o "$session_user" -g "$session_group" \
+                "$TMPD/parental-session-agent.service" \
+                "$session_udir/parental-session-agent.service"
+            loginctl enable-linger "$session_user"
+            echo "Installed session-agent user unit for '$session_user' (linger enabled)."
+        fi
+    done
 fi
 
 echo "== 5/8 auth store dir =="

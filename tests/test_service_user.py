@@ -310,6 +310,15 @@ class TestHomelessVenv(unittest.TestCase):
                                capture_output=True, timeout=30)
         if probe.returncode != 0:
             self.skipTest('cannot sudo -u nobody non-interactively here')
+        # The scratch root must be traversable by the unprivileged account.
+        # When TMPDIR lives under a private home (e.g. an in-project .scratch
+        # under a 0700 $HOME) `nobody` cannot reach it, and this live probe
+        # cannot run — skip rather than fail on an environment limitation.
+        root = tempfile.gettempdir()
+        if subprocess.run(['sudo', '-n', '-u', 'nobody', 'test', '-x', root],
+                          capture_output=True, timeout=30).returncode != 0:
+            self.skipTest('scratch dir not traversable by nobody '
+                          f'({root}); set TMPDIR to a world-traversable path')
         tmpd = tempfile.mkdtemp(prefix='pc-homeless-')
         try:
             home = os.path.join(tmpd, 'home')

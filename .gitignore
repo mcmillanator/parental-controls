@@ -25,6 +25,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Scratch (test temp dir; keep all scratch inside the project)
+.scratch/
+
 # Runtime data
 bedtime.json
 budgets.json
