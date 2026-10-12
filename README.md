@@ -342,7 +342,7 @@ system Python has no Flask:
 
 Notes:
 
-- Stdlib `unittest` only — no pytest. **1076 tests across 38 files, 14
+- Stdlib `unittest` only — no pytest. **1232 tests across 47 files, 14
   environmental skips** (skips are for missing optional tooling/privileges),
   under a minute for a full run.
 - The mobile-first UI has its own guardrails: `test_ui_assets.py` (vendored

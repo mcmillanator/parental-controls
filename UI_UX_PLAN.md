@@ -246,7 +246,7 @@ wrapped in `@media (prefers-reduced-motion: reduce){*{transition:none!important;
 | Component | Notes / current mapping |
 |---|---|
 | **App bar** | Sticky top; title + tier line; account menu (Change password / Log out) as a `<details>` popover (no JS framework) |
-| **Bottom tab bar** (phone only) | Home · Admin · Account; `--touch` 44 px; `aria-current` on active |
+| **Bottom tab bar** (phone only) | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11) |
 | **Skip link** | "Skip to content" first focusable |
 | **Button** `.pc-btn` variants `--primary` (green: Unlock, Save, Set, Add), `--danger` (Lock, Clear, Remove, Emergency logout), `--warn` (Freeze), `--neutral` (Hide, secondary), `--ghost` (Load more, Details). Sizes: default 44 px; `--sm` **min 32 px** with 8 px spacing (fixes 2.5.8); `--icon`. |
 | **Chip / badge** `.pc-chip` variants `ok/danger/warn/info/override/bedtime/neutral/bonus`. Always **icon + text + color** (never color alone). |
@@ -291,6 +291,11 @@ depend on utility classes being fetched. Content max-width `--content:880px`
 (forms/user) and `--content-wide:1120px` (home/audit).
 
 ### 4.2 Navigation model
+
+> **Superseded by §11 (design translation).** The 5-section IA replaced the
+> original 3-item phone bar: the phone bottom bar is now **Home · Time ·
+> Activity · Admin** plus an Account menu, and ≥960 px screens carry a desktop
+> sidebar. The original model is kept below for history.
 
 - **Phone (<md):** sticky **app bar** (title + account `<details>` menu) + sticky
   **bottom tab bar**: `Home` (`/`) · `Admin` (`/admin/audit`) · `Account`
@@ -836,3 +841,68 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
 - Fintech dashboard UX: Neuron UX (consistent status labels, pending states); The UXDA banking best practices; Wandr/AdminLTE dashboard pattern analyses.
 - Parental-control UX: Apple Screen Time, Google Family Link, Qustodio (atico3 case study; Qustodio product pages), Kids360.
 - IoT / home automation: Appthetics *Smart-home app UI patterns*; Home Assistant offline/unavailable-device card practice.
+
+---
+
+## 11. Design translation — Flowstep canvas alignment (`feature/design-translation`)
+
+The live Flowstep canvas is the source of truth for the six screens. The
+pasted exports were deleted; the screens were re-read from the Flowstep MCP
+(file `216e5d0f-761c-40a9-ad76-bbd4bb8b8d0d`, screens 1–6) and translated to
+this project's stack.
+
+### 11.1 Stack mapping (per the canvas prompts)
+
+- **Flask + Jinja + vanilla JS + locally vendored Bootstrap 5** — no React,
+  Vue, SPA framework or build step. No CDN, external fonts or network assets.
+- The mockup's `static/css/tokens.css` is mapped onto the existing
+  `static/css/app.css`, loaded **after** Bootstrap so our tokens win (no split).
+- `static/js/app.js` is **progressive enhancement only** (reduced-motion
+  persistence, `<details>` popover dismissal); every save is a server-rendered
+  POST/fetch path and the pages work with JS disabled.
+- `templates/_partials/macros.html` holds the shared Jinja macros (status
+  pills, badges, buttons, toggles, device cards, navigation); the
+  confirmation-dialog macro lives in `_partials/dialog.html`. Pages adopt them
+  so the markup cannot drift from the pinned selector contract.
+
+### 11.2 Shell / IA
+
+- **Overview (Screen 1) is phone-first:** a simple header (brand + "Local /
+  Online") over a single column and the 4-tab bar at every width —
+  **no desktop sidebar** (`base.html` `layout_class` = `pc-layout--phone`,
+  `_partials/phone_header.html`).
+- **Screens 3–6** use the desktop **sidebar** (Overview / Time rules /
+  Activity / Admin / Settings, ≥960 px) and the top header (user chip + theme
+  toggle + Help).
+- The phone bottom bar is **Home / Time / Activity / Admin** plus an
+  **Account** menu (Settings / Change password / Log out); Settings is not a
+  tab. Active destinations keep `aria-current="page"`.
+
+### 11.3 Per-screen shape
+
+| Screen | Route | Shape |
+|---|---|---|
+| 1 Overview | `/` | header + 4-tab bar; sync banner, system summary, one **account card** per user, confirmation specimen, design thesis, empty state |
+| 2 Time rules | `/user/<u>` | manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, live countdown (`aria-live`), clear-schedule confirm, state specimen |
+| 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
+| 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, override + visibility cards |
+| 5 Admin console | `/admin/audit` | audit log (filters, integrity, export) + admin accounts + type-`REMOVE` confirm dialog + specimens |
+| 6 Settings | `/settings` | status stack, notifications/local-access fieldsets (`col-12 col-xl-6`), devices, implementation/annotation sections |
+
+### 11.4 Selector / test changes
+
+Rendered classes, ids and `aria-*` hooks are unchanged from the pinned
+contract (§7.4). The source-level guards that asserted a literal which now
+comes from a shared macro were updated: `test_ui_shell` (sidebar/appbar/tabbar
+`aria-current` → `pc_nav_link(`), `test_ui_assets`
+(`test_appbar_and_tabbar_mark_the_active_destination`), and
+`test_ui_settings` (`test_placeholders_are_disabled` → `pc_toggle(...)`, with a
+new rendered disabled-attribute check). New `tests/test_ui_macros.py` guards
+the macro library and its adoption. **Zero** `katalon/objects/*` changes.
+
+### 11.5 Verification
+
+Full stdlib suite green via
+`TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`
+(1232 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
+device/browser passes (§7.6) remain the owner's to run on the live box.
