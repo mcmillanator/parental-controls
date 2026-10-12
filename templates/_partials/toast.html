@@ -39,5 +39,23 @@
     return el;
   }
   window.pcToast = pcToast;
+
+  /* window.pcAnnounce(message) writes to the polite visually-hidden live
+     region so a *background* refresh can tell a screen reader what changed
+     (WCAG 4.1.3) without stealing focus or spamming a visible toast. Callers
+     are expected to throttle (e.g. announce only when a value actually
+     changes) — the helper itself does not. */
+  var announceTimer = null;
+  function pcAnnounce(message) {
+    var region = document.getElementById('pc-aria-live');
+    if (!region) { return; }
+    // Clear then set on the next frame so an identical repeated message is
+    // still announced by assistive tech.
+    region.textContent = '';
+    announceTimer = setTimeout(function () {
+      region.textContent = String(message == null ? '' : message);
+    }, 50);
+  }
+  window.pcAnnounce = pcAnnounce;
 })();
 </script>

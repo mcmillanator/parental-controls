@@ -1,7 +1,8 @@
-{# Flash-pipeline messages + the two reusable state blocks the redesign leans
-   on: `pc_banner` (inline notices) and `pc_empty` (NN/g empty-state pattern:
-   icon + one-line status + one action). Macros are defined here so any page
-   that extends base.html can `{% from '_partials/flash.html' import pc_empty %}`.
+{# Flash-pipeline messages + the reusable state blocks the redesign leans
+   on: `pc_banner` (inline notices), `pc_empty` (NN/g empty-state pattern:
+   icon + one-line status + one action) and `pc_skeleton` (first-load /
+   Load-more placeholders). Macros are defined here so any page that extends
+   base.html can `{% from '_partials/flash.html' import pc_empty %}`.
 #}
 {%- macro pc_banner(kind='info', message='') -%}
 <div class="pc-banner pc-banner--{{ kind }}"{% if kind == 'danger' %} role="alert"{% else %} role="status"{% endif %}>{{ message }}</div>
@@ -13,6 +14,16 @@
   <span class="pc-empty__title">{{ title }}</span>
   {% if body %}<span class="pc-empty__body">{{ body }}</span>{% endif %}
   {% if action_html %}<span class="pc-empty__action">{{ action_html }}</span>{% endif %}
+</div>
+{%- endmacro -%}
+
+{#- Skeleton rows for a first load / Load more (plan §3.2, §6.2). The bars are
+    decorative; the meaning lives in a visually-hidden polite live region so a
+    screen reader hears "Loading" once rather than reading the shapes. -#}
+{%- macro pc_skeleton(rows=3, label='Loading…') -%}
+<div class="pc-skeleton-rows" role="status" aria-live="polite">
+  {% for _ in range(rows) %}<span class="pc-skeleton pc-skeleton--row" aria-hidden="true"></span>{% endfor %}
+  <span class="pc-visually-hidden">{{ label }}</span>
 </div>
 {%- endmacro -%}
 

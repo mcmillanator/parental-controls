@@ -1,24 +1,16 @@
 {% extends "base.html" %}
 {# =========================================================================
-   Login — `.pc-auth` shell (UI_UX_PLAN.md §5.1, Phase 1b).
+   Login — `.pc-auth` shell (UI_UX_PLAN.md §5.1, Phase 1b / Phase 5).
 
-   Extends base.html for the shared offline assets, banner and toast; the
-   centered auth card has **no navigation** (the app/tab bars are hidden for
-   the `.pc-body--auth` variant — base.html has no nav-suppression block yet,
-   so the two rules below are scoped to this page). All ids/names the auth
-   tests and the Katalon contract pin (#username, #password, the "Log in"
-   button, "Parental Controls") are unchanged.
+   Extends base.html for the shared offline assets, banner and toast. The
+   `pc-body--auth` body class (below) hides the app bar and tab bar from
+   `static/css/app.css` — no per-page style block is needed. All ids/names
+   the auth tests and the Katalon contract pin (#username, #password, the
+   "Log in" button, "Parental Controls") are unchanged.
    ========================================================================= #}
 
 {% block title %}Parental Controls — Login{% endblock %}
 {% block body_class %} pc-body--auth{% endblock %}
-{% block head %}
-<style>
-    .pc-body--auth .pc-appbar,
-    .pc-body--auth .pc-tabbar { display: none; }
-    .pc-body--auth .pc-shell { padding-top: var(--sp-4); }
-</style>
-{% endblock %}
 
 {% block content %}
 <div class="pc-auth">

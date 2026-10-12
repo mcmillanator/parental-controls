@@ -180,7 +180,12 @@ class AuthPagesRenderTest(_AdminSessionMixin, unittest.TestCase):
         fresh = app.app.test_client()
         html = fresh.get('/login').get_data(as_text=True)
         self.assertIn('pc-body--auth', html)
-        self.assertIn('display: none', html)
+        # The app bar / tab bar are hidden by the shared app.css rule, not by an
+        # ad-hoc inline <style> block on the auth page (UI_UX_PLAN.md Phase 5).
+        self.assertNotIn('<style>', html)
+        css = read(os.path.join(ROOT, 'static', 'css', 'app.css'))
+        self.assertIn('.pc-body--auth .pc-appbar', css)
+        self.assertIn('.pc-body--auth .pc-tabbar', css)
 
     def test_change_password_renders_the_auth_shell(self):
         resp = self.client.get('/change-password')

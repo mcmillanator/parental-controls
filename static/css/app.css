@@ -78,6 +78,18 @@
   --neutral-fg: #ffffff;
   --neutral-bg: #0f3460;
 
+  /* Status *text* foregrounds (WCAG 1.4.3 >=4.5:1 on the page/card surface,
+     not on the chip fill). The legacy `.status-*` colour classes, inline
+     form errors and the danger dialog header all use these instead of the
+     fill colours, which are only guaranteed legible *behind* text. */
+  --ok-text: #4ecca3;
+  --warn-text: #f0c040;
+  --danger-text: #ff7a8a;
+  --info-text: #7cc0f5;
+
+  /* Duration-unit foreground token (h / m labels around a number input). */
+  --unit-fg: var(--text-muted);
+
   /* Type scale (rem against a 16px root; system font stack — no webfont,
      the panel must work offline). */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -159,12 +171,17 @@
   --link: #1f7a5c;
   --focus-ring: #1f7a5c;
   --danger-bg: #b3203a;
-  --info-bg: #2f80c9;
+  --info-bg: #2368a8;
   --info-fg: #ffffff;
   --override-bg: #d9821f;
   --override-fg: #2a1200;
-  --warn-bg: #b8860b;
+  --warn-bg: #8a5a00;
   --warn-fg: #ffffff;
+  /* Text-safe status foregrounds on a white/bright surface. */
+  --ok-text: #10684a;
+  --warn-text: #8a5a00;
+  --danger-text: #b3203a;
+  --info-text: #2368a8;
   --field-bg: #ffffff;
   --appbar-bg: #ffffff;
   --tabbar-bg: #ffffff;
@@ -188,12 +205,16 @@
     --link: #1f7a5c;
     --focus-ring: #1f7a5c;
     --danger-bg: #b3203a;
-    --info-bg: #2f80c9;
+    --info-bg: #2368a8;
     --info-fg: #ffffff;
     --override-bg: #d9821f;
     --override-fg: #2a1200;
-    --warn-bg: #b8860b;
+    --warn-bg: #8a5a00;
     --warn-fg: #ffffff;
+    --ok-text: #10684a;
+    --warn-text: #8a5a00;
+    --danger-text: #b3203a;
+    --info-text: #2368a8;
     --field-bg: #ffffff;
     --appbar-bg: #ffffff;
     --tabbar-bg: #ffffff;
@@ -213,6 +234,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
+  /* Keep anchor targets / focused controls clear of the fixed app bar
+     (WCAG 2.4.11 Focus Not Obscured). */
+  scroll-padding-top: calc(var(--nav-h) + var(--sp-3));
 }
 
 body.pc-body {
@@ -358,7 +382,22 @@ pre {
   top: var(--sp-2);
 }
 
-/* Auth shell (login / change-password): centered card, no nav. */
+/* Auth shell (login / change-password): centered card, no app chrome.
+   A page opts in with `<body class="pc-body pc-body--auth">`; this hides the
+   sticky app bar and bottom tab bar and drops the tab-bar bottom padding, so
+   the auth card is the whole page (UI_UX_PLAN.md §5.1 / §5.2). No page needs
+   an ad-hoc `<style>` block for this any more. */
+body.pc-body--auth {
+  padding-bottom: 0;
+}
+.pc-body--auth .pc-appbar,
+.pc-body--auth .pc-tabbar {
+  display: none;
+}
+.pc-body--auth .pc-shell {
+  padding-top: var(--sp-4);
+}
+
 .pc-auth {
   max-width: 26rem;
   margin: var(--sp-8) auto;
@@ -723,17 +762,19 @@ pre {
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
-/* Preserve the legacy text-colour status classes until pages are converted. */
+/* Preserve the legacy text-colour status classes until pages are converted.
+   They use the text-safe tokens so they pass AA on the page surface in both
+   themes (the raw fill colours like #4ecca3 fail on a white surface). */
 .status-locked {
-  color: var(--pc-red-500);
+  color: var(--danger-text);
   font-weight: 600;
 }
 .status-unlocked {
-  color: var(--pc-green-500);
+  color: var(--ok-text);
   font-weight: 600;
 }
 .status-unknown {
-  color: var(--pc-amber-400);
+  color: var(--warn-text);
   font-weight: 600;
 }
 
@@ -952,7 +993,7 @@ pre {
 }
 .pc-field__error {
   font-size: var(--fs-sm);
-  color: var(--danger-bg);
+  color: var(--danger-text);
   font-weight: 600;
 }
 .pc-input,
@@ -993,8 +1034,9 @@ pre {
   min-height: var(--touch);
   text-align: center;
 }
-.pc-duration__unit {
-  color: var(--text-muted);
+.pc-duration__unit,
+.pc-unit {
+  color: var(--unit-fg);
   font-size: var(--fs-sm);
 }
 
@@ -1048,8 +1090,8 @@ pre {
 }
 .pc-toast__close {
   flex: none;
-  min-width: 32px;
-  min-height: 32px;
+  min-width: var(--touch);
+  min-height: var(--touch);
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -1098,7 +1140,7 @@ pre {
   border-color: var(--danger-bg);
 }
 .pc-dialog--danger .pc-dialog__header {
-  color: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 /* ------------------------------------------------------- empty / skeleton */
@@ -1239,6 +1281,211 @@ pre {
   align-items: center;
   min-height: var(--touch);
   color: var(--link);
+}
+
+/* ------------------------------------------- legacy control classes (§7.4)
+   The converted pages pair these with the `.pc-btn`/`.pc-chip` design-system
+   classes, but the JS renderers still emit a few of them bare on first paint
+   (`renderBudgets`, the admin-console list) and the pinned selector contract
+   keeps their names. These rules style the *bare* legacy control so it looks
+   right on its own; `:not(.pc-btn)`/`:not(.pc-chip)` keeps them from
+   overriding the richer design-system variant when both are present. */
+
+/* Buttons that carry no `.pc-btn` yet: give them the base button shape and a
+   >=44px target, exactly like `.pc-btn` does. */
+.btn-lock:not(.pc-btn),
+.btn-unlock:not(.pc-btn),
+.btn-logout:not(.pc-btn),
+.btn-freeze:not(.pc-btn),
+.btn-hide:not(.pc-btn),
+.btn-show-hidden:not(.pc-btn),
+.btn-group-toggle:not(.pc-btn),
+.btn-bonus:not(.pc-btn),
+.btn-bedtime-save:not(.pc-btn),
+.btn-bedtime-clear:not(.pc-btn),
+.btn-details:not(.pc-btn),
+.btn-sm:not(.pc-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  padding: var(--sp-2) var(--sp-4);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+/* Legacy small variant: keep WCAG 2.2 2.5.8 headroom (32px) like `.pc-btn--sm`. */
+.btn-sm:not(.pc-btn) {
+  min-height: 32px;
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+.btn-lock:not(.pc-btn):disabled,
+.btn-unlock:not(.pc-btn):disabled,
+.btn-freeze:not(.pc-btn):disabled,
+.btn-hide:not(.pc-btn):disabled,
+.btn-group-toggle:not(.pc-btn):disabled,
+.btn-bonus:not(.pc-btn):disabled,
+.btn-bedtime-save:not(.pc-btn):disabled,
+.btn-bedtime-clear:not(.pc-btn):disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Colour roles — mirror the `.pc-btn--*` variants. */
+.btn-lock:not(.pc-btn),
+.btn-logout:not(.pc-btn),
+.btn-bedtime-clear:not(.pc-btn) {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.btn-freeze:not(.pc-btn) {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.btn-unlock:not(.pc-btn),
+.btn-bonus:not(.pc-btn),
+.btn-bedtime-save:not(.pc-btn) {
+  background: var(--pc-green-500);
+  color: var(--pc-ink-900);
+}
+.btn-hide:not(.pc-btn) {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-show-hidden:not(.pc-btn),
+.btn-group-toggle:not(.pc-btn),
+.btn-details:not(.pc-btn) {
+  background: transparent;
+  color: var(--link);
+  border-color: var(--border);
+}
+.btn-show-hidden:not(.pc-btn):hover,
+.btn-group-toggle:not(.pc-btn):hover,
+.btn-details:not(.pc-btn):hover,
+.btn-hide:not(.pc-btn):hover {
+  background: var(--surface-3);
+}
+
+/* Badges/chips that carry no `.pc-chip` yet (e.g. `.badge-protected` in the
+   admin console, a bare `.badge-*` from a renderer). */
+.badge-bonus:not(.pc-chip),
+.badge-bedtime:not(.pc-chip),
+.badge-override:not(.pc-chip),
+.badge-count:not(.pc-chip),
+.badge-paused:not(.pc-chip),
+.badge-frozen:not(.pc-chip),
+.badge-window:not(.pc-chip),
+.badge-protected:not(.pc-chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  border-radius: var(--r-pill);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+  white-space: nowrap;
+}
+.badge-bedtime:not(.pc-chip) {
+  background: var(--bedtime-bg);
+  color: var(--bedtime-fg);
+}
+.badge-override:not(.pc-chip) {
+  background: var(--override-bg);
+  color: var(--override-fg);
+}
+.badge-bonus:not(.pc-chip) {
+  background: var(--bonus-bg);
+  color: var(--bonus-fg);
+}
+.badge-protected:not(.pc-chip) {
+  background: var(--bedtime-bg);
+  color: var(--bedtime-fg);
+}
+.badge-paused:not(.pc-chip) {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.badge-frozen:not(.pc-chip) {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.badge-window:not(.pc-chip) {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+/* ---------------------------------------------------- process groups (§5.4)
+   Legacy hooks the process renderers emit. Kept small: colour, weight and
+   alignment only, so the stacked-table / disclosure layout still decides the
+   geometry. */
+.process-name {
+  font-weight: 600;
+}
+.group-chevron {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  transition: transform var(--dur) var(--ease);
+}
+.group-row > td {
+  vertical-align: middle;
+}
+.group-detail > td {
+  background: var(--surface-2);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.override-mode {
+  min-height: var(--touch);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
+}
+.override-mode:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* A card nested directly inside a disclosure body would double the border and
+   padding; flatten the inner one so a disclosure reads as a single panel. */
+.pc-disclosure__body > .pc-card {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Skeleton block used by the `pc_skeleton()` macro for first-load / Load more
+   (plan §3.2, §6.2). The bars are decorative; a visually-hidden status text
+   carries the meaning. */
+.pc-skeleton-rows {
+  display: block;
+  padding: var(--sp-2) 0;
 }
 
 /* ------------------------------------------------------------------- a11y */

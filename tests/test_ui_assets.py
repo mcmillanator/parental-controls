@@ -71,6 +71,8 @@ CORE_TOKENS = (
     '--ok-fg', '--ok-bg', '--danger-fg', '--danger-bg', '--warn-fg', '--warn-bg',
     '--info-fg', '--info-bg', '--override-fg', '--override-bg',
     '--bedtime-fg', '--bedtime-bg', '--neutral-fg', '--neutral-bg',
+    # text-safe status foregrounds + the duration-unit token (Phase 5)
+    '--ok-text', '--warn-text', '--danger-text', '--info-text', '--unit-fg',
     # type / spacing / radius / elevation / motion / layout
     '--fs-xs', '--fs-sm', '--fs-base', '--fs-lg', '--fs-xl', '--fs-2xl',
     '--sp-1', '--sp-2', '--sp-3', '--sp-4', '--sp-5', '--sp-6', '--sp-8',
@@ -95,6 +97,9 @@ COMPONENT_CLASSES = (
     '.pc-empty', '.pc-skeleton', '.pc-meter', '.pc-banner', '.pc-banner--danger',
     '.pc-appbar', '.pc-tabbar', '.pc-tab', '.pc-skip-link', '.pc-auth',
     '.pc-list', '.pc-visually-hidden',
+    # Phase 5 additions: auth body, light-theme chips, legacy hooks, states.
+    '.pc-body--auth', '.pc-chip--stale', '.pc-chip--bonus', '.pc-skeleton-rows',
+    '.pc-unit', '.override-mode', '.group-detail', '.actions',
 )
 
 PARTIALS = (
@@ -216,6 +221,40 @@ class AppCssTest(unittest.TestCase):
         # the small button keeps WCAG 2.2 2.5.8 headroom
         self.assertRegex(self.css, r'\.pc-btn--sm\s*\{[^}]*min-height:\s*32px')
 
+    # --------------------------------------------------- Phase 5 (a11y/theme)
+    def test_light_theme_is_an_override_not_a_rewrite(self):
+        # dark is the bare :root default; light only overrides tokens.
+        self.assertIn("prefers-color-scheme: light", self.css)
+        self.assertIn("[data-theme='light']", self.css)
+        self.assertIn('--bg: #f4f5f8', self.css)
+        self.assertIn('--surface: #ffffff', self.css)
+        # the two chips that fail AA on white are re-tuned for the light theme
+        self.assertIn('--info-bg: #2368a8', self.css)
+        self.assertIn('--warn-bg: #8a5a00', self.css)
+
+    def test_auth_shell_hides_the_chrome_from_the_stylesheet(self):
+        self.assertIn('.pc-body--auth', self.css)
+        self.assertRegex(
+            self.css,
+            r'\.pc-body--auth\s+\.pc-appbar\s*,\s*\.pc-body--auth\s+\.pc-tabbar\s*\{[^}]*display:\s*none')
+
+    def test_legacy_control_hooks_are_styled(self):
+        for cls in ('btn-freeze', 'btn-unlock', 'btn-hide', 'btn-show-hidden',
+                    'btn-group-toggle', 'btn-bonus', 'btn-bedtime-save',
+                    'btn-bedtime-clear', 'btn-lock', 'btn-logout',
+                    'process-name', 'group-chevron', 'group-row',
+                    'group-detail', 'badge-bonus', 'badge-override',
+                    'override-mode'):
+            with self.subTest(cls=cls):
+                self.assertIn(cls, self.css, 'unstyled legacy hook %s' % cls)
+        self.assertIn(':not(.pc-btn)', self.css)
+        self.assertIn(':not(.pc-chip)', self.css)
+
+    def test_skeleton_and_stale_states(self):
+        self.assertIn('.pc-skeleton-rows', self.css)
+        self.assertIn('.pc-chip--stale', self.css)
+        self.assertIn('aria-busy', self.css)
+
 
 class BaseTemplateTest(unittest.TestCase):
     """The shared shell is self-contained and stays offline."""
@@ -256,6 +295,13 @@ class BaseTemplateTest(unittest.TestCase):
     def test_has_no_type_equals_time_input(self):
         # contract preserved from test_time12h (12h selects only)
         self.assertNotIn('type="time"', self.html)
+
+    def test_carries_the_a11y_scaffolding(self):
+        # skip link, main landmark, polite live region for refresh + toasts (P5)
+        self.assertIn('class="pc-skip-link"', self.html)
+        self.assertIn('href="#pc-main"', self.html)
+        self.assertIn('id="pc-main"', self.html)
+        self.assertIn('tabindex="-1"', self.html)
 
 
 class UserPageConversionTest(unittest.TestCase):
@@ -384,6 +430,12 @@ class PartialTest(unittest.TestCase):
         self.assertIn('role="status"', body)
         self.assertIn('aria-live="polite"', body)
         self.assertIn('role="alert"', body)
+
+    def test_flash_partial_offers_the_state_macros(self):
+        body = read(PARTIAL_DIR / 'flash.html')
+        self.assertIn('macro pc_empty', body)
+        self.assertIn('macro pc_skeleton', body)
+        self.assertIn('class="pc-empty"', body)
 
     def test_dialog_uses_native_dialog_and_showmodal(self):
         body = read(PARTIAL_DIR / 'dialog.html')
