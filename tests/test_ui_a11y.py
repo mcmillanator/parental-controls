@@ -136,7 +136,7 @@ class AppCssThemeTest(unittest.TestCase):
         self.assertIn('color-scheme: dark', self.css)
         self.assertIn('color-scheme: light', self.css)
         # The light override actually changes the page/surface tokens.
-        self.assertIn('--bg: #f4f5f8', self.css)
+        self.assertIn('--bg: #faf7f0', self.css)
         self.assertIn('--surface: #ffffff', self.css)
 
     def test_focus_visible_ring_is_defined_globally(self):

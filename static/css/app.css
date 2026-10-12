@@ -19,73 +19,91 @@
 
 /* ------------------------------------------------------------------ tokens */
 :root {
-  /* Tier 1 — core palette. Only a theme swaps these values. */
-  --pc-ink-900: #12121f;
-  --pc-ink-800: #16213e;
-  --pc-ink-700: #1a1a2e;
-  --pc-ink-600: #1a1a3e;
-  --pc-ink-500: #1f2b50;
-  --pc-ink-400: #2a3a5e;
-  --pc-navy-700: #0f3460;
-  --pc-navy-800: #131c36;
-  --pc-green-500: #4ecca3;
-  --pc-green-600: #2f9e79;
-  --pc-red-500: #e94560;
-  --pc-red-700: #7a1f2b;
-  --pc-amber-400: #f0c040;
-  --pc-amber-700: #8a5a00;
+  /* Tier 1 — core palette. Only a theme swaps these values.
+     Re-sampled from the Flowstep canvas (fileId 216e5d0f-…, screens S1–S6):
+     the design is a WARM CREAM/IVORY + AMBER theme. The tier-1 *names* are the
+     stable contract (tests/test_ui_assets.py CORE_TOKENS), so the warm family
+     is mapped onto the original names instead of renaming them — e.g.
+     --pc-green-500 now holds the canvas amber that the "primary" role uses. */
+  --pc-ink-900: #1f1c17;   /* near-black warm ink (foreground on amber) */
+  --pc-ink-800: #2a251c;
+  --pc-ink-700: #241f18;   /* dark page background */
+  --pc-ink-600: #322c22;
+  --pc-ink-500: #3d3628;
+  --pc-ink-400: #4a4132;
+  --pc-navy-700: #57492f;  /* deep warm brown (name kept) */
+  --pc-navy-800: #3a3226;
+  --pc-green-500: #c47f17; /* canvas amber — the primary action colour */
+  --pc-green-600: #a5650f;
+  --pc-red-500: #d92d20;
+  --pc-red-700: #7a1f16;
+  --pc-amber-400: #c47f17;
+  --pc-amber-700: #8a5a12;
   --pc-violet-500: #6a4c93;
-  --pc-orange-500: #e67e22;
-  --pc-blue-500: #4a90d9;
-  --pc-slate-100: #e0e0e0;
-  --pc-slate-400: #a8c0d8;
-  --pc-slate-500: #8b8b9c;
-  --pc-slate-600: #6b6b7b;
+  --pc-orange-500: #e08a2b;
+  --pc-blue-500: #4a7d8c;  /* muted sage-blue (canvas "Protected" family) */
+  --pc-slate-100: #f4efe4; /* light warm surface (was a cool grey) */
+  --pc-slate-400: #c4b8a2;
+  --pc-slate-500: #b3a68d;
+  --pc-slate-600: #6a6255;
   --pc-white: #ffffff;
   --pc-black: #000000;
 
   /* Tier 2 — semantic tokens (dark is the default). Components never reach
-     for a Tier 1 name; only these. */
+     for a Tier 1 name; only these. The canvas only specifies the light
+     (cream) theme; this dark theme is its warm counterpart. */
   --bg: var(--pc-ink-700);
   --surface: var(--pc-ink-800);
-  --surface-2: var(--pc-ink-600);
-  --surface-3: var(--pc-ink-500);
-  --surface-raised: var(--pc-ink-800);
+  --surface-2: #383126;
+  --surface-3: #423a2d;
+  --surface-raised: var(--pc-ink-600);
   --border: var(--pc-ink-400);
-  --border-strong: var(--pc-navy-700);
+  --border-strong: #5c5140;
   --text: var(--pc-slate-100);
   --text-muted: var(--pc-slate-400);
   --text-faint: var(--pc-slate-500);
-  --link: var(--pc-green-500);
-  --focus-ring: var(--pc-green-500);
+  --link: #e0a94a;
+  --focus-ring: #e0a94a;
+
+  /* Warm-palette roles introduced by the canvas translation: the amber
+     primary action pair, the sage "accent" (active-nav / Protected) pair and
+     the sidebar surface (the canvas sidebar is a different tone to the page). */
+  --primary-bg: #c47f17;
+  --primary-fg: #ffffff;
+  --primary-hover: #d68c1e;
+  --accent-bg: #3d4a45;
+  --accent-fg: #eaf3f0;
+  --sidebar-bg: #2a2419;
 
   /* status foregrounds chosen to pass WCAG AA on their chip background
      (fixes the four failures audited in UI_UX_PLAN.md §2.8). */
-  --ok-fg: #062b20;
-  --ok-bg: #4ecca3;
+  --ok-fg: #eafaf1;
+  --ok-bg: #2c6e4f;
   --danger-fg: #ffffff;
-  --danger-bg: #c62b45;
-  --warn-fg: #3a2600;
-  --warn-bg: #f0c040;
-  --info-fg: #04223f;
-  --info-bg: #7cc0f5;
-  --override-fg: #2a1200;
-  --override-bg: #f3a95c;
-  --bedtime-fg: #ffffff;
-  --bedtime-bg: #6a4c93;
-  --bonus-fg: #2a1200;
-  --bonus-bg: #f3a95c;
-  --neutral-fg: #ffffff;
-  --neutral-bg: #0f3460;
+  --danger-bg: #d92d20;
+  --danger-soft-fg: #ffb3ac;
+  --danger-soft-bg: #4a201c;
+  --warn-fg: #ffffff;
+  --warn-bg: #8a5a12;
+  --info-fg: #f6dfae;
+  --info-bg: #4a3a1c;
+  --override-fg: #ffffff;
+  --override-bg: #a5650f;
+  --bedtime-fg: #e6def7;
+  --bedtime-bg: #4a3d63;
+  --bonus-fg: #ffffff;
+  --bonus-bg: #a5650f;
+  --neutral-fg: #f4efe4;
+  --neutral-bg: #423a2d;
 
   /* Status *text* foregrounds (WCAG 1.4.3 >=4.5:1 on the page/card surface,
      not on the chip fill). The legacy `.status-*` colour classes, inline
      form errors and the danger dialog header all use these instead of the
      fill colours, which are only guaranteed legible *behind* text. */
-  --ok-text: #4ecca3;
-  --warn-text: #f0c040;
-  --danger-text: #ff7a8a;
-  --info-text: #7cc0f5;
+  --ok-text: #7fd8a6;
+  --warn-text: #e0a94a;
+  --danger-text: #ff8f84;
+  --info-text: #e0a94a;
 
   /* Duration-unit foreground token (h / m labels around a number input). */
   --unit-fg: var(--text-muted);
@@ -147,10 +165,10 @@
   --chip-bg: var(--neutral-bg);
   --chip-fg: var(--neutral-fg);
   --card-radius: var(--r-md);
-  --field-bg: var(--pc-ink-900);
+  --field-bg: #1f1c17;
   --field-border: var(--border);
-  --appbar-bg: var(--pc-ink-900);
-  --tabbar-bg: var(--pc-ink-900);
+  --appbar-bg: var(--surface);
+  --tabbar-bg: var(--surface);
   color-scheme: dark;
 }
 
@@ -158,30 +176,49 @@
    (prefers-color-scheme: light), per the plan's Q1 recommendation. */
 [data-theme='light'],
 :root[data-theme='light'] {
-  --bg: #f4f5f8;
-  --surface: #ffffff;
-  --surface-2: #eef0f5;
-  --surface-3: #e4e8f0;
+  /* Light = the canvas palette, sampled from the rendered PNGs of S1–S6:
+     cream page, white cards, tan hairlines, dark-brown ink, amber primary,
+     a muted sage accent and soft pale status pills. */
+  --bg: #faf7f0;           /* cream page background */
+  --surface: #ffffff;      /* white cards */
+  --surface-2: #f4efe4;    /* muted panels / table head / zebra */
+  --surface-3: #eae3d4;
   --surface-raised: #ffffff;
-  --border: #c9cfdb;
-  --border-strong: #a9b2c4;
-  --text: #1a1c26;
-  --text-muted: #4a5568;
-  --text-faint: #5f6b7a;
-  --link: #1f7a5c;
-  --focus-ring: #1f7a5c;
-  --danger-bg: #b3203a;
-  --info-bg: #2368a8;
-  --info-fg: #ffffff;
-  --override-bg: #d9821f;
-  --override-fg: #2a1200;
-  --warn-bg: #8a5a00;
+  --border: #e4dcc9;       /* tan hairline */
+  --border-strong: #cec2a8;
+  --text: #1f1c17;         /* dark-brown / near-black ink */
+  --text-muted: #6a6255;
+  --text-faint: #75695a;
+  --link: #8a5a12;
+  --focus-ring: #8a5a12;
+  --primary-bg: #c47f17;   /* canvas amber buttons */
+  --primary-fg: #ffffff;
+  --primary-hover: #b3720f;
+  --accent-bg: #cfe0da;    /* muted sage active-nav / Protected pill */
+  --accent-fg: #1b4a44;
+  --sidebar-bg: #f4efe4;   /* cream/beige sidebar (canvas bg-sidebar) */
+  --ok-bg: #d7ebd7;        /* canvas Online / Unlocked pill (literal hex) */
+  --ok-fg: #003a05;
+  --danger-bg: #d92d20;
+  --danger-soft-bg: #fbe3e0; /* pale Locked pill / error banner */
+  --danger-soft-fg: #8f1d15;
+  --info-bg: #f9efdc;      /* canvas primary/10 banner tint */
+  --info-fg: #5a3d05;
+  --override-bg: #a5650f;
+  --override-fg: #ffffff;
+  --warn-bg: #8a5a12;
   --warn-fg: #ffffff;
+  --bedtime-bg: #e3ddf0;
+  --bedtime-fg: #3a2b56;
+  --bonus-bg: #a5650f;
+  --bonus-fg: #ffffff;
+  --neutral-bg: #ece5d8;
+  --neutral-fg: #3a3325;
   /* Text-safe status foregrounds on a white/bright surface. */
-  --ok-text: #10684a;
-  --warn-text: #8a5a00;
-  --danger-text: #b3203a;
-  --info-text: #2368a8;
+  --ok-text: #14602f;
+  --warn-text: #8a5a12;
+  --danger-text: #b3261e;
+  --info-text: #7a4f0a;
   --field-bg: #ffffff;
   --appbar-bg: #ffffff;
   --tabbar-bg: #ffffff;
@@ -192,29 +229,46 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    --bg: #f4f5f8;
+    /* Light = the canvas palette (see the [data-theme='light'] block). */
+    --bg: #faf7f0;
     --surface: #ffffff;
-    --surface-2: #eef0f5;
-    --surface-3: #e4e8f0;
+    --surface-2: #f4efe4;
+    --surface-3: #eae3d4;
     --surface-raised: #ffffff;
-    --border: #c9cfdb;
-    --border-strong: #a9b2c4;
-    --text: #1a1c26;
-    --text-muted: #4a5568;
-    --text-faint: #5f6b7a;
-    --link: #1f7a5c;
-    --focus-ring: #1f7a5c;
-    --danger-bg: #b3203a;
-    --info-bg: #2368a8;
-    --info-fg: #ffffff;
-    --override-bg: #d9821f;
-    --override-fg: #2a1200;
-    --warn-bg: #8a5a00;
+    --border: #e4dcc9;
+    --border-strong: #cec2a8;
+    --text: #1f1c17;
+    --text-muted: #6a6255;
+    --text-faint: #75695a;
+    --link: #8a5a12;
+    --focus-ring: #8a5a12;
+    --primary-bg: #c47f17;
+    --primary-fg: #ffffff;
+    --primary-hover: #b3720f;
+    --accent-bg: #cfe0da;
+    --accent-fg: #1b4a44;
+    --sidebar-bg: #f4efe4;
+    --ok-bg: #d7ebd7;
+    --ok-fg: #003a05;
+    --danger-bg: #d92d20;
+    --danger-soft-bg: #fbe3e0;
+    --danger-soft-fg: #8f1d15;
+    --info-bg: #f9efdc;
+    --info-fg: #5a3d05;
+    --override-bg: #a5650f;
+    --override-fg: #ffffff;
+    --warn-bg: #8a5a12;
     --warn-fg: #ffffff;
-    --ok-text: #10684a;
-    --warn-text: #8a5a00;
-    --danger-text: #b3203a;
-    --info-text: #2368a8;
+    --bedtime-bg: #e3ddf0;
+    --bedtime-fg: #3a2b56;
+    --bonus-bg: #a5650f;
+    --bonus-fg: #ffffff;
+    --neutral-bg: #ece5d8;
+    --neutral-fg: #3a3325;
+    --ok-text: #14602f;
+    --warn-text: #8a5a12;
+    --danger-text: #b3261e;
+    --info-text: #7a4f0a;
     --field-bg: #ffffff;
     --appbar-bg: #ffffff;
     --tabbar-bg: #ffffff;
@@ -620,11 +674,11 @@ body.pc-body--auth {
 }
 
 .pc-btn--primary {
-  background: var(--pc-green-500);
-  color: var(--pc-ink-900);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 .pc-btn--primary:hover {
-  background: var(--pc-green-600);
+  background: var(--primary-hover);
 }
 .pc-btn--danger {
   background: var(--danger-bg);
@@ -734,8 +788,8 @@ body.pc-body--auth {
   color: var(--neutral-fg);
 }
 .pc-chip--stale {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
 }
 
 /* Status pill — larger, icon + text + colour (never colour alone). */
@@ -751,16 +805,16 @@ body.pc-body--auth {
   color: var(--neutral-fg);
 }
 .pc-status--locked {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
 }
 .pc-status--unlocked {
   background: var(--ok-bg);
   color: var(--ok-fg);
 }
 .pc-status--unknown {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
 }
 /* Preserve the legacy text-colour status classes until pages are converted.
    They use the text-safe tokens so they pass AA on the page surface in both
@@ -811,7 +865,7 @@ body.pc-body--auth {
   margin-top: var(--sp-3);
 }
 .pc-card--hero {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--primary-bg) 60%, transparent);
 }
 .pc-card--muted {
   opacity: 0.75;
@@ -868,7 +922,7 @@ body.pc-body--auth {
   border-bottom: 1px solid var(--border);
 }
 .pc-table thead th {
-  background: var(--border-strong);
+  background: var(--surface-3);
   font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1283,24 +1337,25 @@ body.pc-body--auth {
   color: var(--text);
 }
 .pc-banner--danger {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
-  border-color: var(--danger-bg);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+  border-color: color-mix(in srgb, var(--danger-bg) 40%, transparent);
 }
+/* The canvas status/offline banner is a muted panel, not a solid amber one. */
 .pc-banner--warn {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-color: var(--warn-bg);
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
 }
 .pc-banner--info {
   background: var(--info-bg);
   color: var(--info-fg);
-  border-color: var(--info-bg);
+  border-color: color-mix(in srgb, var(--primary-bg) 45%, transparent);
 }
 .pc-banner--ok {
   background: var(--ok-bg);
   color: var(--ok-fg);
-  border-color: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok-fg) 25%, transparent);
 }
 
 /* --------------------------------------------------------------- lists */
@@ -1408,8 +1463,8 @@ body.pc-body--auth {
 .btn-unlock:not(.pc-btn),
 .btn-bonus:not(.pc-btn),
 .btn-bedtime-save:not(.pc-btn) {
-  background: var(--pc-green-500);
-  color: var(--pc-ink-900);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 .btn-hide:not(.pc-btn) {
   background: var(--surface-3);
@@ -1604,8 +1659,8 @@ body.pc-body--auth {
   width: 32px;
   height: 32px;
   border-radius: var(--r-sm);
-  background: var(--surface-3);
-  color: var(--link);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 .pc-sidebar__logo-svg {
   width: 20px;
@@ -1638,8 +1693,8 @@ body.pc-body--auth {
   text-decoration: none;
 }
 .pc-navlink[aria-current='page'] {
-  background: var(--surface-3);
-  color: var(--text);
+  background: var(--accent-bg);
+  color: var(--accent-fg);
   font-weight: 600;
 }
 .pc-navlink__icon {
@@ -1661,9 +1716,19 @@ body.pc-body--auth {
   gap: var(--sp-1);
   margin: 0 var(--sp-3) var(--sp-3);
   padding: var(--sp-3);
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
+}
+/* "SELECTED MACHINE" eyebrow — the canvas card labels itself; the aria-label
+   alone left the visible heading missing on desktop. */
+.pc-machine__label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
 }
 .pc-machine__row {
   display: flex;
@@ -1724,7 +1789,7 @@ body.pc-body--auth {
     left: 0;
     width: 280px;
     overflow-y: auto;
-    background: var(--surface);
+    background: var(--sidebar-bg);
     border-right: 1px solid var(--border);
   }
   .pc-layout__main {
@@ -1777,8 +1842,8 @@ body.pc-body--auth {
   transition: transform var(--dur) var(--ease);
 }
 .pc-switch input[type='checkbox']:checked {
-  background: var(--link);
-  border-color: var(--link);
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
 }
 .pc-switch input[type='checkbox']:checked::after {
   transform: translateX(20px);
@@ -1945,9 +2010,9 @@ body.pc-body--auth {
   cursor: pointer;
 }
 .pc-daybtn:has(input:checked) {
-  background: var(--surface-3);
-  color: var(--text);
-  border-color: var(--focus-ring);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: var(--primary-bg);
   font-weight: 600;
 }
 
@@ -2049,22 +2114,24 @@ body.pc-reduced-motion *::after {
   background: #d7ebd7;
   color: #003a05;
 }
+/* Locked — the canvas pill is a *soft* pale red with dark red text (not the
+   solid destructive fill, which stays for the destructive buttons). */
 .pc-pill--locked {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
 }
 .pc-pill--unknown {
   background: var(--neutral-bg);
   color: var(--neutral-fg);
 }
 .pc-pill--protected {
-  background: var(--override-bg);
-  color: var(--override-fg);
+  background: var(--accent-bg);
+  color: var(--accent-fg);
 }
 /* Audit "Verified" chip: primary/10 fill, primary/40 border, 11px. */
 .pc-pill--verified {
-  background: color-mix(in srgb, var(--link) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--link) 40%, transparent);
+  background: color-mix(in srgb, var(--primary-bg) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-bg) 40%, transparent);
   color: var(--link);
   font-size: 11px;
 }
