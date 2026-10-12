@@ -140,6 +140,17 @@ Phase 4 (data & accuracy):
       rollback copy. A corrupt store fails closed rather than being
       silently replaced
 - [ ] Per-user session agent for focus-based usage measurement (replaces CPU-delta proxy)
+      — **P1 shipped** (`session_agent.py`, `focus_feed.py`: strict feed
+      parser/validator, `aggregate_focus`, liveness/staleness, transport
+      grant). **P2 shipped** (`budgets.py`): the per-user `focus_engine`
+      flag (default `cpu`) wires the validated feed into the tick — focused
+      seconds bill per category behind the same freezable gate ("only bill
+      what you can freeze"), never-pause-only windows bill nothing, locked
+      ticks advance the feed cursor without billing, and a missing/stale/
+      malformed feed HALTS billing and surfaces `no_data` (never silently
+      zero). `last_cpu` keeps advancing so a rollback to `cpu` is
+      lossless. P3 (installer) and P4 (live rollout) remain; see
+      `SESSION_AGENT_PLAN.md` §11
 - [x] Per-app overrides and weekly budget windows (deferred from Phase 1
       budgets) — **shipped** (`feature/overrides`, `OVERRIDES_PLAN.md`,
       schema v3). Per-`comm` exemption/allowance overrides and recurring

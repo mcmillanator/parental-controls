@@ -23,6 +23,17 @@ it. While locked, each tick advances the accounting baselines
 (last_cpu / last_tick / was_in_bedtime) without billing a second, so the
 first tick after unlock bills only NEW activity, never the locked window.
 
+**Focus engine (opt-in, per user).** When an entry's ``focus_engine`` is
+``'focus'`` (the session agent; see ``SESSION_AGENT_PLAN.md``), the tick
+bills per-category *focused* seconds drained from the child's validated
+feed (``focus_feed``) instead of the CPU-delta gate, behind the same
+freezable-member gate. ``'cpu'`` (the default) is byte-identical to the
+description above. A missing/stale/malformed feed flips the engine to
+``'no_data'`` and HALTS billing for that tick (``used_seconds`` is left
+untouched — never silently zeroed) until a fresh feed recovers it. The
+``last_cpu`` baseline keeps advancing under both engines so switching back
+to ``'cpu'`` is lossless.
+
 **Active threshold:** per-process deltas smaller than
 ``ACTIVE_THRESHOLD_SECONDS`` (1.0 CPU-second per 60s tick, i.e. processes
 averaging under ~1.7% CPU) are treated as background noise and ignored.
@@ -50,6 +61,7 @@ import pwd
 import re
 import shlex
 import subprocess
+import time
 from datetime import datetime
 
 import audit
@@ -84,6 +96,28 @@ LOW_WARN_SECONDS = 300.0
 # Minimum allowance for a weekly window (mirrors the bonus custom-entry
 # floor: BONUS_CUSTOM_MIN = 5). A window below this is rejected/malformed.
 WINDOW_MIN_MINUTES = 5
+
+# ---------------------------------------------------------------------------
+# Focus engine (per-user session agent) — SESSION_AGENT_PLAN.md §8/§9.
+#
+# The measured axis is per-category *focused* seconds from the child's
+# session feed (``focus_feed``), replacing the CPU-delta activity gate. The
+# CPU engine stays the default, so the whole focus path is inert until a
+# parent opts a child in via ``focus_engine = 'focus'``.
+# ---------------------------------------------------------------------------
+FOCUS_ENGINE_CPU = 'cpu'
+FOCUS_ENGINE_FOCUS = 'focus'
+# Auto-degraded marker: the parent configured the focus engine but the feed
+# is missing/stale/malformed. Billing is HALTED for that tick (used_seconds
+# is left untouched — never silently billed as zero) and the state is
+# surfaced; a fresh feed recovers automatically to FOCUS_ENGINE_FOCUS.
+FOCUS_ENGINE_NO_DATA = 'no_data'
+FOCUS_ENGINES = (FOCUS_ENGINE_CPU, FOCUS_ENGINE_FOCUS, FOCUS_ENGINE_NO_DATA)
+# Engines that engage the feed-drain + focus-billing path.
+FOCUS_FAMILY = (FOCUS_ENGINE_FOCUS, FOCUS_ENGINE_NO_DATA)
+# Plan §8.4 spelling; accepted as an alias for the focus engine.
+_FOCUS_ENGINE_ALIASES = {FOCUS_ENGINE_FOCUS: FOCUS_ENGINE_FOCUS,
+                         'agent': FOCUS_ENGINE_FOCUS}
 
 _USERNAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
 # Same charset the sudoers grant is anchored on
@@ -894,7 +928,17 @@ def blank_entry():
             # Weekly-window runtime: keyed by window id. ``window_used``
             # is deliberately NOT cleared at the daily reset while its
             # window is active (spans-midnight accumulation).
-            'window_used': {}, 'window_active': {}}
+            'window_used': {}, 'window_active': {},
+            # Focus engine (session agent) runtime. Defaults preserve the
+            # CPU engine exactly; ``feed_seq`` is a drain cursor (never
+            # reset by the daily reset) and ``feed_boot_id`` invalidates
+            # carried-over sessions across a reboot.
+            # feed_seq is the last-consumed feed seq: parse_feed ignores
+            # rows with seq <= cursor, and the agent's first row is seq=1,
+            # so the cursor starts at 0 (nothing consumed yet).
+            'focus_engine': FOCUS_ENGINE_CPU, 'feed_seq': 0,
+            'feed_last_seen': None, 'feed_agent': None,
+            'feed_boot_id': None, 'feed_status': None}
 
 
 def set_limit(username, category, minutes, actor='system'):
@@ -2069,6 +2113,178 @@ def freezable_app_members(procs, username, comm, prefs=None):
 
 
 # ---------------------------------------------------------------------------
+# Focus engine plumbing (feed cursor, provider, per-tick aggregation)
+# ---------------------------------------------------------------------------
+
+def focus_engine_of(entry):
+    """Normalized engine for a budget entry, failing closed to ``'cpu'``.
+
+    An absent/unknown value means today's CPU behavior (never a silent
+    engine switch). ``'no_data'`` is a focus-family engine: it keeps
+    probing the feed and recovers to ``'focus'`` once fresh. ``'agent'`` is
+    accepted as an alias of ``'focus'`` (SESSION_AGENT_PLAN.md §8.4).
+    """
+    raw = (entry or {}).get('focus_engine', FOCUS_ENGINE_CPU)
+    if raw in _FOCUS_ENGINE_ALIASES:
+        return FOCUS_ENGINE_FOCUS
+    if raw in FOCUS_ENGINES:
+        return raw
+    return FOCUS_ENGINE_CPU
+
+
+def boottime_now():
+    """``CLOCK_BOOTTIME`` seconds (advances across suspend), or monotonic.
+
+    Focus-feed intervals are expressed in boottime seconds; this is the
+    panel-side ``now`` on that axis. The monotonic fallback only matters on
+    platforms without ``CLOCK_BOOTTIME`` and keeps the module importable.
+    """
+    try:
+        return time.clock_gettime(time.CLOCK_BOOTTIME)
+    except (AttributeError, OSError, ValueError):
+        return time.monotonic()
+
+
+def focus_status(entry):
+    """UI-facing focus-engine health (pure read; never bills/mutates).
+
+    Additive helper so callers can surface "usage not being measured"
+    without changing any existing endpoint or budget_status shape.
+    """
+    entry = entry or {}
+    engine = focus_engine_of(entry)
+    configured = engine in FOCUS_FAMILY
+    return {
+        'engine': engine,
+        'configured': configured,
+        'degraded': configured and (
+            engine == FOCUS_ENGINE_NO_DATA
+            or entry.get('feed_status') == 'no_data'),
+        'feed_seq': entry.get('feed_seq'),
+        'feed_last_seen': entry.get('feed_last_seen'),
+        'feed_agent': entry.get('feed_agent'),
+    }
+
+
+def _feed_cursor_update(entry, parsed):
+    """Advance an entry's feed watermark from a parse result, billing nothing.
+
+    The cursor is a *drain position*, not a budget quantity: it moves even
+    on locked ticks and on ticks where billing is halted, so rows at or
+    below it are never accounted twice (mirrors the ``last_cpu`` baseline
+    advance). Accepts any dict; silently ignores a non-dict result.
+    """
+    if not isinstance(parsed, dict):
+        return
+    last_seq = parsed.get('last_seq')
+    if isinstance(last_seq, int) and not isinstance(last_seq, bool):
+        try:
+            cur = int(entry.get('feed_seq', 0))
+        except (TypeError, ValueError):
+            cur = 0
+        if last_seq > cur:
+            entry['feed_seq'] = last_seq
+    heartbeat_bt = parsed.get('last_heartbeat_bt')
+    newest = None
+    agent = None
+    for row in parsed.get('rows') or []:
+        if not isinstance(row, dict):
+            continue
+        if agent is None and row.get('agent'):
+            agent = row['agent']
+        bt = row.get('bt')
+        if isinstance(bt, (int, float)) and not isinstance(bt, bool):
+            if newest is None or bt > newest.get('bt', -1):
+                newest = row
+    if agent is not None:
+        entry['feed_agent'] = agent
+    if (newest is not None and newest.get('ts') is not None
+            and heartbeat_bt is not None and newest.get('bt') == heartbeat_bt):
+        entry['feed_last_seen'] = newest['ts']
+    boot = parsed.get('boot_id')
+    if boot:
+        entry['feed_boot_id'] = boot
+
+
+def _locked_feed_bookkeeping(entry, parsed):
+    """Locked tick: consume the locked window's feed rows without billing.
+
+    The focus-engine analogue of ``_locked_tick_bookkeeping``: the cursor
+    advances so the first tick after unlock bills only NEW focus sessions,
+    never the locked window.
+    """
+    _feed_cursor_update(entry, parsed)
+
+
+def _default_focus_provider(username, entry, now_bt):
+    """Production feed provider: pull one child's feed via ``focus_feed``.
+
+    A drain/transport failure yields the feed module's ``missing`` result
+    (stale/degraded), so the caller halts billing instead of guessing zero.
+    """
+    import focus_feed
+    feed_seq = entry.get('feed_seq', 0)
+    try:
+        uid = pwd.getpwnam(username).pw_uid
+    except (KeyError, TypeError):
+        return focus_feed.parse_feed(None, feed_seq=feed_seq)
+    try:
+        text, _err = focus_feed.drain_feed(username, uid)
+    except Exception:
+        text = None
+    return focus_feed.parse_feed(text, feed_seq=feed_seq,
+                                 expected_boot_id=entry.get('feed_boot_id'),
+                                 now_bt=now_bt)
+
+
+def _focus_billing(username, entry, procs, limits, prefs, index, window_bt,
+                   provider, now_bt):
+    """Fetch + validate the feed and return per-category focused seconds.
+
+    Returns ``(seconds_by_category, info)``. ``info`` carries the surfacing
+    fields (engine, billable, degraded, feed_seq, states, errors, stats).
+    Never raises: a transport/provider failure or malformed/oversized/
+    non-monotonic feed all fail closed (bill nothing, ``degraded`` True).
+    """
+    import focus_feed
+    info = {'engine': FOCUS_ENGINE_FOCUS, 'billable': False,
+            'degraded': True, 'seconds': {}, 'stats': {}, 'states': [],
+            'errors': []}
+    try:
+        parsed = provider(username, entry, now_bt)
+    except Exception as exc:                       # transport/provider boom
+        info['errors'] = [str(exc)]
+        return {}, info
+    if not isinstance(parsed, dict):
+        info['errors'] = ['provider returned no parse result']
+        return {}, info
+    _feed_cursor_update(entry, parsed)
+    info['feed_seq'] = entry.get('feed_seq')
+    info['states'] = list(parsed.get('states') or [])
+    info['errors'] = list(parsed.get('errors') or [])
+    if (parsed.get('too_large') or parsed.get('missing')
+            or parsed.get('stale') or parsed.get('degraded')):
+        return {}, info
+    try:
+        agg = focus_feed.aggregate_focus(
+            parsed, window_bt, procs=procs, limits=limits, username=username,
+            prefs=prefs, index=index, now_bt=now_bt)
+    except focus_feed.FeedError as exc:
+        info['errors'] = info['errors'] + [str(exc)]
+        return {}, info
+    except Exception as exc:
+        info['errors'] = info['errors'] + [str(exc)]
+        return {}, info
+    info['billable'] = bool(agg.get('billable'))
+    info['degraded'] = bool(agg.get('degraded'))
+    info['seconds'] = dict(agg.get('seconds') or {})
+    info['stats'] = dict(agg.get('stats') or {})
+    if not info['billable']:
+        return {}, info
+    return info['seconds'], info
+
+
+# ---------------------------------------------------------------------------
 # Tick: accounting + reset + enforcement (called every 60s)
 # ---------------------------------------------------------------------------
 
@@ -2114,8 +2330,13 @@ def _enforce_target(username, t, wall, deltas, summary, act):
     members = t['members']
     # An active target burns the whole tick's wall-clock duration; an idle
     # one burns nothing — usage tracks the Elapsed time parents see.
-    if any(deltas.get(p['pid'], 0.0) >= ACTIVE_THRESHOLD_SECONDS
-           for p in members):
+    # Under the focus engine the caller supplies ``bill_seconds`` (focused
+    # seconds aggregated from the session feed) and the CPU gate is skipped
+    # entirely: 0.0 halts billing without the wall-clock charge.
+    if 'bill_seconds' in t:
+        used[key] += max(0.0, float(t['bill_seconds']))
+    elif any(deltas.get(p['pid'], 0.0) >= ACTIVE_THRESHOLD_SECONDS
+             for p in members):
         used[key] += wall
     exhausted = used[key] >= limit_sec
     remaining = limit_sec - used[key]
@@ -2218,12 +2439,18 @@ def _enforce_target(username, t, wall, deltas, summary, act):
 
 def account_and_enforce(username, entry, procs, bedtime_entry, now,
                         prefs=None, index=None, act=True, notify=None,
-                        overrides=None):
+                        overrides=None, focus_provider=None, now_bt=None):
     """One budget tick for a single user. Mutates `entry` in place.
 
     ``overrides`` is this user's config doc
     (``{"app_overrides": ..., "windows": ...}``) or None/empty; absent
     config reproduces the pre-feature behavior exactly.
+
+    ``focus_provider`` (``focus_provider(username, entry, now_bt)`` ->
+    focus_feed parse result) and ``now_bt`` (``CLOCK_BOOTTIME`` seconds)
+    drive the focus engine (SESSION_AGENT_PLAN.md §9). Both are ignored
+    unless the entry's ``focus_engine`` is a focus-family value, so the
+    default CPU behavior is byte-identical.
 
     Precedence (most specific wins): app exemption > app allowance (its
     own active window, else its daily override) > category active window
@@ -2374,6 +2601,41 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     win_by_category = {w['target']: w for w in active_windows
                        if w['target_type'] == 'category'}
 
+    # ---- focus engine: bill focused seconds instead of CPU deltas ----
+    # The CPU path is untouched when focus_seconds stays None (default
+    # ``focus_engine='cpu'``), so a rollback is byte-identical.
+    focus_seconds = None
+    if focus_engine_of(entry) in FOCUS_FAMILY:
+        if now_bt is None:
+            now_bt = boottime_now()
+        provider = focus_provider or _default_focus_provider
+        # Same tick span the CPU engine would bill, on the boottime axis.
+        window_bt = (now_bt - wall, now_bt)
+        # A category window may carry an allowance with no daily limit;
+        # fold it in so the freezable gate ("only bill what you can
+        # freeze") still sees the category as billable.
+        focus_limits = dict(limits)
+        for cat, win in win_by_category.items():
+            try:
+                focus_limits[cat] = float(win['allowance_minutes'])
+            except (TypeError, ValueError):
+                pass
+        focus_seconds, focus_info = _focus_billing(
+            username, entry, procs, focus_limits, prefs, index, window_bt,
+            provider, now_bt)
+        if focus_info.get('billable'):
+            entry['focus_engine'] = FOCUS_ENGINE_FOCUS
+            entry['feed_status'] = 'ok'
+        else:
+            # Missing/stale/malformed feed: HALT billing (used_seconds is
+            # left untouched — never silently billed as zero) and surface
+            # ``no_data``. A fresh feed recovers on the next tick.
+            entry['focus_engine'] = FOCUS_ENGINE_NO_DATA
+            entry['feed_status'] = 'no_data'
+            focus_seconds = {}
+            summary['degraded'] = True
+        summary['focus'] = focus_info
+
     # ---- category targets (window replaces the daily limit) ----
     ordered = list(limits.keys())
     for cat in win_by_category:
@@ -2398,7 +2660,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
             if limit_sec <= 0:
                 continue
             used_map, used_key = used, category
-        _enforce_target(username, {
+        target = {
             'limit_sec': limit_sec,
             'used': used_map, 'used_key': used_key,
             'paused': paused, 'paused_key': category,
@@ -2414,7 +2676,13 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
             'today_str': today_str,
             'notify_low': _low_note(warned_low, category, label),
             'notify_paused': _paused_note(warned_paused, category, label),
-        }, wall, deltas, summary, act)
+        }
+        if focus_seconds is not None:
+            # Focus engine: bill this category's focused seconds (0.0 when
+            # the feed is degraded/missing -> billing halted for this tick).
+            target['bill_seconds'] = float(focus_seconds.get(category, 0.0)
+                                           or 0.0)
+        _enforce_target(username, target, wall, deltas, summary, act)
 
     # ---- app targets ----
     for comm, ov in sorted(app_overrides.items()):
@@ -2473,7 +2741,8 @@ def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry):
 
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
                  index=None, act=True, notify=None, run_watchdog=True,
-                 cgroup_root=None, account_locked=None):
+                 cgroup_root=None, account_locked=None, focus_provider=None,
+                 now_bt=None):
     """Run one budget tick for every user in the budget store.
 
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
@@ -2497,12 +2766,22 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
       first tick after unlock bills only NEW activity, never the locked
       window. Default None (or absent) = every user unlocked, preserving
       the pure-module behavior.
+    focus_provider: optional callable
+      ``focus_provider(username, entry, now_bt) -> focus_feed parse
+      result``, consulted only for users whose ``focus_engine`` is a
+      focus-family value. Default None -> the real drain-based provider
+      (``_default_focus_provider``). Tests inject a fake.
+    now_bt: ``CLOCK_BOOTTIME`` seconds sampled once for the whole tick
+      (tests inject a fixed value; default sampled here). Only the focus
+      engine uses it.
     Returns a list of per-user summary dicts (+ watchdog entry).
     """
     data = load_budgets()
     overrides_map = load_overrides()
     if prefs is None:
         prefs = load_prefs()
+    if now_bt is None:
+        now_bt = boottime_now()
     changed = True  # usage baselines always advance; persist every tick
     summaries = []
     usernames = [u for u in data if valid_username(u)]
@@ -2545,13 +2824,23 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             # bills only NEW CPU, never the locked window.
             _locked_tick_bookkeeping(
                 entry, procs, now, (bedtime_map or {}).get(username))
+            # Focus engine: consume the locked window's feed rows (cursor
+            # advance) so the first tick after unlock bills only NEW focus.
+            if focus_engine_of(entry) in FOCUS_FAMILY:
+                provider = focus_provider or _default_focus_provider
+                try:
+                    parsed = provider(username, entry, now_bt)
+                except Exception:
+                    parsed = None
+                _locked_feed_bookkeeping(entry, parsed)
             summaries.append({'user': username, 'reset': False, 'froze': [],
                               'unfroze': [], 'notified': [], 'note':
                               f'skipped {username}: account locked'})
             continue
         summaries.append(account_and_enforce(
             username, entry, procs, (bedtime_map or {}).get(username),
-            now, prefs, index, act, notify, overrides=user_overrides))
+            now, prefs, index, act, notify, overrides=user_overrides,
+            focus_provider=focus_provider, now_bt=now_bt))
     if changed:
         try:
             save_budgets(data)
