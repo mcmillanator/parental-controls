@@ -1,471 +1,433 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ g.csrf_token }}">
-    <title>Parental Controls — {{ username }} Details</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            padding: 2rem;
-        }
-        h1 { margin-bottom: 0.5rem; font-size: 1.8rem; }
-        .subtitle { color: #888; margin-bottom: 1.5rem; font-size: 0.95rem; }
-        .back-link { color: #4ecca3; text-decoration: none; margin-bottom: 1rem; display: inline-block; }
-        .back-link:hover { text-decoration: underline; }
-        table { width: 100%; border-collapse: collapse; background: #16213e; border-radius: 8px; margin: 1rem 0; }
-        th, td { padding: 0.75rem 1rem; text-align: left; }
-        th { background: #0f3460; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        tr:nth-child(even) { background: #1a1a3e; }
-        tr:hover { background: #1f2b50; }
-        .status-locked { color: #e94560; font-weight: 600; }
-        .status-unlocked { color: #4ecca3; font-weight: 600; }
-        .status-unknown { color: #f0c040; font-weight: 600; }
-        .badge-bedtime {
-            display: inline-block;
-            background: #6a4c93;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 0.5rem;
-        }
-        .badge-override {
-            display: inline-block;
-            background: #e67e22;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 0.5rem;
-        }
-        .badge-bonus {
-            display: inline-block;
-            background: #4ecca3;
-            color: #1a1a2e;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 0.5rem;
-        }
-        .btn-bonus { background: #4ecca3; color: #1a1a2e; }
-        .badge-window {
-            display: inline-block;
-            background: #0f3460;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 0.5rem;
-        }
-        .weekly-windows { background: #16213e; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-        .window-add-row input, .window-add-row select, .app-override select, .app-override input { margin: 0.15rem; }
-        .override-add { margin-top: 0.75rem; }
-        button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; margin: 0.2rem; }
-        button:hover { opacity: 0.85; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn-lock { background: #e94560; color: #fff; }
-        .btn-unlock { background: #4ecca3; color: #1a1a2e; }
-        .btn-bedtime-save { background: #6a4c93; color: #fff; }
-        .btn-bedtime-clear { background: #e94560; color: #fff; }
-        .btn-hide { background: #555; color: #fff; }
-        .btn-show-hidden { background: #0f3460; color: #fff; }
-        .btn-screen-lock { background: #0f3460; color: #fff; }
-        .btn-logout { background: #7a1f2b; color: #fff; border: 2px solid #e94560; }
-        .badge-paused {
-            display: inline-block;
-            background: #e94560;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        .badge-frozen {
-            display: inline-block;
-            background: #4a90d9;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        .btn-freeze { background: #4a90d9; color: #fff; }
-        .process-row { background: #1a1a3e; margin: 0.2rem 0; padding: 0.3rem; border-radius: 4px; }
-        .process-name { font-weight: 500; }
-        .process-pid { font-size: 0.75rem; color: #888; margin-left: 0.5rem; }
-        .badge-count {
-            display: inline-block;
-            background: #0f3460;
-            color: #4ecca3;
-            border-radius: 4px;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 700;
-            margin-left: 0.5rem;
-        }
-        .btn-group-toggle {
-            background: #0f3460;
-            color: #4ecca3;
-            padding: 0.1rem 0.5rem;
-            font-size: 0.8rem;
-            line-height: 1.2;
-        }
-        .btn-group-toggle[aria-expanded="true"] { background: #4ecca3; color: #1a1a2e; }
-        .group-detail > td { background: #131c36; }
-        .group-detail .table { margin: 0.25rem 0 0; }
-        .group-detail .table th { background: #0f3460; }
-        #toast { position: fixed; bottom: 2rem; right: 2rem; padding: 0.75rem 1.25rem; border-radius: 6px; font-size: 0.9rem; display: none; z-index: 100; }
-        .toast-success { background: #4ecca3; color: #1a1a2e; }
-        .toast-error { background: #e94560; color: #fff; }
-        .refresh-info { color: #666; font-size: 0.8rem; margin-top: 1rem; }
-        .day-checkbox { margin-right: 0.5rem; }
-        /* Bootstrap dark-theme compatibility (minimal overrides, no behavior change) */
-        body { background: #1a1a2e; color: #e0e0e0; }
-        .table {
-            --bs-table-bg: #16213e;
-            --bs-table-striped-bg: #1a1a3e;
-            --bs-table-hover-bg: #1f2b50;
-            --bs-table-color: #e0e0e0;
-            --bs-table-border-color: #0f3460;
-            color: #e0e0e0;
-        }
-        .table thead th { background: #0f3460; color: #e0e0e0; }
-        .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-        .page-wrap { max-width: 1100px; margin: 0 auto; }
-        .bedtime-select, input[type="number"] { max-width: 100%; }
-        .bedtime-select {
-            background: #1a1a2e; color: #e0e0e0;
-            border: 1px solid #2a3a5e; border-radius: 4px; padding: 0.3rem;
-        }
-        .time-colon { color: #888; margin: 0 0.2rem; }
-        @media (max-width: 576px) { body { padding: 1rem; } }
-    </style>
-</head>
-<body data-bs-theme="dark">
-    <div class="container-fluid page-wrap">
-    <a href="/" class="back-link">← Back to Parental Controls</a>
-    <span style="float: right; font-size: 0.85rem;"><a href="/admin/audit" style="color: #4ecca3;">Admin console</a> · <a href="/change-password" style="color: #4ecca3;">Change password</a> · <a href="/logout" style="color: #e94560;">Log out</a></span>{% if devices_enabled %}<div class="device-bar" id="device-selector" style="margin:0.5rem 0;"><label for="device-select" style="color:#888;font-size:0.85rem;">Device:</label> <select id="device-select" onchange="switchDevice(this.value)" style="padding:0.3rem;border-radius:4px;border:1px solid #0f3460;background:#1a1a3e;color:#e0e0e0;"><option value=""{% if not selected_device %} selected{% endif %}>This box</option>{% for d in devices %}<option value="{{ d.name }}"{% if selected_device == d.name %} selected{% endif %}>{{ d.name }}{% if d.hostname %} ({{ d.hostname }}){% endif %}</option>{% endfor %}</select>{% if device_error %} <span class="device-error" style="color:#e94560;">{{ device_error }}</span>{% endif %}</div>{% endif %}
+{% extends "base.html" %}
 
-    <h1>User: {{ username }}</h1>
-    <p class="subtitle">Account management and process details</p>
-    {% include '_insecure_banner.html' %}
+{% block title %}Parental Controls — {{ username }} Details{% endblock %}
 
-    {% macro time_select(prefix, label, part) -%}
-    {# 12-hour edit control: hour (1-12) + minute (00-59) + AM/PM selects.
-       saveBedtime() composes HH:MM from them so /api/bedtime and
-       bedtime.json stay 24-hour. `part` is the twelve_parts dict when a
-       stored HH:MM exists (its values render `selected`); None renders a
-       required placeholder so a missing selection blocks the save. #}
-    {% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
-    <select name="{{ prefix }}_hour" class="bedtime-select" required aria-label="{{ label }} hour">
+{# ---------------------------------------------------------------------------
+   User details — the busiest screen (UI_UX_PLAN.md §5.4, Phase 3).
+
+   Layout: a status-first hero (who + live lock state + the one safe action),
+   then progressive-disclosure sections for Bedtime / Bonus time / Time budgets
+   / Weekly windows & app overrides / Processes. Tables use `.pc-table--stack`
+   + `data-label` so a 360px phone gets labelled cards while the semantic
+   `<table>` (thead/th scope) stays in the DOM for screen readers.
+
+   Compatibility: every id/class/literal pinned by UI_UX_PLAN.md §7.4,
+   tests/test_katalon_objects.py and the stdlib suite is preserved literally
+   (some as the literal prefix of a class attribute — `class="btn-lock{{ ... }}"`
+   — so the design-system `.pc-btn*` classes can ride along without the static
+   validator losing the legacy token).
+
+   Insecure-LAN banner: rendered once by the shared shell (templates/base.html
+   includes templates/_partials/insecure_banner.html). The legacy per-page
+   templates/_insecure_banner.html include is intentionally no longer used here.
+   --------------------------------------------------------------------------- #}
+
+{% block content %}
+<a href="/" class="back-link">← Back to Parental Controls</a>
+
+{% macro time_select(prefix, label, part) -%}
+{# 12-hour edit control: hour (1-12) + minute (00-59) + AM/PM selects (the
+   native clock picker is deliberately not used; pinned by test_time12h).
+   saveBedtime() composes HH:MM from them so /api/bedtime and bedtime.json stay
+   24-hour. `part` is the
+   twelve_parts dict when a stored HH:MM exists (its values render `selected`);
+   None renders a required placeholder so a missing selection blocks the save.
+   The selects keep `name` as the first attribute (parsed by the test suite). #}
+{% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
+<span class="pc-time">
+<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
-    </select>
-    <span class="time-colon">:</span>
-    <select name="{{ prefix }}_minute" class="bedtime-select" required aria-label="{{ label }} minute">
+</select>
+<span class="pc-time__sep">:</span>
+<select name="{{ prefix }}_minute" class="pc-input" required aria-label="{{ label }} minute">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
-    </select>
-    <select name="{{ prefix }}_meridiem" class="bedtime-select" required aria-label="{{ label }} AM/PM">
+</select>
+<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 <option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
 <option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
-    </select>
-    {%- endmacro %}
+</select>
+</span>
+{%- endmacro %}
 
-    {% if user %}
-    {% set bedtime = user.bedtime %}
-    
-    <!-- Bedtime Settings at the TOP -->
-    <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
-        <h3>Bedtime Settings</h3>
-        {% if bedtime and bedtime.start %}
-        <p>Bedtime: {{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}</p>
-        <p>Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
-        {% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}
-        {% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}
-        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
-            <input type="hidden" name="username" value="{{ username }}">
-            <p>
-                <strong>Start time:</strong>
-                {{ time_select('start', 'Start', bedtime.start|twelve_parts) }}
-                <strong style="margin-left: 0.75rem;">End time:</strong>
-                {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
-            </p>
-            <p>
-                <strong>Apply to all days:</strong> <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox" style="margin-right: 0.5rem;">
-                <span style="font-size: 0.85rem; color: #888;">Apply this bedtime to every day of the week</span>
-            </p>
-            <p>
-                <strong>Custom days:</strong><br>
-                <label><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} class="day-checkbox"> Mon</label>
-                <label><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} class="day-checkbox"> Tue</label>
-                <label><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} class="day-checkbox"> Wed</label>
-                <label><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} class="day-checkbox"> Thu</label>
-                <label><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} class="day-checkbox"> Fri</label>
-                <label><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sat</label>
-                <label><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
-            </p>
-            <p>
-                <button type="button" name="save" class="btn-bedtime-save" onclick="saveBedtime('{{ username }}')">Save</button>
-                <button type="button" class="btn-bedtime-clear" onclick="clearBedtime('{{ username }}')">Clear</button>
-            </p>
-        </form>
-        <!-- Bonus Time: one-click shortcuts + a custom minutes entry -->
-        <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #2a3a5e;">
-            <h4 style="margin-bottom: 0.4rem;">Bonus Time</h4>
-            <p id="bonus-status" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
-                {% if user.bonus and user.bonus.active %}
-                <span class="badge-bonus">Bonus active</span>
-                {{ user.bonus.remaining_minutes|hm }} left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
-                <button type="button" class="btn-lock" onclick="revokeBonus('{{ username }}')">Revoke</button>
-                {% else %}
-                No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
-                {% endif %}
-            </p>
-            <p>
-                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 15)">+15m</button>
-                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 30)">+30m</button>
-                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 60)">+1h</button>
-                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 90)">+1h30</button>
-                <button type="button" class="btn-bonus" onclick="grantBonus('{{ username }}', 120)">+2h</button>
-            </p>
-            <p style="margin-bottom: 0;">
-                <input type="number" id="bonus-hours" min="0" max="99" placeholder="hours" style="width: 4.5rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
-                <input type="number" id="bonus-minutes" min="0" max="59" placeholder="minutes" style="width: 5.5rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #2a3a5e; background: #1a1a2e; color: #e0e0e0;">
-                <button type="button" class="btn-bonus" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
-            </p>
-        </div>
-        {% else %}
-        <p>No bedtime schedule set</p>
-        <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
-            <input type="hidden" name="username" value="{{ username }}">
-            <p>
-                <strong>Start time:</strong>
-                {{ time_select('start', 'Start', None) }}
-                <strong style="margin-left: 0.75rem;">End time:</strong>
-                {{ time_select('end', 'End', None) }}
-            </p>
-            <p>
-                <strong>Apply to all days:</strong> <input type="checkbox" name="all_days" id="all_days_checkbox" style="margin-right: 0.5rem;">
-                <span style="font-size: 0.85rem; color: #888;">Apply this bedtime to every day of the week</span>
-            </p>
-            <p>
-                <strong>Custom days:</strong><br>
-                <label><input type="checkbox" name="day_0" class="day-checkbox"> Mon</label>
-                <label><input type="checkbox" name="day_1" class="day-checkbox"> Tue</label>
-                <label><input type="checkbox" name="day_2" class="day-checkbox"> Wed</label>
-                <label><input type="checkbox" name="day_3" class="day-checkbox"> Thu</label>
-                <label><input type="checkbox" name="day_4" class="day-checkbox"> Fri</label>
-                <label><input type="checkbox" name="day_5" class="day-checkbox"> Sat</label>
-                <label><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
-            </p>
-            <p>
-                <button type="button" class="btn-bedtime-save" onclick="saveBedtime('{{ username }}')">Save</button>
-            </p>
-        </form>
-        {% endif %}
+{% if devices_enabled %}
+<div class="device-bar pc-card" id="device-selector">
+  <label class="pc-field__label" for="device-select">Device:</label>
+  <select id="device-select" class="pc-input" onchange="switchDevice(this.value)">
+    <option value=""{% if not selected_device %} selected{% endif %}>This box</option>
+    {% for d in devices %}<option value="{{ d.name }}"{% if selected_device == d.name %} selected{% endif %}>{{ d.name }}{% if d.hostname %} ({{ d.hostname }}){% endif %}</option>{% endfor %}
+  </select>
+  {% if device_error %} <span class="device-error pc-field__error">{{ device_error }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if user %}
+{% set bedtime = user.bedtime %}
+{% set status_cls = 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' %}
+
+<!-- Account hero: who + live status + the one obvious safe action -->
+<section class="pc-card pc-card--hero" aria-labelledby="pc-user-title">
+    <div class="pc-card__header">
+        <h1 class="pc-page-title" id="pc-user-title">User: {{ username }}</h1>
+        <span id="account-status" class="status-{{ status_cls }}{{ ' pc-status pc-status--' ~ status_cls }}">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if status_cls == 'locked' else 'unlock' if status_cls == 'unlocked' else 'alert' }}"/></svg>
+            <span id="account-status-text">{{ user.status_detail }}</span>
+        </span>
     </div>
+    <p class="subtitle{{ ' pc-subtitle' }}">Account management and process details</p>
+    <p class="pc-meta">UID: {{ user.uid }} · Shell: {{ user.shell }} · Home: {{ user.home }}</p>
+    <p class="pc-row" id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime{{ ' pc-chip pc-chip--bedtime' }}">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}">Bonus ({{ user.bonus.remaining_minutes|hm }})</span>{% endif %}</p>
+    <div class="actions pc-card__footer" id="account-actions">
+        {% if user.locked != True %}
+        <button type="button" class="btn-lock{{ ' pc-btn pc-btn--danger' }}" onclick="lockUser('{{ username }}')">Lock</button>
+        {% endif %}
+        {% if user.locked == True %}
+        <button type="button" class="btn-unlock{{ ' pc-btn pc-btn--primary' }}" onclick="unlockUser('{{ username }}')">Unlock</button>
+        {% endif %}
+        <button type="button" class="btn-logout{{ ' pc-btn pc-btn--danger' }}" onclick="logoutUser('{{ username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
+    </div>
+</section>
 
-    <!-- Account Status -->
-    <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
-        <h2>Account Status</h2>
-        <p>UID: {{ user.uid }}</p>
-        <p>Shell: {{ user.shell }}</p>
-        <p>Home: {{ user.home }}</p>
-        <p id="account-status" class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
-            Status: <span id="account-status-text">{{ user.status_detail }}</span>
-            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus">Bonus ({{ user.bonus.remaining_minutes|hm }})</span>{% endif %}</span>
+<!-- Bedtime -->
+<details class="pc-disclosure" id="bedtime-section" open>
+    <summary>
+        <span>Bedtime</span>
+        <span class="pc-disclosure__summary-value">{% if bedtime and bedtime.start %}{{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}{% else %}No schedule set{% endif %}</span>
+    </summary>
+    <div class="pc-disclosure__body">
+    {% if bedtime and bedtime.start %}
+    <p class="pc-meta">Bedtime: {{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}</p>
+    <p class="pc-meta">Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
+    {% if user.in_bedtime %}<p><span class="badge-bedtime{{ ' pc-chip pc-chip--bedtime' }}">In Bedtime</span>{% if bedtime.manual_override %} <span class="badge-override{{ ' pc-chip pc-chip--override' }}">Override</span>{% endif %}</p>{% endif %}
+    <form action="/api/bedtime" method="POST" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
+        <input type="hidden" name="username" value="{{ username }}">
+        <div class="pc-field">
+            <span class="pc-field__label">Start time:</span>
+            {{ time_select('start', 'Start', bedtime.start|twelve_parts) }}
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">End time:</span>
+            {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
+            <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox">
+            <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">Custom days:</span>
+            <span class="pc-row">
+            <label class="pc-hint"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} class="day-checkbox"> Mon</label>
+            <label class="pc-hint"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} class="day-checkbox"> Tue</label>
+            <label class="pc-hint"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} class="day-checkbox"> Wed</label>
+            <label class="pc-hint"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} class="day-checkbox"> Thu</label>
+            <label class="pc-hint"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} class="day-checkbox"> Fri</label>
+            <label class="pc-hint"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sat</label>
+            <label class="pc-hint"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
+            </span>
+        </div>
+        <div class="pc-card__footer">
+            <button type="button" name="save" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveBedtime('{{ username }}')">Save</button>
+            <button type="button" class="btn-bedtime-clear{{ ' pc-btn pc-btn--danger' }}" onclick="clearBedtime('{{ username }}')">Clear</button>
+        </div>
+    </form>
+    {% else %}
+    <p>No bedtime schedule set</p>
+    <form action="/api/bedtime" method="POST" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
+        <input type="hidden" name="username" value="{{ username }}">
+        <div class="pc-field">
+            <span class="pc-field__label">Start time:</span>
+            {{ time_select('start', 'Start', None) }}
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">End time:</span>
+            {{ time_select('end', 'End', None) }}
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
+            <input type="checkbox" name="all_days" id="all_days_checkbox">
+            <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">Custom days:</span>
+            <span class="pc-row">
+            <label class="pc-hint"><input type="checkbox" name="day_0" class="day-checkbox"> Mon</label>
+            <label class="pc-hint"><input type="checkbox" name="day_1" class="day-checkbox"> Tue</label>
+            <label class="pc-hint"><input type="checkbox" name="day_2" class="day-checkbox"> Wed</label>
+            <label class="pc-hint"><input type="checkbox" name="day_3" class="day-checkbox"> Thu</label>
+            <label class="pc-hint"><input type="checkbox" name="day_4" class="day-checkbox"> Fri</label>
+            <label class="pc-hint"><input type="checkbox" name="day_5" class="day-checkbox"> Sat</label>
+            <label class="pc-hint"><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
+            </span>
+        </div>
+        <div class="pc-card__footer">
+            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveBedtime('{{ username }}')">Save</button>
+        </div>
+    </form>
+    {% endif %}
+    </div>
+</details>
+
+<!-- Bonus time: one-click shortcuts + a custom minutes entry -->
+<details class="pc-disclosure" id="bonus-section" open>
+    <summary>
+        <span>Bonus time</span>
+        <span class="pc-disclosure__summary-value">{% if user.bonus and user.bonus.active %}{{ user.bonus.remaining_minutes|hm }} left{% else %}None active{% endif %}</span>
+    </summary>
+    <div class="pc-disclosure__body">
+        <p id="bonus-status" class="pc-meta">
+            {% if user.bonus and user.bonus.active %}
+            <span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}">Bonus active</span>
+            {{ user.bonus.remaining_minutes|hm }} left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
+            <button type="button" class="btn-lock{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" onclick="revokeBonus('{{ username }}')">Revoke</button>
+            {% else %}
+            No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
+            {% endif %}
         </p>
-        
-        <div class="actions" id="account-actions" style="margin-top: 1rem;">
-            {% if user.locked != True %}
-            <button type="button" class="btn-lock" onclick="lockUser('{{ username }}')">Lock</button>
-            {% endif %}
-            {% if user.locked == True %}
-            <button type="button" class="btn-unlock" onclick="unlockUser('{{ username }}')">Unlock</button>
-            {% endif %}
-            <button type="button" class="btn-logout" onclick="logoutUser('{{ username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
+        <div class="pc-row">
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 15)">+15m</button>
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 30)">+30m</button>
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 60)">+1h</button>
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 90)">+1h30</button>
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 120)">+2h</button>
+        </div>
+        <div class="pc-row">
+            <span class="pc-duration">
+                <input type="number" id="bonus-hours" min="0" max="99" placeholder="hours" aria-label="Bonus hours">
+                <span class="pc-duration__unit">h</span>
+                <input type="number" id="bonus-minutes" min="0" max="59" placeholder="minutes" aria-label="Bonus minutes">
+                <span class="pc-duration__unit">m</span>
+            </span>
+            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
         </div>
     </div>
+</details>
 
-    <!-- Time Budgets -->
-    <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
-        <h2>Time Budgets</h2>
-        <p style="color:#888; font-size:0.85rem;">Daily limit per category — enter hours and minutes, and it counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
-        <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th>Category</th>
-                    <th>Limit (per day)</th>
-                    <th>Used</th>
-                    <th>Left</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for cat in categories %}
-                {% set b = budget_state[cat] %}
-                <tr>
-                    <td>{{ category_labels[cat] }}</td>
-                    <td>
-                        {% set limit_min = b.minutes|int if b.minutes else 0 %}
-                        <input type="number" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours" style="width: 3.5rem;"> h
-                        <input type="number" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes" style="width: 3.5rem;"> m
-                        <button type="button" class="btn-bedtime-save" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
-                    </td>
-                    <td id="budget-used-{{ cat }}">{{ b.used_minutes|hm }}</td>
-                    <td id="budget-left-{{ cat }}">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes|hm }}{% else %}—{% endif %}</td>
-                    <td id="budget-status-{{ cat }}">
-                        {% if b.frozen %}{% if b.paused and b.manual_frozen %}<span class="badge-paused">Frozen — out of time + manual</span>{% elif b.paused %}<span class="badge-paused">Paused — out of time</span>{% else %}<span class="badge-frozen">Frozen — by parent</span>{% endif %}
-                        <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
-                        {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% if b.minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>{% endif %}{% elif b.minutes %}OK <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% else %}<span title="Set a limit first">OK</span>{% endif %}
-                        <span class="badge-window" id="budget-window-{{ cat }}"{% if not b.window_active %} style="display:none;"{% endif %}>{% if b.window_active %}Window active{% endif %}</span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        </div>
+<!-- Time budgets -->
+<details class="pc-disclosure" id="budgets-section" open>
+    <summary>
+        <span>Time budgets</span>
+        <span class="pc-disclosure__summary-value">Used / limit per category</span>
+    </summary>
+    <div class="pc-disclosure__body">
+    <p class="pc-hint">Daily limit per category — enter hours and minutes, and it counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
+    <div class="table-responsive">
+    <table class="pc-table pc-table--stack">
+        <thead>
+            <tr>
+                <th scope="col">Category</th>
+                <th scope="col">Limit (per day)</th>
+                <th scope="col">Used</th>
+                <th scope="col">Left</th>
+                <th scope="col">Status</th>
+                <th scope="col">Usage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cat in categories %}
+            {% set b = budget_state[cat] %}
+            {% set limit_min = b.minutes|int if b.minutes else 0 %}
+            {% set used_min = b.used_minutes|int %}
+            {% set pct = [(used_min * 100 // limit_min) if limit_min else 0, 100]|min %}
+            <tr>
+                <td data-label="Category">{{ category_labels[cat] }}</td>
+                <td data-label="Limit (per day)">
+                    <span class="pc-row">
+                        <span class="pc-duration__unit">h</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours">
+                        <span class="pc-duration__unit">m</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes">
+                        <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
+                    </span>
+                </td>
+                <td id="budget-used-{{ cat }}" data-label="Used">{{ b.used_minutes|hm }}</td>
+                <td id="budget-left-{{ cat }}" data-label="Left">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes|hm }}{% else %}—{% endif %}</td>
+                <td id="budget-status-{{ cat }}" data-label="Status">
+                    {% if b.frozen %}{% if b.paused and b.manual_frozen %}<span class="badge-paused{{ ' pc-chip pc-chip--danger' }}">Frozen — out of time + manual</span>{% elif b.paused %}<span class="badge-paused{{ ' pc-chip pc-chip--danger' }}">Paused — out of time</span>{% else %}<span class="badge-frozen{{ ' pc-chip pc-chip--info' }}">Frozen — by parent</span>{% endif %}
+                    <button type="button" class="btn-unlock{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
+                    {% elif b.exhausted %}<span class="badge-paused{{ ' pc-chip pc-chip--danger' }}">Exhausted</span>{% if b.minutes %} <button type="button" class="btn-freeze{{ ' pc-btn pc-btn--sm pc-btn--warn' }}" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>{% endif %}{% elif b.minutes %}OK <button type="button" class="btn-freeze{{ ' pc-btn pc-btn--sm pc-btn--warn' }}" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% else %}<span title="Set a limit first">OK</span>{% endif %}
+                    <span class="badge-window{{ ' pc-chip pc-chip--info' }}" id="budget-window-{{ cat }}"{% if not b.window_active %} style="display:none;"{% endif %}>{% if b.window_active %}Window active{% endif %}</span>
+                </td>
+                <td data-label="Usage">
+                    <div class="pc-meter{% if b.frozen or b.exhausted %} pc-meter--danger{% elif pct >= 80 %} pc-meter--warn{% endif %}" id="budget-meter-{{ cat }}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}" aria-label="{{ category_labels[cat] }} usage"><span class="pc-meter__fill" style="--pc-meter-value: {{ pct }}%"></span></div>
+                    <span class="pc-faint">{{ pct }}%</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     </div>
+    </div>
+</details>
 
-    <!-- Weekly windows + per-app overrides -->
-    <div id="weekly-windows" class="weekly-windows">
-        <h2>Weekly windows &amp; app overrides</h2>
-        <p style="color:#888; font-size:0.85rem;">A weekly window is a recurring day/time range whose allowance <em>replaces</em> the daily limit while it is active (so usage can carry across midnight). An app override sets a per-app allowance, or marks an app Unlimited (never billed, never frozen).</p>
+<!-- Weekly windows + per-app overrides (power features, collapsed by default) -->
+<details class="pc-disclosure" id="weekly-windows">
+    <summary>
+        <span>Weekly windows &amp; app overrides</span>
+    </summary>
+    <div class="pc-disclosure__body">
+    <p class="pc-hint">A weekly window is a recurring day/time range whose allowance <em>replaces</em> the daily limit while it is active (so usage can carry across midnight). An app override sets a per-app allowance, or marks an app Unlimited (never billed, never frozen).</p>
 
-        <h3 style="margin-top: 0.5rem;">Windows</h3>
-        {% if overrides and overrides.windows and overrides.windows|length > 0 %}
-        <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover align-middle mb-0">
-            <thead>
-                <tr><th>Target</th><th>Days</th><th>Time</th><th>Allowance</th><th>Enabled</th><th></th></tr>
-            </thead>
-            <tbody>
-                {% for w in overrides.windows %}
-                <tr class="window-row" data-window-id="{{ w.id }}">
-                    <td>{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
-                    <td>{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-                    <td>{{ w.start }}–{{ w.end }}</td>
-                    <td>{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window">Window active</span>{% endif %}</td>
-                    <td><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
-                    <td><button type="button" class="btn-unfreeze" data-window-id="{{ w.id }}" onclick="clearWindow(this)">Delete</button></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        </div>
-        {% else %}
-        <p id="windows-empty">No weekly windows configured.</p>
-        {% endif %}
+    <h3>Windows</h3>
+    {% if overrides and overrides.windows and overrides.windows|length > 0 %}
+    <div class="table-responsive">
+    <table class="pc-table pc-table--stack">
+        <thead>
+            <tr><th scope="col">Target</th><th scope="col">Days</th><th scope="col">Time</th><th scope="col">Allowance</th><th scope="col">Enabled</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+            {% for w in overrides.windows %}
+            <tr class="window-row" data-window-id="{{ w.id }}">
+                <td data-label="Target">{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
+                <td data-label="Days">{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                <td data-label="Time">{{ w.start }}–{{ w.end }}</td>
+                <td class="window-allowance" data-label="Allowance">{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window{{ ' pc-chip pc-chip--info' }}">Window active</span>{% endif %}</td>
+                <td data-label="Enabled"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
+                <td data-label=""><button type="button" class="btn-unfreeze{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" data-window-id="{{ w.id }}" onclick="clearWindow(this)">Delete</button></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p id="windows-empty">No weekly windows configured.</p>
+    {% endif %}
 
-        <div class="window-add-row" id="window-add" style="margin-top: 0.5rem;">
-            <select id="window-target-type" onchange="windowTargetTypeChanged()">
+    <div class="window-add-row pc-card" id="window-add">
+        <div class="pc-field">
+            <label class="pc-field__label" for="window-target-type">Target type:</label>
+            <select id="window-target-type" class="pc-input" onchange="windowTargetTypeChanged()">
                 <option value="category">Category</option>
                 <option value="app">App</option>
             </select>
-            <select id="window-category-target">
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="window-category-target">Category:</label>
+            <select id="window-category-target" class="pc-input">
                 {% for cat in categories %}<option value="{{ cat }}">{{ category_labels[cat] }}</option>{% endfor %}
             </select>
-            <input id="window-app-target" list="installed-apps" placeholder="comm" style="display:none;">
-            <span style="margin-left:0.5rem;">Days:</span>
-            {% for label in day_labels %}
-            <label style="font-size:0.85rem;"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> {{ label }}</label>
-            {% endfor %}
-            <span style="margin-left:0.5rem;">From {{ time_select('window_start', 'Window start', {'hour': 2, 'minute': 0, 'meridiem': 'PM'}) }} to {{ time_select('window_end', 'Window end', {'hour': 5, 'minute': 0, 'meridiem': 'PM'}) }}</span>
-            <input type="number" id="window-allowance" min="5" step="1" value="60" style="width:5rem;"> min
-            <button type="button" class="btn-bedtime-save" onclick="saveWindow()">Add window</button>
         </div>
-
-        <h3 style="margin-top: 1rem;">App overrides</h3>
-        {% if overrides and overrides.app_overrides and overrides.app_overrides|length > 0 %}
-        <ul id="app-override-list">
-            {% for comm, ov in overrides.app_overrides.items() %}
-            <li data-override-row="{{ comm }}">
-                <strong>{{ comm }}</strong>:
-                {% if ov.mode == 'exempt' %}Unlimited{% else %}{{ ov.minutes|hm }}/day{% endif %}
-                <span class="override-live"></span>
-                <button type="button" class="btn-unfreeze" data-comm="{{ comm }}" onclick="clearOverride(this)">Clear</button>
-            </li>
+        <div class="pc-field">
+            <label class="pc-field__label" for="window-app-target">App comm:</label>
+            <input id="window-app-target" class="pc-input" list="installed-apps" placeholder="comm" style="display:none;">
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">Days:</span>
+            <span class="pc-row">
+            {% for label in day_labels %}
+            <label class="pc-hint"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> {{ label }}</label>
             {% endfor %}
-        </ul>
-        {% else %}
-        <p id="app-overrides-empty">No app overrides configured.</p>
-        {% endif %}
-        <div class="override-add">
-            <input id="override-comm" list="installed-apps" placeholder="app comm">
-            <select id="override-add-mode">
+            </span>
+        </div>
+        <div class="pc-field">
+            <span class="pc-field__label">From:</span>
+            {{ time_select('window_start', 'Window start', {'hour': 2, 'minute': 0, 'meridiem': 'PM'}) }}
+            <span class="pc-field__label">to:</span>
+            {{ time_select('window_end', 'Window end', {'hour': 5, 'minute': 0, 'meridiem': 'PM'}) }}
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="window-allowance">Allowance (min):</label>
+            <input type="number" id="window-allowance" class="pc-input" min="5" step="1" value="60" style="width:6rem;">
+        </div>
+        <div class="pc-card__footer">
+            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveWindow()">Add window</button>
+        </div>
+    </div>
+
+    <h3>App overrides</h3>
+    {% if overrides and overrides.app_overrides and overrides.app_overrides|length > 0 %}
+    <ul id="app-override-list" class="pc-list">
+        {% for comm, ov in overrides.app_overrides.items() %}
+        <li class="pc-list__item" data-override-row="{{ comm }}">
+            <span><strong>{{ comm }}</strong>:
+            {% if ov.mode == 'exempt' %}Unlimited{% else %}{{ ov.minutes|hm }}/day{% endif %}
+            <span class="override-live"></span></span>
+            <button type="button" class="btn-unfreeze{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" data-comm="{{ comm }}" onclick="clearOverride(this)">Clear</button>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p id="app-overrides-empty">No app overrides configured.</p>
+    {% endif %}
+    <div class="override-add pc-card">
+        <div class="pc-field">
+            <label class="pc-field__label" for="override-comm">App comm:</label>
+            <input id="override-comm" class="pc-input" list="installed-apps" placeholder="app comm">
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="override-add-mode">Mode:</label>
+            <select id="override-add-mode" class="pc-input">
                 <option value="limit">Limit (min/day)</option>
                 <option value="exempt">Unlimited</option>
             </select>
-            <input type="number" id="override-add-minutes" min="1" step="1" placeholder="min" style="width:5rem;">
-            <button type="button" class="btn-bedtime-save" onclick="addAppOverride()">Add app override</button>
         </div>
-        <datalist id="installed-apps">
-            {% for comm in app_names %}<option value="{{ comm }}">{% endfor %}
-        </datalist>
+        <div class="pc-field">
+            <label class="pc-field__label" for="override-add-minutes">Minutes:</label>
+            <input type="number" id="override-add-minutes" class="pc-input" min="1" step="1" placeholder="min" style="width:6rem;">
+        </div>
+        <div class="pc-card__footer">
+            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="addAppOverride()">Add app override</button>
+        </div>
     </div>
+    <datalist id="installed-apps">
+        {% for comm in app_names %}<option value="{{ comm }}">{% endfor %}
+    </datalist>
+    </div>
+</details>
 
-    <!-- Processes -->
-    <div id="process-section" style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
-        <h2>Processes</h2>
+<!-- Processes -->
+<section id="process-section">
+    <details class="pc-disclosure" open>
+        <summary><span>Processes</span></summary>
+        <div class="pc-disclosure__body">
         {% if visible and visible|length > 0 %}
         {% for cat in categories %}
         {% if groups[cat] and groups[cat]|length > 0 %}
-        <h3 style="margin-top: 1rem;">{{ category_labels[cat] }} ({{ groups[cat]|length }})</h3>
+        <h3>{{ category_labels[cat] }} ({{ groups[cat]|length }})</h3>
         <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover align-middle mb-0">
+        <table class="pc-table pc-table--stack">
             <thead>
                 <tr>
-                    <th></th>
-                    <th>Command</th>
-                    <th>Elapsed</th>
-                    <th></th>
+                    <th scope="col"></th>
+                    <th scope="col">Command</th>
+                    <th scope="col">Elapsed</th>
+                    <th scope="col"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for group in groups[cat] %}
                 {% set gid = 'detail-' ~ (cat|slugify_id) ~ '-' ~ (group.comm|slugify_id) %}
                 <tr class="group-row" data-group-cat="{{ cat }}" data-group-comm="{{ group.comm }}">
-                    <td>
-                        <button type="button" class="btn-group-toggle" aria-expanded="false" aria-controls="{{ gid }}"
+                    <td data-label="">
+                        <button type="button" class="btn-group-toggle{{ ' pc-btn pc-btn--sm pc-btn--ghost' }}" aria-expanded="false" aria-controls="{{ gid }}"
                             data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %}
                             title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
                             onclick="toggleGroup(this, '{{ cat }}')"><span class="group-chevron">▶</span></button>
                     </td>
-                    <td><span class="process-name">{{ group.display_name or group.comm }}</span>
-                        {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
+                    <td data-label="Command"><span class="process-name">{{ group.display_name or group.comm }}</span>
+                        {% if group.count > 1 %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">× {{ group.count }}</span>{% endif %}
                         <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                     </td>
-                    <td>{{ group.max_elapsed or '—' }}</td>
+                    <td data-label="Elapsed">{{ group.max_elapsed or '—' }}</td>
                     {# Visible groups are always single-category by construction
                        (get_user_live buckets by category BEFORE group_by_comm),
                        so the row's section category is the freeze target.
                        Hidden groups may span categories ("Mixed") and get no
                        button — those categories freeze from the Budgets table. #}
-                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}
+                    <td data-label="Actions"><button type="button" class="btn-hide{{ ' pc-btn pc-btn--sm pc-btn--neutral' }}" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze{{ ' pc-btn pc-btn--sm pc-btn--warn' }}" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}
                         {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
-                        <span class="app-override">
-                            {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override">Unlimited</span>{% else %}<span class="badge-count">{{ ov.minutes|hm }}/day</span>{% endif %}{% endif %}
+                        <span class="app-override pc-field">
+                            {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Unlimited</span>{% else %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">{{ ov.minutes|hm }}/day</span>{% endif %}{% endif %}
                             <select class="override-mode" data-comm="{{ group.comm }}">
                                 <option value="">Override…</option>
                                 <option value="limit">Limit</option>
                                 <option value="exempt">Unlimited</option>
                                 <option value="none">Clear</option>
                             </select>
-                            <input type="number" class="override-minutes" min="1" step="1" style="width:4rem;" placeholder="min">
-                            <button type="button" class="btn-bedtime-save" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Set</button>
+                            <input type="number" class="override-minutes pc-input" min="1" step="1" style="width:4rem;" placeholder="min">
+                            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Set</button>
                         </span></td>
                 </tr>
                 {% endfor %}
@@ -480,31 +442,31 @@
         <p>No processes found or error loading processes.</p>
         {% endif %}
         {% if hidden and hidden|length > 0 %}
-        <p style="margin-top: 1rem;">
-            <button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden ({{ hidden|length }} groups, {{ hidden|sum(attribute='count') }} processes)</button>
+        <p>
+            <button type="button" class="btn-show-hidden{{ ' pc-btn pc-btn--ghost' }}" onclick="toggleHidden()">Show hidden ({{ hidden|length }} groups, {{ hidden|sum(attribute='count') }} processes)</button>
         </p>
         <div id="hidden-procs" style="display: none;">
             <div class="table-responsive">
-            <table class="table table-dark table-striped table-hover align-middle mb-0">
+            <table class="pc-table pc-table--stack">
                 <thead>
-                    <tr><th></th><th>Command</th><th>Category</th><th></th></tr>
+                    <tr><th scope="col"></th><th scope="col">Command</th><th scope="col">Category</th><th scope="col"></th></tr>
                 </thead>
                 <tbody>
                     {% for group in hidden %}
                     {% set gid = 'detail-hidden-' ~ (group.comm|slugify_id) %}
                     <tr class="group-row" data-group-cat="hidden" data-group-comm="{{ group.comm }}">
-                        <td>
-                            <button type="button" class="btn-group-toggle" aria-expanded="false" aria-controls="{{ gid }}"
+                        <td data-label="">
+                            <button type="button" class="btn-group-toggle{{ ' pc-btn pc-btn--sm pc-btn--ghost' }}" aria-expanded="false" aria-controls="{{ gid }}"
                                 data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %}
                                 title="{{ group.comm }}{% if group.count > 1 %}: {{ group.count }} instances{% endif %}"
                                 onclick="toggleGroup(this, 'hidden')"><span class="group-chevron">▶</span></button>
                         </td>
-                        <td><span class="process-name">{{ group.display_name or group.comm }}</span>
-                            {% if group.count > 1 %}<span class="badge-count">× {{ group.count }}</span>{% endif %}
+                        <td data-label="Command"><span class="process-name">{{ group.display_name or group.comm }}</span>
+                            {% if group.count > 1 %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">× {{ group.count }}</span>{% endif %}
                             <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                         </td>
-                        <td>{% if group.uniform_category and group.categories %}{{ category_labels[group.categories[0]] }}{% else %}Mixed{% endif %}</td>
-                        <td><button type="button" class="btn-show-hidden" data-comm="{{ group.comm }}" onclick="showGroup(this)">Show</button></td>
+                        <td data-label="Category">{% if group.uniform_category and group.categories %}{{ category_labels[group.categories[0]] }}{% else %}Mixed{% endif %}</td>
+                        <td data-label="Actions"><button type="button" class="btn-show-hidden{{ ' pc-btn pc-btn--sm pc-btn--ghost' }}" data-comm="{{ group.comm }}" onclick="showGroup(this)">Show</button></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -512,983 +474,1123 @@
             </div>
         </div>
         {% endif %}
-    </div>
-    {% endif %}
-
-    <p class="refresh-info">Status updates automatically every 10 seconds</p>
-    </div>
-
-    <div id="toast"></div>
-
-    <script>
-        const CSRF = document.querySelector('meta[name="csrf-token"]').content;{% if devices_enabled %}
-        // Device selector shim: when viewing a remote box every /api/*
-        // fetch is rewritten to the authenticated hub proxy, which holds
-        // the per-box bearer token. No token ever reaches the browser.
-        const DEVICE = {{ selected_device|tojson }};
-        const API_PREFIX = DEVICE ? ('/api/device/' + encodeURIComponent(DEVICE) + '/v1') : '';
-        if (API_PREFIX) {
-            const _nativeFetch = window.fetch.bind(window);
-            window.fetch = (url, opts) => _nativeFetch(
-                (typeof url === 'string' && url.startsWith('/api/'))
-                    ? API_PREFIX + url.slice(4) : url, opts);
-        }
-        function switchDevice(name) {
-            const u = new URL(window.location.href);
-            u.pathname = {{ username|tojson }} ? ('/user/' + encodeURIComponent({{ username|tojson }})) : u.pathname;
-            if (name) { u.searchParams.set('device', name); }
-            else { u.searchParams.delete('device'); }
-            window.location.href = u.toString();
-        }
+        </div>
+    </details>
+</section>
 {% endif %}
-        const PAGE_USERNAME = {{ username|tojson }};
-        const CATEGORIES = {{ categories|tojson }};
-        const CATEGORY_LABELS = {{ category_labels|tojson }};
 
-        // Expand/collapse state for grouped process rows. Keys are
-        // `category + '\u0000' + comm` (a comm can span categories, so the
-        // category is part of the key). Survives the 10s re-render because
-        // renderProcesses captures it from the DOM before rebuilding.
-        const expanded = new Set();
-        // Latest /live payload, so a first-click expand on the initial
-        // server markup can render its detail row without waiting a poll.
-        let LIVE_DATA = null;
+<p class="refresh-info">Status updates automatically every 10 seconds</p>
+<p class="pc-hint" id="refresh-note">
+    <span id="refresh-stale" class="pc-chip pc-chip--stale" hidden>stale — retrying</span>
+    <span id="refresh-paused" hidden>Updates paused while you edit</span>
+</p>
+{% endblock %}
 
-        function cleanId(value) {
-            return String(value).replace(/[^A-Za-z0-9_.-]/g, '-');
+{% block scripts %}
+<script>
+    const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';{% if devices_enabled %}
+    // Device selector shim: when viewing a remote box every /api/*
+    // fetch is rewritten to the authenticated hub proxy, which holds
+    // the per-box bearer token. No token ever reaches the browser.
+    const DEVICE = {{ selected_device|tojson }};
+    const API_PREFIX = DEVICE ? ('/api/device/' + encodeURIComponent(DEVICE) + '/v1') : '';
+    if (API_PREFIX) {
+        const _nativeFetch = window.fetch.bind(window);
+        window.fetch = (url, opts) => _nativeFetch(
+            (typeof url === 'string' && url.startsWith('/api/'))
+                ? API_PREFIX + url.slice(4) : url, opts);
+    }
+    function switchDevice(name) {
+        const u = new URL(window.location.href);
+        u.pathname = {{ username|tojson }} ? ('/user/' + encodeURIComponent({{ username|tojson }})) : u.pathname;
+        if (name) { u.searchParams.set('device', name); }
+        else { u.searchParams.delete('device'); }
+        window.location.href = u.toString();
+    }
+{% endif %}
+    const PAGE_USERNAME = {{ username|tojson }};
+    const CATEGORIES = {{ categories|tojson }};
+    const CATEGORY_LABELS = {{ category_labels|tojson }};
+
+    // Expand/collapse state for grouped process rows. Keys are
+    // `category + '\u0000' + comm` (a comm can span categories, so the
+    // category is part of the key). Survives the 10s re-render because
+    // renderProcesses captures it from the DOM before rebuilding.
+    const expanded = new Set();
+    // Latest /live payload, so a first-click expand on the initial
+    // server markup can render its detail row without waiting a poll.
+    let LIVE_DATA = null;
+
+    function cleanId(value) {
+        return String(value).replace(/[^A-Za-z0-9_.-]/g, '-');
+    }
+
+    function groupKey(cat, comm) {
+        return String(cat) + '\u0000' + String(comm);
+    }
+
+    function detailId(cat, comm) {
+        return 'detail-' + cleanId(cat) + '-' + cleanId(comm);
+    }
+
+    function rowGroupKey(row) {
+        return groupKey(row.getAttribute('data-group-cat'),
+                        row.getAttribute('data-group-comm'));
+    }
+
+    function findGroup(cat, comm) {
+        if (cat === 'hidden') {
+            const hs = (LIVE_DATA && LIVE_DATA.hidden) || [];
+            return hs.find(g => g.comm === comm) || null;
         }
+        const gs = (LIVE_DATA && LIVE_DATA.groups && LIVE_DATA.groups[cat]) || [];
+        return gs.find(g => g.comm === comm) || null;
+    }
 
-        function groupKey(cat, comm) {
-            return String(cat) + '\u0000' + String(comm);
-        }
-
-        function detailId(cat, comm) {
-            return 'detail-' + cleanId(cat) + '-' + cleanId(comm);
-        }
-
-        function rowGroupKey(row) {
-            return groupKey(row.getAttribute('data-group-cat'),
-                            row.getAttribute('data-group-comm'));
-        }
-
-        function findGroup(cat, comm) {
+    function groupDetailHtml(cat, group) {
+        let rows = '';
+        for (const m of group.members || []) {
+            let label;
             if (cat === 'hidden') {
-                const hs = (LIVE_DATA && LIVE_DATA.hidden) || [];
-                return hs.find(g => g.comm === comm) || null;
-            }
-            const gs = (LIVE_DATA && LIVE_DATA.groups && LIVE_DATA.groups[cat]) || [];
-            return gs.find(g => g.comm === comm) || null;
-        }
-
-        function groupDetailHtml(cat, group) {
-            let rows = '';
-            for (const m of group.members || []) {
-                let label;
-                if (cat === 'hidden') {
-                    label = (m.category && CATEGORY_LABELS[m.category]) || '—';
-                } else {
-                    label = CATEGORY_LABELS[cat] || cat;
-                }
-                rows += '<tr><td>' + esc(m.pid) + '</td>' +
-                    '<td><span class="process-name">' + esc(m.display_name || m.comm) + '</span></td>' +
-                    '<td>' + esc(m.elapsed || '—') + '</td>' +
-                    '<td>' + esc(label) + '</td></tr>';
-            }
-            return '<td colspan="4"><div class="table-responsive">' +
-                '<table class="table table-dark table-striped table-hover align-middle mb-0">' +
-                '<thead><tr><th>PID</th><th>Command</th><th>Elapsed</th><th>Category</th></tr></thead>' +
-                '<tbody>' + rows + '</tbody></table></div></td>';
-        }
-
-        // Freeze/Unfreeze toggle for a visible process-group row. The row's
-        // section category is the freeze target: visible groups are always
-        // single-category by construction (server buckets by category
-        // BEFORE group_by_comm), so no mixed case exists here. State is
-        // read from the latest /live budget payload (Option A — no per-group
-        // payload keys); hidden rows ('hidden') never get a button.
-        function freezeToggleHtml(cat) {
-            if (cat === 'hidden') return '';
-            const b = (LIVE_DATA && LIVE_DATA.budget && LIVE_DATA.budget[cat]) || null;
-            if (!b) return '';
-            if (b.frozen) {
-                return ' <button type="button" class="btn-unlock" onclick="unfreezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Unfreeze</button>';
-            }
-            if (!b.minutes) return '';
-            return ' <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Freeze</button>';
-        }
-
-        // Per-app override control on a running process-group row. Reads
-        // the current override from the latest /live payload so the badge
-        // reflects state; the comm travels via data-comm, never a JS
-        // string literal (same escaping discipline as Hide/Show).
-        function overrideControlHtml(comm) {
-            const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
-            const ov = ovs[comm] || null;
-            let badge = '';
-            if (ov) {
-                if (ov.mode === 'exempt') badge = '<span class="badge-override">Unlimited</span>';
-                else badge = '<span class="badge-count">' + esc(fmtHM(ov.minutes)) + '/day</span>';
-            }
-            return '<span class="app-override">' + badge +
-                ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
-                '<option value="">Override…</option>' +
-                '<option value="limit">Limit</option>' +
-                '<option value="exempt">Unlimited</option>' +
-                '<option value="none">Clear</option></select>' +
-                ' <input type="number" class="override-minutes" min="1" style="width:4rem;" placeholder="min">' +
-                ' <button type="button" class="btn-bedtime-save" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Set</button></span>';
-        }
-
-        function groupRowsHtml(cat, group) {
-            const key = groupKey(cat, group.comm);
-            const isOpen = expanded.has(key);
-            const multiple = group.count > 1;
-            const badge = multiple ? ' <span class="badge-count">× ' + group.count + '</span>' : '';
-            const countNote = multiple
-                ? ' <span class="process-pid">(' + group.count + ' instances)</span>' : '';
-            const toggle = '<button type="button" class="btn-group-toggle"' +
-                ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
-                ' aria-controls="' + detailId(cat, group.comm) + '"' +
-                ' data-comm="' + esc(group.comm) + '"' +
-                (multiple ? '' : ' disabled') +
-                ' title="' + esc(group.comm) + (multiple ? ': ' + group.count + ' instances' : '') + '"' +
-                ' onclick="toggleGroup(this, \'' + esc(cat) + '\')">' +
-                '<span class="group-chevron">' + (isOpen ? '▼' : '▶') + '</span></button>';
-            const action = cat === 'hidden'
-                ? '<button type="button" class="btn-show-hidden" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
-                : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>' +
-                    freezeToggleHtml(cat) + overrideControlHtml(group.comm);
-            let middle;
-            // Friendly app name where known; keys, buttons, and titles
-            // below stay on comm so Hide/PIDs/expand behavior is unchanged.
-            const name = esc(group.display_name || group.comm);
-            if (cat === 'hidden') {
-                const uniform = group.uniform_category && group.categories && group.categories.length > 0;
-                middle = '<td><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
-                    '<td>' + (uniform ? esc(CATEGORY_LABELS[group.categories[0]]) : 'Mixed') + '</td>';
+                label = (m.category && CATEGORY_LABELS[m.category]) || '—';
             } else {
-                middle = '<td><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
-                    '<td>' + esc(group.elapsed || '—') + '</td>';
+                label = CATEGORY_LABELS[cat] || cat;
             }
-            return '<tr class="group-row" data-group-cat="' + esc(cat) + '" data-group-comm="' + esc(group.comm) + '">' +
-                '<td>' + toggle + '</td>' + middle + '<td>' + action + '</td></tr>';
+            rows += '<tr><td data-label="PID">' + esc(m.pid) + '</td>' +
+                '<td data-label="Command"><span class="process-name">' + esc(m.display_name || m.comm) + '</span></td>' +
+                '<td data-label="Elapsed">' + esc(m.elapsed || '—') + '</td>' +
+                '<td data-label="Category">' + esc(label) + '</td></tr>';
         }
+        return '<td colspan="4" data-label=""><div class="table-responsive">' +
+            '<table class="pc-table pc-table--stack">' +
+            '<thead><tr><th scope="col">PID</th><th scope="col">Command</th><th scope="col">Elapsed</th><th scope="col">Category</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table></div></td>';
+    }
 
-        function updateToggleState(button, isOpen) {
-            button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-            const chevron = button.querySelector('.group-chevron');
-            if (chevron) chevron.textContent = isOpen ? '▼' : '▶';
+    // Freeze/Unfreeze toggle for a visible process-group row. The row's
+    // section category is the freeze target: visible groups are always
+    // single-category by construction (server buckets by category
+    // BEFORE group_by_comm), so no mixed case exists here. State is
+    // read from the latest /live budget payload (Option A — no per-group
+    // payload keys); hidden rows ('hidden') never get a button.
+    function freezeToggleHtml(cat) {
+        if (cat === 'hidden') return '';
+        const b = (LIVE_DATA && LIVE_DATA.budget && LIVE_DATA.budget[cat]) || null;
+        if (!b) return '';
+        if (b.frozen) {
+            return ' <button type="button" class="btn-unlock pc-btn pc-btn--sm pc-btn--primary" onclick="unfreezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Unfreeze</button>';
         }
+        if (!b.minutes) return '';
+        return ' <button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn" title="Freeze this category now" onclick="freezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Freeze</button>';
+    }
 
-        function expandFromData(button, cat, comm) {
-            const group = findGroup(cat, comm);
-            const row = button.closest('tr.group-row');
-            if (!group || !row) return false;
-            const tr = document.createElement('tr');
-            tr.className = 'group-detail';
-            tr.id = detailId(cat, comm);
-            tr.innerHTML = groupDetailHtml(cat, group);
-            row.parentNode.insertBefore(tr, row.nextSibling);
-            return true;
+    // Per-app override control on a running process-group row. Reads
+    // the current override from the latest /live payload so the badge
+    // reflects state; the comm travels via data-comm, never a JS
+    // string literal (same escaping discipline as Hide/Show).
+    function overrideControlHtml(comm) {
+        const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
+        const ov = ovs[comm] || null;
+        let badge = '';
+        if (ov) {
+            if (ov.mode === 'exempt') badge = '<span class="badge-override pc-chip pc-chip--override">Unlimited</span>';
+            else badge = '<span class="badge-count pc-chip pc-chip--neutral">' + esc(fmtHM(ov.minutes)) + '/day</span>';
         }
+        return '<span class="app-override pc-field">' + badge +
+            ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
+            '<option value="">Override…</option>' +
+            '<option value="limit">Limit</option>' +
+            '<option value="exempt">Unlimited</option>' +
+            '<option value="none">Clear</option></select>' +
+            ' <input type="number" class="override-minutes pc-input" min="1" style="width:4rem;" placeholder="min">' +
+            ' <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Set</button></span>';
+    }
 
-        function toggleGroup(button, cat) {
-            const comm = button.getAttribute('data-comm');
-            const key = groupKey(cat, comm);
-            const detail = document.getElementById(detailId(cat, comm));
-            if (detail) {
-                // Toggle in place; the next scheduled poll re-renders
-                // naturally and keeps the Set state.
-                if (expanded.has(key)) {
-                    expanded.delete(key);
-                    detail.style.display = 'none';
-                } else {
-                    expanded.add(key);
-                    detail.style.display = '';
-                }
-            } else if (!LIVE_DATA || liveHasError() || !expandFromData(button, cat, comm)) {
-                // Nothing to expand against: just remember intent so the
-                // next render emits the detail row.
-                if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+    function groupRowsHtml(cat, group) {
+        const key = groupKey(cat, group.comm);
+        const isOpen = expanded.has(key);
+        const multiple = group.count > 1;
+        const badge = multiple ? ' <span class="badge-count pc-chip pc-chip--neutral">× ' + group.count + '</span>' : '';
+        const countNote = multiple
+            ? ' <span class="process-pid">(' + group.count + ' instances)</span>' : '';
+        const toggle = '<button type="button" class="btn-group-toggle pc-btn pc-btn--sm pc-btn--ghost"' +
+            ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
+            ' aria-controls="' + detailId(cat, group.comm) + '"' +
+            ' data-comm="' + esc(group.comm) + '"' +
+            (multiple ? '' : ' disabled') +
+            ' title="' + esc(group.comm) + (multiple ? ': ' + group.count + ' instances' : '') + '"' +
+            ' onclick="toggleGroup(this, \'' + esc(cat) + '\')">' +
+            '<span class="group-chevron">' + (isOpen ? '▼' : '▶') + '</span></button>';
+        const action = cat === 'hidden'
+            ? '<button type="button" class="btn-show-hidden pc-btn pc-btn--sm pc-btn--ghost" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
+            : '<button type="button" class="btn-hide pc-btn pc-btn--sm pc-btn--neutral" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>' +
+                freezeToggleHtml(cat) + overrideControlHtml(group.comm);
+        let middle;
+        // Friendly app name where known; keys, buttons, and titles
+        // below stay on comm so Hide/PIDs/expand behavior is unchanged.
+        const name = esc(group.display_name || group.comm);
+        if (cat === 'hidden') {
+            const uniform = group.uniform_category && group.categories && group.categories.length > 0;
+            middle = '<td data-label="Command"><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
+                '<td data-label="Category">' + (uniform ? esc(CATEGORY_LABELS[group.categories[0]]) : 'Mixed') + '</td>';
+        } else {
+            middle = '<td data-label="Command"><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
+                '<td data-label="Elapsed">' + esc(group.elapsed || '—') + '</td>';
+        }
+        return '<tr class="group-row" data-group-cat="' + esc(cat) + '" data-group-comm="' + esc(group.comm) + '">' +
+            '<td data-label="">' + toggle + '</td>' + middle + '<td data-label="Actions">' + action + '</td></tr>';
+    }
+
+    function updateToggleState(button, isOpen) {
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        const chevron = button.querySelector('.group-chevron');
+        if (chevron) chevron.textContent = isOpen ? '▼' : '▶';
+    }
+
+    function expandFromData(button, cat, comm) {
+        const group = findGroup(cat, comm);
+        const row = button.closest('tr.group-row');
+        if (!group || !row) return false;
+        const tr = document.createElement('tr');
+        tr.className = 'group-detail';
+        tr.id = detailId(cat, comm);
+        tr.innerHTML = groupDetailHtml(cat, group);
+        row.parentNode.insertBefore(tr, row.nextSibling);
+        return true;
+    }
+
+    function toggleGroup(button, cat) {
+        const comm = button.getAttribute('data-comm');
+        const key = groupKey(cat, comm);
+        const detail = document.getElementById(detailId(cat, comm));
+        if (detail) {
+            // Toggle in place; the next scheduled poll re-renders
+            // naturally and keeps the Set state.
+            if (expanded.has(key)) {
+                expanded.delete(key);
+                detail.style.display = 'none';
             } else {
                 expanded.add(key);
+                detail.style.display = '';
             }
-            updateToggleState(button, expanded.has(key));
+        } else if (!LIVE_DATA || liveHasError() || !expandFromData(button, cat, comm)) {
+            // Nothing to expand against: just remember intent so the
+            // next render emits the detail row.
+            if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+        } else {
+            expanded.add(key);
         }
+        updateToggleState(button, expanded.has(key));
+    }
 
-        function liveHasError() {
-            return LIVE_DATA && (LIVE_DATA.error ||
-                (!LIVE_DATA.groups && LIVE_DATA.hidden === undefined));
+    function liveHasError() {
+        return LIVE_DATA && (LIVE_DATA.error ||
+            (!LIVE_DATA.groups && LIVE_DATA.hidden === undefined));
+    }
+
+    // Toast: route through the shared shell's pcToast (role=status /
+    // role=alert live region) so background feedback is announced. Falls
+    // back to the raw region if the shell helper is unavailable.
+    function showToast(msg, isError) {
+        if (typeof window.pcToast === 'function') {
+            window.pcToast(msg, isError ? 'error' : 'success');
+            return;
         }
+        const toast = document.getElementById('toast');
+        if (!toast) return;
+        toast.textContent = msg;
+        toast.className = isError ? 'toast-error' : 'toast-success';
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
 
-        function showToast(msg, isError) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = isError ? 'toast-error' : 'toast-success';
-            toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 4000);
-        }
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
+            '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
 
-        function esc(s) {
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;',
-                '"': '&quot;', "'": '&#39;'
-            }[c]));
-        }
+    // '21:00' -> '9:00 PM'. Display-only mirror of the server's
+    // format_12h(); storage and API payloads stay 24h/ISO.
+    function fmt12(hhmm) {
+        if (!hhmm) return '';
+        const parts = String(hhmm).slice(0, 5).split(':');
+        const h = parseInt(parts[0], 10);
+        const m = parts.length > 1 ? parts[1] : '00';
+        if (isNaN(h) || h < 0 || h > 23) return hhmm;
+        const suffix = h < 12 ? 'AM' : 'PM';
+        return `${h % 12 || 12}:${m} ${suffix}`;
+    }
 
-        // '21:00' -> '9:00 PM'. Display-only mirror of the server's
-        // format_12h(); storage and API payloads stay 24h/ISO.
-        function fmt12(hhmm) {
-            if (!hhmm) return '';
-            const parts = String(hhmm).slice(0, 5).split(':');
-            const h = parseInt(parts[0], 10);
-            const m = parts.length > 1 ? parts[1] : '00';
-            if (isNaN(h) || h < 0 || h > 23) return hhmm;
-            const suffix = h < 12 ? 'AM' : 'PM';
-            return `${h % 12 || 12}:${m} ${suffix}`;
-        }
+    // Minutes -> '1h 30m' / '45m' / '2h' / '0m'. Display-only mirror of
+    // the server's budgets.format_hm(); API payloads stay whole minutes.
+    function fmtHM(min) {
+        if (min === null || min === undefined || min === '') return '';
+        const n = Math.floor(Number(min));
+        if (isNaN(n) || n < 0) return '';
+        const h = Math.floor(n / 60);
+        const m = n % 60;
+        if (h && m) return `${h}h ${m}m`;
+        if (h) return `${h}h`;
+        return `${m}m`;
+    }
 
-        // Minutes -> '1h 30m' / '45m' / '2h' / '0m'. Display-only mirror of
-        // the server's budgets.format_hm(); API payloads stay whole minutes.
-        function fmtHM(min) {
-            if (min === null || min === undefined || min === '') return '';
-            const n = Math.floor(Number(min));
-            if (isNaN(n) || n < 0) return '';
-            const h = Math.floor(n / 60);
-            const m = n % 60;
-            if (h && m) return `${h}h ${m}m`;
-            if (h) return `${h}h`;
-            return `${m}m`;
-        }
+    // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
+    // composes the bedtime selects back to 24h 'HH:MM' for the
+    // unchanged /api/bedtime contract. Edges: 12 AM -> 00, 12 PM ->
+    // 12. Any missing/out-of-range part -> null so a partial
+    // selection blocks the save (the selects are also `required`).
+    function toHHMM(hour, minute, meridiem) {
+        if (hour === '' || minute === '' || meridiem === '') return null;
+        const h = parseInt(hour, 10);
+        if (isNaN(h) || h < 1 || h > 12) return null;
+        if (!/^\d{2}$/.test(String(minute))) return null;
+        const suffix = String(meridiem).toUpperCase();
+        if (suffix !== 'AM' && suffix !== 'PM') return null;
+        let h24 = h % 12;
+        if (suffix === 'PM') h24 += 12;
+        return `${String(h24).padStart(2, '0')}:${minute}`;
+    }
 
-        // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
-        // composes the bedtime selects back to 24h 'HH:MM' for the
-        // unchanged /api/bedtime contract. Edges: 12 AM -> 00, 12 PM ->
-        // 12. Any missing/out-of-range part -> null so a partial
-        // selection blocks the save (the selects are also `required`).
-        function toHHMM(hour, minute, meridiem) {
-            if (hour === '' || minute === '' || meridiem === '') return null;
-            const h = parseInt(hour, 10);
-            if (isNaN(h) || h < 1 || h > 12) return null;
-            if (!/^\d{2}$/.test(String(minute))) return null;
-            const suffix = String(meridiem).toUpperCase();
-            if (suffix !== 'AM' && suffix !== 'PM') return null;
-            let h24 = h % 12;
-            if (suffix === 'PM') h24 += 12;
-            return `${String(h24).padStart(2, '0')}:${minute}`;
-        }
-
-        function renderAccount(data) {
-            const p = document.getElementById('account-status');
-            if (!p) return;
-            p.className = 'status-' + (data.locked === true ? 'locked' : data.locked === false ? 'unlocked' : 'unknown');
-            document.getElementById('account-status-text').textContent = data.status_detail;
-            let badges = '';
-            if (data.in_bedtime) badges += '<span class="badge-bedtime">In Bedtime</span>';
-            if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override">Override</span>';
-            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus">Bonus (${fmtHM(data.bonus.remaining_minutes)})</span>`;
-            document.getElementById('account-badges').innerHTML = badges;
-            let actions = '';
-            if (data.locked !== true) {
-                actions += `<button type="button" class="btn-lock" onclick="lockUser('${PAGE_USERNAME}')">Lock</button>`;
-            }
-            if (data.locked === true) {
-                actions += `<button type="button" class="btn-unlock" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
-            }
-            actions += `<button type="button" class="btn-logout" onclick="logoutUser('${PAGE_USERNAME}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>`;
-            document.getElementById('account-actions').innerHTML = actions;
-        }
-
-        function renderProcesses(data) {
-            const section = document.getElementById('process-section');
-            if (!section) return;
-            const hiddenEl = document.getElementById('hidden-procs');
-            const wasOpen = !!hiddenEl && hiddenEl.style.display === 'block';
-
-            // Capture expand/collapse state and focus from the live DOM
-            // before the wholesale rebuild so both survive the 10s refresh.
-            const activeRow = document.activeElement
-                ? document.activeElement.closest('tr.group-row') : null;
-            const focusedKey = activeRow ? rowGroupKey(activeRow) : null;
-
-            let html = '<h2>Processes</h2>';
-            const renderedKeys = [];
-            if (data.error) {
-                html += `<p>Error loading processes: ${esc(data.error)}</p>`;
-            } else {
-                const cats = CATEGORIES.filter(c => data.groups[c] && data.groups[c].length > 0);
-                if (cats.length === 0) {
-                    html += '<p>No processes found or error loading processes.</p>';
-                }
-                for (const cat of cats) {
-                    const groups = data.groups[cat];
-                    html += `<h3 style="margin-top: 1rem;">${esc(CATEGORY_LABELS[cat])} (${groups.length})</h3>` +
-                        '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0">' +
-                        '<thead><tr><th></th><th>Command</th><th>Elapsed</th><th></th></tr></thead><tbody>';
-                    for (const g of groups) {
-                        html += groupRowsHtml(cat, g);
-                        renderedKeys.push(groupKey(cat, g.comm));
-                        if (expanded.has(groupKey(cat, g.comm))) {
-                            html += `<tr class="group-detail" id="${detailId(cat, g.comm)}">${groupDetailHtml(cat, g)}</tr>`;
-                        }
-                    }
-                    html += '</tbody></table></div>';
-                }
-            }
-            if (data.hidden && data.hidden.length > 0) {
-                const procCount = data.hidden.reduce((n, g) => n + g.count, 0);
-                html += `<p style="margin-top: 1rem;"><button type="button" class="btn-show-hidden" onclick="toggleHidden()">Show hidden (${data.hidden.length} groups, ${procCount} processes)</button></p>` +
-                    `<div id="hidden-procs" style="display: ${wasOpen ? 'block' : 'none'};">` +
-                    '<div class="table-responsive"><table class="table table-dark table-striped table-hover align-middle mb-0">' +
-                    '<thead><tr><th></th><th>Command</th><th>Category</th><th></th></tr></thead><tbody>';
-                for (const g of data.hidden) {
-                    html += groupRowsHtml('hidden', g);
-                    renderedKeys.push(groupKey('hidden', g.comm));
-                    if (expanded.has(groupKey('hidden', g.comm))) {
-                        html += `<tr class="group-detail" id="${detailId('hidden', g.comm)}">${groupDetailHtml('hidden', g)}</tr>`;
-                    }
-                }
-                html += '</tbody></table></div></div>';
-            }
-
-            // Prune expand keys for groups that no longer exist in the
-            // newest payload (died, or moved to hidden).
-            for (const key of Array.from(expanded)) {
-                if (renderedKeys.indexOf(key) === -1) {
-                    expanded.delete(key);
-                }
-            }
-
-            section.innerHTML = html;
-
-            // Focus preservation: restore the toggle of the previously
-            // focused group row, if it still renders.
-            if (focusedKey !== null) {
-                const row = Array.from(section.querySelectorAll('tr.group-row'))
-                    .find(r => rowGroupKey(r) === focusedKey);
-                const toggle = row && row.querySelector('.btn-group-toggle');
-                if (toggle && !toggle.disabled) toggle.focus();
-            }
-        }
-
-        function toggleHidden() {
-            const el = document.getElementById('hidden-procs');
-            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-        }
-
-        function renderBudgets(data) {
-            if (!data.budget) return;
-            for (const cat of CATEGORIES) {
-                const b = data.budget[cat];
-                if (!b) continue;
-                const usedEl = document.getElementById('budget-used-' + cat);
-                const leftEl = document.getElementById('budget-left-' + cat);
-                const statusEl = document.getElementById('budget-status-' + cat);
-                if (usedEl) usedEl.textContent = fmtHM(b.used_minutes);
-                if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? fmtHM(b.remaining_minutes) : '—';
-                if (statusEl) {
-                    if (b.frozen) {
-                        let badge;
-                        if (b.paused && b.manual_frozen) {
-                            badge = '<span class="badge-paused">Frozen — out of time + manual</span>';
-                        } else if (b.paused) {
-                            badge = '<span class="badge-paused">Paused — out of time</span>';
-                        } else {
-                            badge = '<span class="badge-frozen">Frozen — by parent</span>';
-                        }
-                        statusEl.innerHTML = badge + ' ' +
-                            `<button type="button" class="btn-unlock" onclick="unfreezeCategory('${PAGE_USERNAME}', '${cat}')">Unfreeze</button>`;
-                    } else if (b.exhausted) {
-                        statusEl.innerHTML = '<span class="badge-paused">Exhausted</span>' +
-                            (b.minutes ? ` <button type="button" class="btn-freeze" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>` : '');
-                    } else if (b.minutes) {
-                        statusEl.innerHTML = `OK <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>`;
-                    } else {
-                        statusEl.innerHTML = '<span title="Set a limit first">OK</span>';
-                    }
-                }
-                const winEl = document.getElementById('budget-window-' + cat);
-                if (winEl) {
-                    if (b.window_active) {
-                        winEl.textContent = 'Window active';
-                        winEl.style.display = '';
-                    } else {
-                        winEl.textContent = '';
-                        winEl.style.display = 'none';
-                    }
-                }
-            }
-            renderOverrideLive(data);
-        }
-
-        // Update the window-active badges and the per-app live usage from
-        // the live payload. Never touches form inputs (forms-never-touched).
-        function renderOverrideLive(data) {
-            const apps = (data.budget && data.budget.app_budgets) || {};
-            const windows = (data.overrides && data.overrides.windows) || [];
-            for (const w of windows) {
-                const row = document.querySelector('.window-row[data-window-id="' + cleanId(w.id) + '"]');
-                if (!row) continue;
-                const cell = row.children[3];
-                let badge = cell ? cell.querySelector('.badge-window') : null;
-                const active = w.target_type === 'category'
-                    ? !!(data.budget && data.budget[w.target] && data.budget[w.target].window_active)
-                    : !!(apps[w.target] && apps[w.target].window_active);
-                if (active && !badge && cell) {
-                    badge = document.createElement('span');
-                    badge.className = 'badge-window';
-                    badge.textContent = 'Window active';
-                    cell.appendChild(badge);
-                } else if (!active && badge) {
-                    badge.remove();
-                }
-            }
-            document.querySelectorAll('[data-override-row]').forEach(li => {
-                const comm = li.getAttribute('data-override-row');
-                const info = apps[comm];
-                const span = li.querySelector('.override-live');
-                if (span && info) {
-                    span.textContent = info.exempt
-                        ? ' — unlimited'
-                        : ' — ' + fmtHM(info.used_minutes) + '/' + fmtHM(info.minutes) +
-                          (info.window_active ? ' (window)' : '');
-                }
+    // Design-system decoration for the legacy-classed buttons the budget
+    // renderer emits (its innerHTML string is pinned verbatim by
+    // tests/test_overrides.py). Adds the same .pc-btn classes the
+    // server-rendered buttons carry, so the first paint and the 10s
+    // refresh look identical.
+    const BUDGET_BUTTON_VARIANTS = [
+        ['.btn-unlock', 'pc-btn--primary'],
+        ['.btn-freeze', 'pc-btn--warn']
+    ];
+    function decorateBudgetButtons(root) {
+        for (const pair of BUDGET_BUTTON_VARIANTS) {
+            root.querySelectorAll(pair[0]).forEach(function (btn) {
+                btn.classList.add('pc-btn', 'pc-btn--sm', pair[1]);
             });
         }
+    }
 
-        function renderBonus(data) {
-            const el = document.getElementById('bonus-status');
-            if (!el) return;
-            const b = data.bonus;
-            if (b && b.active) {
-                let html = '<span class="badge-bonus">Bonus active</span> ' +
-                    esc(fmtHM(b.remaining_minutes)) + ' left' +
-                    (b.until ? ' (until ' + esc(fmt12(b.until.slice(11, 16))) + ')' : '') +
-                    (b.granted_by ? ', granted by ' + esc(b.granted_by) : '') +
-                    `<button type="button" class="btn-lock" onclick="revokeBonus('${PAGE_USERNAME}')">Revoke</button>`;
-                el.innerHTML = html;
-            } else {
-                el.textContent = 'No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.';
-            }
+    function statusClass(locked) {
+        return locked === true ? 'locked' : (locked === false ? 'unlocked' : 'unknown');
+    }
+
+    function statusIcon(cls) {
+        return cls === 'locked' ? 'lock' : (cls === 'unlocked' ? 'unlock' : 'alert');
+    }
+
+    function renderAccount(data) {
+        const el = document.getElementById('account-status');
+        if (el) {
+            const cls = statusClass(data.locked);
+            el.className = 'status-' + cls + ' pc-status pc-status--' + cls;
+            const icon = el.querySelector('use');
+            if (icon) icon.setAttribute('href', '#pc-i-' + statusIcon(cls));
         }
+        const textEl = document.getElementById('account-status-text');
+        if (textEl) textEl.textContent = data.status_detail;
+        const badgesEl = document.getElementById('account-badges');
+        if (badgesEl) {
+            let badges = '';
+            if (data.in_bedtime) badges += '<span class="badge-bedtime pc-chip pc-chip--bedtime">In Bedtime</span>';
+            if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override pc-chip pc-chip--override">Override</span>';
+            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus pc-chip pc-chip--bonus">Bonus (${fmtHM(data.bonus.remaining_minutes)})</span>`;
+            badgesEl.innerHTML = badges;
+        }
+        const actions = document.getElementById('account-actions');
+        if (actions) {
+            let html = '';
+            if (data.locked !== true) {
+                html += `<button type="button" class="btn-lock pc-btn pc-btn--danger" onclick="lockUser('${PAGE_USERNAME}')">Lock</button>`;
+            }
+            if (data.locked === true) {
+                html += `<button type="button" class="btn-unlock pc-btn pc-btn--primary" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
+            }
+            html += `<button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('${PAGE_USERNAME}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>`;
+            actions.innerHTML = html;
+        }
+    }
 
-        async function refreshUserLive() {
-            try {
-                const resp = await fetch('/api/user/' + encodeURIComponent(PAGE_USERNAME) + '/live');
-                const data = await resp.json();
-                if (!data.success) {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                    return;
+    function renderProcesses(data) {
+        const section = document.getElementById('process-section');
+        if (!section) return;
+        const hiddenEl = document.getElementById('hidden-procs');
+        const wasOpen = !!hiddenEl && hiddenEl.style.display === 'block';
+        // Preserve the Processes disclosure's open/closed state across the
+        // rebuild (the user may have collapsed it).
+        const detailsEl = section.querySelector('details.pc-disclosure');
+        const detailsOpen = detailsEl ? detailsEl.open : true;
+
+        // Capture expand/collapse state and focus from the live DOM
+        // before the wholesale rebuild so both survive the 10s refresh.
+        const activeRow = document.activeElement
+            ? document.activeElement.closest('tr.group-row') : null;
+        const focusedKey = activeRow ? rowGroupKey(activeRow) : null;
+
+        let html = '<details class="pc-disclosure"' + (detailsOpen ? ' open' : '') +
+            '><summary><span>Processes</span></summary>' +
+            '<div class="pc-disclosure__body">';
+        const renderedKeys = [];
+        if (data.error) {
+            html += `<p>Error loading processes: ${esc(data.error)}</p>`;
+        } else {
+            const cats = CATEGORIES.filter(c => data.groups[c] && data.groups[c].length > 0);
+            if (cats.length === 0) {
+                html += '<p>No processes found or error loading processes.</p>';
+            }
+            for (const cat of cats) {
+                const groups = data.groups[cat];
+                html += `<h3>${esc(CATEGORY_LABELS[cat])} (${groups.length})</h3>` +
+                    '<div class="table-responsive"><table class="pc-table pc-table--stack">' +
+                    '<thead><tr><th scope="col"></th><th scope="col">Command</th><th scope="col">Elapsed</th><th scope="col"></th></tr></thead><tbody>';
+                for (const g of groups) {
+                    html += groupRowsHtml(cat, g);
+                    renderedKeys.push(groupKey(cat, g.comm));
+                    if (expanded.has(groupKey(cat, g.comm))) {
+                        html += `<tr class="group-detail" id="${detailId(cat, g.comm)}">${groupDetailHtml(cat, g)}</tr>`;
+                    }
                 }
-                LIVE_DATA = data;
-                renderAccount(data);
-                renderBonus(data);
-                renderProcesses(data);
-                renderBudgets(data);
-            } catch (e) {
-                showToast(`Refresh failed: ${e.message}`, true);
+                html += '</tbody></table></div>';
+            }
+        }
+        if (data.hidden && data.hidden.length > 0) {
+            const procCount = data.hidden.reduce((n, g) => n + g.count, 0);
+            html += `<p><button type="button" class="btn-show-hidden pc-btn pc-btn--ghost" onclick="toggleHidden()">Show hidden (${data.hidden.length} groups, ${procCount} processes)</button></p>` +
+                `<div id="hidden-procs" style="display: ${wasOpen ? 'block' : 'none'};">` +
+                '<div class="table-responsive"><table class="pc-table pc-table--stack">' +
+                '<thead><tr><th scope="col"></th><th scope="col">Command</th><th scope="col">Category</th><th scope="col"></th></tr></thead><tbody>';
+            for (const g of data.hidden) {
+                html += groupRowsHtml('hidden', g);
+                renderedKeys.push(groupKey('hidden', g.comm));
+                if (expanded.has(groupKey('hidden', g.comm))) {
+                    html += `<tr class="group-detail" id="${detailId('hidden', g.comm)}">${groupDetailHtml('hidden', g)}</tr>`;
+                }
+            }
+            html += '</tbody></table></div></div>';
+        }
+        html += '</div></details>';
+
+        // Prune expand keys for groups that no longer exist in the
+        // newest payload (died, or moved to hidden).
+        for (const key of Array.from(expanded)) {
+            if (renderedKeys.indexOf(key) === -1) {
+                expanded.delete(key);
             }
         }
 
-        async function saveBedtime(username) {
-            const form = document.querySelector('form[action="/api/bedtime"]');
-            if (!form) return;
-            // The form carries 12-hour selects; compose them back to
-            // 24h HH:MM so the /api/bedtime contract is unchanged.
-            const start = toHHMM(form.elements['start_hour'].value,
-                                 form.elements['start_minute'].value,
-                                 form.elements['start_meridiem'].value);
-            const end = toHHMM(form.elements['end_hour'].value,
-                               form.elements['end_minute'].value,
-                               form.elements['end_meridiem'].value);
-            if (start === null || end === null) {
-                showToast('Select a start and end time (hour, minute, AM/PM)', true);
+        section.innerHTML = html;
+
+        // Focus preservation: restore the toggle of the previously
+        // focused group row, if it still renders.
+        if (focusedKey !== null) {
+            const row = Array.from(section.querySelectorAll('tr.group-row'))
+                .find(r => rowGroupKey(r) === focusedKey);
+            const toggle = row && row.querySelector('.btn-group-toggle');
+            if (toggle && !toggle.disabled) toggle.focus();
+        }
+    }
+
+    function toggleHidden() {
+        const el = document.getElementById('hidden-procs');
+        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function renderBudgets(data) {
+        if (!data.budget) return;
+        for (const cat of CATEGORIES) {
+            const b = data.budget[cat];
+            if (!b) continue;
+            const usedEl = document.getElementById('budget-used-' + cat);
+            const leftEl = document.getElementById('budget-left-' + cat);
+            const statusEl = document.getElementById('budget-status-' + cat);
+            if (usedEl) usedEl.textContent = fmtHM(b.used_minutes);
+            if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? fmtHM(b.remaining_minutes) : '—';
+            if (statusEl) {
+                if (b.frozen) {
+                    let badge;
+                    if (b.paused && b.manual_frozen) {
+                        badge = '<span class="badge-paused pc-chip pc-chip--danger">Frozen — out of time + manual</span>';
+                    } else if (b.paused) {
+                        badge = '<span class="badge-paused pc-chip pc-chip--danger">Paused — out of time</span>';
+                    } else {
+                        badge = '<span class="badge-frozen pc-chip pc-chip--info">Frozen — by parent</span>';
+                    }
+                    statusEl.innerHTML = badge + ' ' +
+                        `<button type="button" class="btn-unlock" onclick="unfreezeCategory('${PAGE_USERNAME}', '${cat}')">Unfreeze</button>`;
+                } else if (b.exhausted) {
+                    statusEl.innerHTML = '<span class="badge-paused pc-chip pc-chip--danger">Exhausted</span>' +
+                        (b.minutes ? ` <button type="button" class="btn-freeze" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>` : '');
+                } else if (b.minutes) {
+                    statusEl.innerHTML = `OK <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory('${PAGE_USERNAME}', '${cat}')">Freeze</button>`;
+                } else {
+                    statusEl.innerHTML = '<span title="Set a limit first">OK</span>';
+                }
+                decorateBudgetButtons(statusEl);
+            }
+            const winEl = document.getElementById('budget-window-' + cat);
+            if (winEl) {
+                if (b.window_active) {
+                    winEl.textContent = 'Window active';
+                    winEl.style.display = '';
+                } else {
+                    winEl.textContent = '';
+                    winEl.style.display = 'none';
+                }
+            }
+            const meterEl = document.getElementById('budget-meter-' + cat);
+            if (meterEl) {
+                const limit = b.minutes || 0;
+                const used = b.used_minutes || 0;
+                let pct = limit ? Math.floor(used * 100 / limit) : 0;
+                if (pct > 100) pct = 100;
+                const fill = meterEl.querySelector('.pc-meter__fill');
+                if (fill) fill.style.setProperty('--pc-meter-value', pct + '%');
+                meterEl.setAttribute('aria-valuenow', String(pct));
+                const danger = !!(b.frozen || b.exhausted);
+                meterEl.classList.toggle('pc-meter--danger', danger);
+                meterEl.classList.toggle('pc-meter--warn', !danger && pct >= 80);
+                const label = meterEl.parentNode && meterEl.parentNode.querySelector('.pc-faint');
+                if (label) label.textContent = pct + '%';
+            }
+        }
+        renderOverrideLive(data);
+    }
+
+    // Update the window-active badges and the per-app live usage from
+    // the live payload. Never touches form inputs (forms-never-touched).
+    function renderOverrideLive(data) {
+        const apps = (data.budget && data.budget.app_budgets) || {};
+        const windows = (data.overrides && data.overrides.windows) || [];
+        for (const w of windows) {
+            const row = document.querySelector('.window-row[data-window-id="' + cleanId(w.id) + '"]');
+            if (!row) continue;
+            const cell = row.querySelector('.window-allowance') || row.children[3];
+            let badge = cell ? cell.querySelector('.badge-window') : null;
+            const active = w.target_type === 'category'
+                ? !!(data.budget && data.budget[w.target] && data.budget[w.target].window_active)
+                : !!(apps[w.target] && apps[w.target].window_active);
+            if (active && !badge && cell) {
+                badge = document.createElement('span');
+                badge.className = 'badge-window pc-chip pc-chip--info';
+                badge.textContent = 'Window active';
+                cell.appendChild(badge);
+            } else if (!active && badge) {
+                badge.remove();
+            }
+        }
+        document.querySelectorAll('[data-override-row]').forEach(li => {
+            const comm = li.getAttribute('data-override-row');
+            const info = apps[comm];
+            const span = li.querySelector('.override-live');
+            if (span && info) {
+                span.textContent = info.exempt
+                    ? ' — unlimited'
+                    : ' — ' + fmtHM(info.used_minutes) + '/' + fmtHM(info.minutes) +
+                      (info.window_active ? ' (window)' : '');
+            }
+        });
+    }
+
+    function renderBonus(data) {
+        const el = document.getElementById('bonus-status');
+        if (!el) return;
+        const b = data.bonus;
+        if (b && b.active) {
+            let html = '<span class="badge-bonus pc-chip pc-chip--bonus">Bonus active</span> ' +
+                esc(fmtHM(b.remaining_minutes)) + ' left' +
+                (b.until ? ' (until ' + esc(fmt12(b.until.slice(11, 16))) + ')' : '') +
+                (b.granted_by ? ', granted by ' + esc(b.granted_by) : '') +
+                ` <button type="button" class="btn-lock pc-btn pc-btn--sm pc-btn--danger" onclick="revokeBonus('${PAGE_USERNAME}')">Revoke</button>`;
+            el.innerHTML = html;
+        } else {
+            el.textContent = 'No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.';
+        }
+    }
+
+    // Refresh-state affordances (plan §6.2): a subtle stale chip when a
+    // poll fails (last good data is kept, never blanked) and a visible
+    // "paused while you edit" hint when the 10s poll is skipped.
+    function setStale(isStale) {
+        const el = document.getElementById('refresh-stale');
+        if (el) el.hidden = !isStale;
+    }
+
+    function setEditingPaused(isPaused) {
+        const el = document.getElementById('refresh-paused');
+        if (el) el.hidden = !isPaused;
+    }
+
+    async function refreshUserLive() {
+        try {
+            const resp = await fetch('/api/user/' + encodeURIComponent(PAGE_USERNAME) + '/live');
+            const data = await resp.json();
+            if (!data.success) {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+                setStale(true);
                 return;
             }
-            const formData = new FormData(form);
-            formData.set('start', start);
-            formData.set('end', end);
-            // The raw select fields are not part of the API contract.
-            for (const name of ['start_hour', 'start_minute', 'start_meridiem',
-                                'end_hour', 'end_minute', 'end_meridiem']) {
-                formData.delete(name);
-            }
-            try {
-                const resp = await fetch('/api/bedtime', {
-                    method: 'POST',
-                    headers: { 'X-CSRF-Token': CSRF },
-                    body: new URLSearchParams(formData)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Bedtime saved for ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.message || data.error || 'unknown error'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+            LIVE_DATA = data;
+            setStale(false);
+            renderAccount(data);
+            renderBonus(data);
+            renderProcesses(data);
+            renderBudgets(data);
+        } catch (e) {
+            showToast(`Refresh failed: ${e.message}`, true);
+            setStale(true);
         }
+    }
 
-        async function lockUser(username) {
-            if (!confirm('Lock account for "' + username + '"? They will be unable to log in until unlocked.')) return;
-            try {
-                const resp = await fetch('/api/lock', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Locked ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + data.message, true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+    // Interval poll only: skips a tick (and says so) while an input is
+    // focused so in-progress edits are never clobbered. Explicit refreshes
+    // after a save still run immediately.
+    function pollTick() {
+        const active = document.activeElement;
+        if (active && active.matches && active.matches('input, select, textarea')) {
+            setEditingPaused(true);
+            return;
         }
+        setEditingPaused(false);
+        refreshUserLive();
+    }
 
-        async function logoutUser(username) {
-            if (!confirm('EMERGENCY LOGOUT "' + username + '"? This TERMINATES all of their sessions immediately and locks the account. Only use this when a screen lock is not enough.')) return;
-            if (!confirm('Are you really sure? Confirm again to terminate all sessions for "' + username + '".')) return;
-            try {
-                const resp = await fetch('/api/logout', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Logged out ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+    async function saveBedtime(username) {
+        const form = document.querySelector('form[action="/api/bedtime"]');
+        if (!form) return;
+        // The form carries 12-hour selects; compose them back to
+        // 24h HH:MM so the /api/bedtime contract is unchanged.
+        const start = toHHMM(form.elements['start_hour'].value,
+                             form.elements['start_minute'].value,
+                             form.elements['start_meridiem'].value);
+        const end = toHHMM(form.elements['end_hour'].value,
+                           form.elements['end_minute'].value,
+                           form.elements['end_meridiem'].value);
+        if (start === null || end === null) {
+            showToast('Select a start and end time (hour, minute, AM/PM)', true);
+            return;
         }
-
-        async function unlockUser(username) {
-            if (!confirm('Unlock user "' + username + '"?')) return;
-            try {
-                const resp = await fetch('/api/unlock', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Unlocked ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + data.message, true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+        const formData = new FormData(form);
+        formData.set('start', start);
+        formData.set('end', end);
+        // The raw select fields are not part of the API contract.
+        for (const name of ['start_hour', 'start_minute', 'start_meridiem',
+                            'end_hour', 'end_minute', 'end_meridiem']) {
+            formData.delete(name);
         }
-
-        async function clearBedtime(username) {
-            if (!confirm('Clear "' + username + '" bedtime schedule?')) return;
-            try {
-                const resp = await fetch('/api/bedtime', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&clear=1'
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Bedtime cleared for ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + data.message, true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
+        try {
+            const resp = await fetch('/api/bedtime', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': CSRF },
+                body: new URLSearchParams(formData)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Bedtime saved for ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.message || data.error || 'unknown error'), true);
             }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
         }
+    }
 
-        async function grantBonus(username, minutes) {
-            // One-click shortcut grants are deliberate parent actions — no confirm.
-            try {
-                const resp = await fetch('/api/bonus', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&minutes=' + encodeURIComponent(minutes)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast(`Granted ${fmtHM(minutes)} bonus to ${username}`, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
+    async function lockUser(username) {
+        const ok = await pcConfirm({
+            title: 'Lock account',
+            body: 'Lock account for "' + username + '"? They will be unable to log in until unlocked.',
+            confirmLabel: 'Lock',
+            danger: true
+        });
+        if (!ok) return;
+        try {
+            const resp = await fetch('/api/lock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Locked ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + data.message, true);
             }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
         }
+    }
 
-        function grantCustomBonus(username) {
-            const hoursInput = document.getElementById('bonus-hours');
-            const minutesInput = document.getElementById('bonus-minutes');
-            const hours = parseInt((hoursInput && hoursInput.value) || '0', 10);
-            const minutes = parseInt((minutesInput && minutesInput.value) || '0', 10);
-            if (isNaN(hours) || isNaN(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
+    async function logoutUser(username) {
+        const ok = await pcConfirm({
+            title: 'Emergency logout',
+            body: 'This TERMINATES all of their sessions immediately and locks the account. Only use this when a screen lock is not enough.',
+            confirmLabel: 'Terminate all sessions',
+            danger: true,
+            requireText: username
+        });
+        if (!ok) return;
+        try {
+            const resp = await fetch('/api/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Logged out ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.message || data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function unlockUser(username) {
+        const ok = await pcConfirm({
+            title: 'Unlock account',
+            body: 'Unlock user "' + username + '"?',
+            confirmLabel: 'Unlock'
+        });
+        if (!ok) return;
+        try {
+            const resp = await fetch('/api/unlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Unlocked ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + data.message, true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function clearBedtime(username) {
+        const ok = await pcConfirm({
+            title: 'Clear bedtime',
+            body: 'Clear "' + username + '" bedtime schedule?',
+            confirmLabel: 'Clear schedule',
+            danger: true
+        });
+        if (!ok) return;
+        try {
+            const resp = await fetch('/api/bedtime', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&clear=1'
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Bedtime cleared for ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + data.message, true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function grantBonus(username, minutes) {
+        // One-click shortcut grants are deliberate parent actions — no confirm.
+        try {
+            const resp = await fetch('/api/bonus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&minutes=' + encodeURIComponent(minutes)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast(`Granted ${fmtHM(minutes)} bonus to ${username}`, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.message || data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function grantCustomBonus(username) {
+        const hoursInput = document.getElementById('bonus-hours');
+        const minutesInput = document.getElementById('bonus-minutes');
+        const hours = parseInt((hoursInput && hoursInput.value) || '0', 10);
+        const minutes = parseInt((minutesInput && minutesInput.value) || '0', 10);
+        if (isNaN(hours) || isNaN(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
+            showToast('Enter hours (0+) and minutes (0-59)', true);
+            return;
+        }
+        const total = hours * 60 + minutes;
+        if (total < 5) {
+            showToast('Minimum bonus is 5 minutes', true);
+            return;
+        }
+        const desc = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} minutes`;
+        const ok = await pcConfirm({
+            title: 'Grant bonus time',
+            body: `Grant ${desc} of bonus time to "${username}"? They will stay unlocked past bedtime until the bonus ends.`,
+            confirmLabel: 'Grant'
+        });
+        if (!ok) return;
+        grantBonus(username, total);
+    }
+
+    async function revokeBonus(username) {
+        const ok = await pcConfirm({
+            title: 'Revoke bonus time',
+            body: `Revoke bonus time for "${username}"? They will be locked again if it is still bedtime.`,
+            confirmLabel: 'Revoke',
+            danger: true
+        });
+        if (!ok) return;
+        try {
+            const resp = await fetch('/api/bonus/revoke', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Bonus time revoked for ' + username, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.message || data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function hideProc(username, comm) {
+        try {
+            const resp = await fetch('/api/process-prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=hide'
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Hid ' + comm, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    // Group-level Hide/Show: the button carries data-comm, so the comm
+    // never passes through a JS string literal (avoids quote-escaping
+    // pitfalls inside inline onclick attributes).
+    async function hideGroup(button) {
+        await hideProc(PAGE_USERNAME, button.getAttribute('data-comm'));
+    }
+
+    async function showGroup(button) {
+        await showProc(PAGE_USERNAME, button.getAttribute('data-comm'));
+    }
+
+    async function showProc(username, comm) {
+        try {
+            const resp = await fetch('/api/process-prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=show'
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Showing ' + comm, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function saveBudget(username, category) {
+        // The UI edits hours + minutes; compose total MINUTES here so
+        // the /api/budgets contract (a single minutes field) is
+        // unchanged. A blank pair clears the limit, as before.
+        const hoursEl = document.getElementById('budget-' + category + '-hours');
+        const minsEl = document.getElementById('budget-' + category + '-minutes');
+        const hoursStr = (hoursEl && hoursEl.value || '').trim();
+        const minsStr = (minsEl && minsEl.value || '').trim();
+        let total;
+        if (hoursStr === '' && minsStr === '') {
+            total = '';
+        } else {
+            const hours = parseInt(hoursStr || '0', 10);
+            const mins = parseInt(minsStr || '0', 10);
+            if (isNaN(hours) || isNaN(mins) || hours < 0 || mins < 0 || mins > 59) {
                 showToast('Enter hours (0+) and minutes (0-59)', true);
                 return;
             }
-            const total = hours * 60 + minutes;
-            if (total < 5) {
-                showToast('Minimum bonus is 5 minutes', true);
-                return;
-            }
-            const desc = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} minutes`;
-            if (!confirm(`Grant ${desc} of bonus time to "${username}"? They will stay unlocked past bedtime until the bonus ends.`)) return;
-            grantBonus(username, total);
+            total = hours * 60 + mins;
         }
-
-        async function revokeBonus(username) {
-            if (!confirm(`Revoke bonus time for "${username}"? They will be locked again if it is still bedtime.`)) return;
-            try {
-                const resp = await fetch('/api/bonus/revoke', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Bonus time revoked for ' + username, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.message || data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function hideProc(username, comm) {
-            try {
-                const resp = await fetch('/api/process-prefs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=hide'
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Hid ' + comm, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        // Group-level Hide/Show: the button carries data-comm, so the comm
-        // never passes through a JS string literal (avoids quote-escaping
-        // pitfalls inside inline onclick attributes).
-        async function hideGroup(button) {
-            await hideProc(PAGE_USERNAME, button.getAttribute('data-comm'));
-        }
-
-        async function showGroup(button) {
-            await showProc(PAGE_USERNAME, button.getAttribute('data-comm'));
-        }
-
-        async function showProc(username, comm) {
-            try {
-                const resp = await fetch('/api/process-prefs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&comm=' + encodeURIComponent(comm) + '&action=show'
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Showing ' + comm, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function saveBudget(username, category) {
-            // The UI edits hours + minutes; compose total MINUTES here so
-            // the /api/budgets contract (a single minutes field) is
-            // unchanged. A blank pair clears the limit, as before.
-            const hoursEl = document.getElementById('budget-' + category + '-hours');
-            const minsEl = document.getElementById('budget-' + category + '-minutes');
-            const hoursStr = (hoursEl && hoursEl.value || '').trim();
-            const minsStr = (minsEl && minsEl.value || '').trim();
-            let total;
-            if (hoursStr === '' && minsStr === '') {
-                total = '';
-            } else {
-                const hours = parseInt(hoursStr || '0', 10);
-                const mins = parseInt(minsStr || '0', 10);
-                if (isNaN(hours) || isNaN(mins) || hours < 0 || mins < 0 || mins > 59) {
-                    showToast('Enter hours (0+) and minutes (0-59)', true);
-                    return;
-                }
-                total = hours * 60 + mins;
-            }
-            try {
-                const resp = await fetch('/api/budgets', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category) + '&minutes=' + encodeURIComponent(total)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Budget saved for ' + category, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        // Deliberate parent actions, instantly reversible — no confirm
-        // (same convention as one-click bonus grants and Hide/Show).
-        async function freezeCategory(username, category) {
-            try {
-                const resp = await fetch('/api/budgets/freeze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Frozen ' + category, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function unfreezeCategory(username, category) {
-            try {
-                const resp = await fetch('/api/budgets/unfreeze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Resumed ' + category, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function resumeCategory(username, category) {
-            // Back-compat alias: the server keeps /api/budgets/resume, and
-            // old callers land here. New UI calls unfreezeCategory.
-            await unfreezeCategory(username, category);
-        }
-
-        // -------- per-app overrides + weekly windows --------
-
-        async function postForm(path, params) {
-            const resp = await fetch(path, {
+        try {
+            const resp = await fetch('/api/budgets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: new URLSearchParams(params).toString()
+                body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category) + '&minutes=' + encodeURIComponent(total)
             });
-            return resp.json();
-        }
-
-        // Set/clear a per-app override from a process-group row.
-        // The comm travels via the button's data-comm (no JS string literal).
-        async function applyOverride(button) {
-            const comm = button.getAttribute('data-comm');
-            const wrap = button.closest('.app-override');
-            const mode = wrap.querySelector('.override-mode').value;
-            const minutes = wrap.querySelector('.override-minutes').value;
-            if (!mode) { showToast('Choose an override mode', true); return; }
-            if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
-                showToast('Enter minutes for a Limit override', true);
-                return;
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Budget saved for ' + category, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
             }
-            try {
-                const data = await postForm('/api/budgets/overrides', {
-                    username: PAGE_USERNAME, comm: comm, mode: mode,
-                    minutes: minutes || ''
-                });
-                if (data.success) {
-                    showToast('Override saved for ' + comm, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
         }
+    }
 
-        async function clearOverride(button) {
-            const comm = button.getAttribute('data-comm');
-            try {
-                const data = await postForm('/api/budgets/overrides', {
-                    username: PAGE_USERNAME, comm: comm, mode: 'none'
-                });
-                if (data.success) {
-                    showToast('Override cleared for ' + comm, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function addAppOverride() {
-            const commInput = document.getElementById('override-comm');
-            const modeEl = document.getElementById('override-add-mode');
-            const minutesEl = document.getElementById('override-add-minutes');
-            const comm = (commInput && commInput.value || '').trim();
-            const mode = modeEl ? modeEl.value : 'limit';
-            const minutes = minutesEl ? minutesEl.value : '';
-            if (!comm) { showToast('Enter an app command (comm)', true); return; }
-            if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
-                showToast('Enter minutes for a Limit override', true);
-                return;
-            }
-            try {
-                const data = await postForm('/api/budgets/overrides', {
-                    username: PAGE_USERNAME, comm: comm, mode: mode,
-                    minutes: mode === 'limit' ? minutes : ''
-                });
-                if (data.success) {
-                    showToast('Override saved for ' + comm, false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        function windowTargetTypeChanged() {
-            const type = document.getElementById('window-target-type').value;
-            const catSel = document.getElementById('window-category-target');
-            const appInput = document.getElementById('window-app-target');
-            const isApp = type === 'app';
-            if (catSel) catSel.style.display = isApp ? 'none' : '';
-            if (appInput) appInput.style.display = isApp ? '' : 'none';
-        }
-
-        function selectedWindowDays() {
-            const days = [];
-            document.querySelectorAll('.window-day').forEach(cb => {
-                if (cb.checked) days.push(cb.value);
+    // Deliberate parent actions, instantly reversible — no confirm
+    // (same convention as one-click bonus grants and Hide/Show).
+    async function freezeCategory(username, category) {
+        try {
+            const resp = await fetch('/api/budgets/freeze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
             });
-            return days;
-        }
-
-        async function saveWindow() {
-            const type = document.getElementById('window-target-type').value;
-            const target = type === 'app'
-                ? (document.getElementById('window-app-target').value || '').trim()
-                : document.getElementById('window-category-target').value;
-            const days = selectedWindowDays();
-            const start = toHHMM(
-                document.querySelector('select[name="window_start_hour"]').value,
-                document.querySelector('select[name="window_start_minute"]').value,
-                document.querySelector('select[name="window_start_meridiem"]').value);
-            const end = toHHMM(
-                document.querySelector('select[name="window_end_hour"]').value,
-                document.querySelector('select[name="window_end_minute"]').value,
-                document.querySelector('select[name="window_end_meridiem"]').value);
-            const allowance = document.getElementById('window-allowance').value;
-            if (!target) { showToast('Choose a window target', true); return; }
-            if (days.length === 0) { showToast('Select at least one day', true); return; }
-            if (start === null || end === null || start === end) {
-                showToast('Select a start and end time', true);
-                return;
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Frozen ' + category, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
             }
-            try {
-                const data = await postForm('/api/budgets/windows', {
-                    username: PAGE_USERNAME, action: 'set',
-                    target_type: type, target: target,
-                    days: days.join(','), start: start, end: end,
-                    allowance_minutes: allowance, enabled: '1'
-                });
-                if (data.success) {
-                    showToast('Window saved', false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
         }
+    }
 
-        async function toggleWindow(checkbox) {
-            const windowId = checkbox.getAttribute('data-window-id');
-            try {
-                const data = await postForm('/api/budgets/windows', {
-                    username: PAGE_USERNAME, action: 'update',
-                    window_id: windowId, enabled: checkbox.checked ? '1' : '0'
-                });
-                if (data.success) {
-                    showToast(checkbox.checked ? 'Window enabled' : 'Window disabled', false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                    checkbox.checked = !checkbox.checked;
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
+    async function unfreezeCategory(username, category) {
+        try {
+            const resp = await fetch('/api/budgets/unfreeze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Resumed ' + category, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function resumeCategory(username, category) {
+        // Back-compat alias: the server keeps /api/budgets/resume, and
+        // old callers land here. New UI calls unfreezeCategory.
+        await unfreezeCategory(username, category);
+    }
+
+    // -------- per-app overrides + weekly windows --------
+
+    async function postForm(path, params) {
+        const resp = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+            body: new URLSearchParams(params).toString()
+        });
+        return resp.json();
+    }
+
+    // Set/clear a per-app override from a process-group row.
+    // The comm travels via the button's data-comm (no JS string literal).
+    async function applyOverride(button) {
+        const comm = button.getAttribute('data-comm');
+        const wrap = button.closest('.app-override');
+        const mode = wrap.querySelector('.override-mode').value;
+        const minutes = wrap.querySelector('.override-minutes').value;
+        if (!mode) { showToast('Choose an override mode', true); return; }
+        if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
+            showToast('Enter minutes for a Limit override', true);
+            return;
+        }
+        try {
+            const data = await postForm('/api/budgets/overrides', {
+                username: PAGE_USERNAME, comm: comm, mode: mode,
+                minutes: minutes || ''
+            });
+            if (data.success) {
+                showToast('Override saved for ' + comm, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function clearOverride(button) {
+        const comm = button.getAttribute('data-comm');
+        try {
+            const data = await postForm('/api/budgets/overrides', {
+                username: PAGE_USERNAME, comm: comm, mode: 'none'
+            });
+            if (data.success) {
+                showToast('Override cleared for ' + comm, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function addAppOverride() {
+        const commInput = document.getElementById('override-comm');
+        const modeEl = document.getElementById('override-add-mode');
+        const minutesEl = document.getElementById('override-add-minutes');
+        const comm = (commInput && commInput.value || '').trim();
+        const mode = modeEl ? modeEl.value : 'limit';
+        const minutes = minutesEl ? minutesEl.value : '';
+        if (!comm) { showToast('Enter an app command (comm)', true); return; }
+        if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
+            showToast('Enter minutes for a Limit override', true);
+            return;
+        }
+        try {
+            const data = await postForm('/api/budgets/overrides', {
+                username: PAGE_USERNAME, comm: comm, mode: mode,
+                minutes: mode === 'limit' ? minutes : ''
+            });
+            if (data.success) {
+                showToast('Override saved for ' + comm, false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    function windowTargetTypeChanged() {
+        const type = document.getElementById('window-target-type').value;
+        const catSel = document.getElementById('window-category-target');
+        const appInput = document.getElementById('window-app-target');
+        const isApp = type === 'app';
+        if (catSel) catSel.style.display = isApp ? 'none' : '';
+        if (appInput) appInput.style.display = isApp ? '' : 'none';
+    }
+
+    function selectedWindowDays() {
+        const days = [];
+        document.querySelectorAll('.window-day').forEach(cb => {
+            if (cb.checked) days.push(cb.value);
+        });
+        return days;
+    }
+
+    async function saveWindow() {
+        const type = document.getElementById('window-target-type').value;
+        const target = type === 'app'
+            ? (document.getElementById('window-app-target').value || '').trim()
+            : document.getElementById('window-category-target').value;
+        const days = selectedWindowDays();
+        const start = toHHMM(
+            document.querySelector('select[name="window_start_hour"]').value,
+            document.querySelector('select[name="window_start_minute"]').value,
+            document.querySelector('select[name="window_start_meridiem"]').value);
+        const end = toHHMM(
+            document.querySelector('select[name="window_end_hour"]').value,
+            document.querySelector('select[name="window_end_minute"]').value,
+            document.querySelector('select[name="window_end_meridiem"]').value);
+        const allowance = document.getElementById('window-allowance').value;
+        if (!target) { showToast('Choose a window target', true); return; }
+        if (days.length === 0) { showToast('Select at least one day', true); return; }
+        if (start === null || end === null || start === end) {
+            showToast('Select a start and end time', true);
+            return;
+        }
+        try {
+            const data = await postForm('/api/budgets/windows', {
+                username: PAGE_USERNAME, action: 'set',
+                target_type: type, target: target,
+                days: days.join(','), start: start, end: end,
+                allowance_minutes: allowance, enabled: '1'
+            });
+            if (data.success) {
+                showToast('Window saved', false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function toggleWindow(checkbox) {
+        const windowId = checkbox.getAttribute('data-window-id');
+        try {
+            const data = await postForm('/api/budgets/windows', {
+                username: PAGE_USERNAME, action: 'update',
+                window_id: windowId, enabled: checkbox.checked ? '1' : '0'
+            });
+            if (data.success) {
+                showToast(checkbox.checked ? 'Window enabled' : 'Window disabled', false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
                 checkbox.checked = !checkbox.checked;
             }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+            checkbox.checked = !checkbox.checked;
         }
+    }
 
-        async function clearWindow(button) {
-            const windowId = button.getAttribute('data-window-id');
-            if (!confirm('Delete this weekly window? Its target freeze is released.')) return;
-            try {
-                const data = await postForm('/api/budgets/windows', {
-                    username: PAGE_USERNAME, action: 'clear',
-                    window_id: windowId
-                });
-                if (data.success) {
-                    showToast('Window deleted', false);
-                    refreshUserLive();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
+    async function clearWindow(button) {
+        const windowId = button.getAttribute('data-window-id');
+        const ok = await pcConfirm({
+            title: 'Delete weekly window',
+            body: 'Delete this weekly window? Its target freeze is released.',
+            confirmLabel: 'Delete window',
+            danger: true
+        });
+        if (!ok) return;
+        try {
+            const data = await postForm('/api/budgets/windows', {
+                username: PAGE_USERNAME, action: 'clear',
+                window_id: windowId
+            });
+            if (data.success) {
+                showToast('Window deleted', false);
+                refreshUserLive();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
             }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
         }
+    }
 
-        // Targeted refresh: only status, processes, and budget cells update.
-        // Bedtime and budget-limit inputs are never touched. Every 10s.
-        // One immediate render on load so expand works on the initial
-        // server markup without waiting for the first poll.
-        refreshUserLive();
-        setInterval(refreshUserLive, 10000);
-    </script>
-</body>
-</html>
+    // Targeted refresh: only status, processes, and budget cells update.
+    // Bedtime and budget-limit inputs are never touched. Every 10s.
+    // One immediate render on load so expand works on the initial
+    // server markup without waiting for the first poll.
+    refreshUserLive();
+    setInterval(pollTick, 10000);
+</script>
+{% endblock %}
