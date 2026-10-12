@@ -1,10 +1,436 @@
 {% extends "base.html" %}
-{# Time budgets section (/budgets) — Screen 3. Built out in the Screen 3 commit. #}
-{% from '_partials/flash.html' import pc_empty %}
+{# =========================================================================
+   Time budgets (/budgets) — design-exports/SPEC.md Screen 3.
+
+   The same live budget data the per-child page renders, as the standalone
+   "Time rules" budgets screen. Desktop table (Category | Used today | Daily
+   limit | State | Action) that becomes labelled cards under 960px via the
+   .pc-table--stack pattern. Every edit posts to the existing /api/budgets*
+   endpoints; nothing here invents backend state.
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty, pc_skeleton %}
+
 {% block title %}Parental Controls — Time budgets{% endblock %}
+{% block shell_class %}{% endblock %}
+
 {% block content %}
 <p class="pc-eyebrow">Time rules</p>
-<h1 class="pc-page-title">Time budgets</h1>
-<p class="pc-subtitle">Daily limits and current usage{% if username %} for {{ username }}{% endif %}.</p>
-<div class="pc-card">{{ pc_empty('Time budgets', 'This screen is being translated.') }}</div>
+<div class="pc-toolbar">
+    <div>
+        <h1 class="pc-page-title">Time budgets</h1>
+        <p class="pc-subtitle">Daily limits and current usage{% if username %} for {{ username }}{% endif %}.</p>
+    </div>
+    <div class="pc-toolbar__actions">
+        <button type="button" class="pc-btn pc-btn--primary" onclick="saveAllBudgets()">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-save"/></svg>Save all changes
+        </button>
+    </div>
+</div>
+
+{% macro time_select(prefix, label, part) -%}
+{# 12-hour edit control (no native clock picker; see tests/test_time12h). #}
+{% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
+<span class="pc-time">
+<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+{% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
+</select>
+<span class="pc-time__sep">:</span>
+<select name="{{ prefix }}_minute" class="pc-input" required aria-label="{{ label }} minute">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+{% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
+</select>
+<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+<option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
+<option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
+</select>
+</span>
+{%- endmacro %}
+
+{# Filter row: user picker + date placeholder + refresh status. #}
+<div class="pc-card">
+    <div class="pc-inline-form">
+        <div class="pc-field">
+            <label class="pc-field__label" for="budget-user">User</label>
+            <select id="budget-user" class="pc-input" onchange="switchBudgetUser(this.value)">
+                {% for u in users %}
+                <option value="{{ u.username }}"{% if u.username == username %} selected{% endif %}>{{ u.username }}</option>
+                {% else %}
+                <option value="{{ username }}" selected>{{ username or 'No accounts' }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="budget-date">Date</label>
+            <select id="budget-date" class="pc-input">
+                <option selected>Today</option>
+            </select>
+            <span class="pc-field__hint">Historical dates are not stored yet.</span>
+        </div>
+        <span class="pc-meta">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>
+            Last refreshed just now
+        </span>
+    </div>
+</div>
+
+{% if username and budget_state %}
+{# App budgets table (table -> labelled cards under 960px). #}
+<section class="pc-card" aria-labelledby="app-budgets-heading">
+    <div class="pc-card__header">
+        <h2 class="pc-card__title" id="app-budgets-heading">App budgets</h2>
+        <span class="pc-meta">Daily limits and current usage for {{ username }}.</span>
+    </div>
+    <div class="table-responsive">
+    <table class="pc-table pc-table--stack" id="budgets-table">
+        <thead>
+            <tr>
+                <th scope="col">Category</th>
+                <th scope="col">Used today</th>
+                <th scope="col">Daily limit</th>
+                <th scope="col">State</th>
+                <th scope="col">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cat in categories %}
+            {% set b = budget_state[cat] %}
+            {% set limit_min = b.minutes|int if b.minutes else 0 %}
+            {% set used_min = b.used_minutes|int %}
+            {% set pct = [(used_min * 100 // limit_min) if limit_min else 0, 100]|min %}
+            <tr id="budget-row-{{ cat }}">
+                <td data-label="Category">
+                    <strong>{{ category_labels[cat] }}</strong>
+                    <br>
+                    <a class="pc-hint" href="/processes?user={{ username }}" title="Set a per-app override on the Processes screen">App override</a>
+                </td>
+                <td id="budget-used-{{ cat }}" data-label="Used today">{{ b.used_minutes|hm }}</td>
+                <td data-label="Daily limit">
+                    <span class="pc-row">
+                        <span class="pc-duration__unit">h</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours">
+                        <span class="pc-duration__unit">m</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes">
+                    </span>
+                </td>
+                <td id="budget-status-{{ cat }}" data-label="State">
+                    {% if b.frozen and b.paused and b.manual_frozen %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit (manual)</span>
+                    {% elif b.paused %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit</span>
+                    {% elif b.frozen %}<span class="badge-frozen pc-chip pc-chip--info">Frozen — by parent</span>
+                    {% elif b.exhausted %}<span class="badge-paused pc-chip pc-chip--danger">Exhausted</span>
+                    {% elif b.minutes %}<span class="badge-frozen pc-chip pc-chip--ok">Active</span>
+                    {% else %}<span class="pc-chip pc-chip--neutral">Unlimited</span>{% endif %}
+                    {% if b.window_active %}<span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}
+                    <div class="pc-meter{% if b.frozen or b.exhausted %} pc-meter--danger{% elif pct >= 80 %} pc-meter--warn{% endif %}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}" aria-label="{{ category_labels[cat] }} usage"><span class="pc-meter__fill" style="--pc-meter-value: {{ pct }}%"></span></div>
+                </td>
+                <td data-label="Action" class="actions pc-row">
+                    <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
+                    {% if b.frozen %}
+                    <button type="button" class="btn-unlock pc-btn pc-btn--sm pc-btn--primary" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
+                    {% elif b.minutes %}
+                    <button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+
+{# Weekly windows (recurring allowances). #}
+<section class="pc-card" aria-labelledby="weekly-windows-heading">
+    <div class="pc-card__header">
+        <h2 class="pc-card__title" id="weekly-windows-heading">Weekly windows</h2>
+        <span class="pc-meta">Recurring allowances for school and weekend schedules.</span>
+    </div>
+    {% if overrides and overrides.windows and overrides.windows|length > 0 %}
+    <div class="table-responsive">
+    <table class="pc-table pc-table--stack">
+        <thead>
+            <tr><th scope="col">Target</th><th scope="col">Days</th><th scope="col">Time</th><th scope="col">Allowance</th><th scope="col">Enabled</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+            {% for w in overrides.windows %}
+            <tr class="window-row" data-window-id="{{ w.id }}">
+                <td data-label="Target">{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
+                <td data-label="Days">{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                <td data-label="Time">{{ w.start|twelve }}–{{ w.end|twelve }}</td>
+                <td class="window-allowance" data-label="Allowance">{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}</td>
+                <td data-label="Enabled"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
+                <td data-label=""><button type="button" class="btn-unfreeze pc-btn pc-btn--sm pc-btn--danger" data-window-id="{{ w.id }}" onclick="removeWindow(this)">Remove window</button></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p id="windows-empty">No weekly windows configured.</p>
+    {% endif %}
+
+    <details class="pc-disclosure" id="weekly-window-add">
+        <summary>Add weekly window</summary>
+        <div class="pc-disclosure__body">
+            <div class="pc-field">
+                <label class="pc-field__label" for="window-target-type">Target type</label>
+                <select id="window-target-type" class="pc-input" onchange="windowTargetTypeChanged()">
+                    <option value="category">Category</option>
+                    <option value="app">App</option>
+                </select>
+            </div>
+            <div class="pc-field">
+                <label class="pc-field__label" for="window-category-target">Category</label>
+                <select id="window-category-target" class="pc-input">
+                    {% for cat in categories %}<option value="{{ cat }}">{{ category_labels[cat] }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="pc-field">
+                <label class="pc-field__label" for="window-app-target">App</label>
+                <input id="window-app-target" class="pc-input" list="installed-apps" placeholder="App command (e.g. steam)" style="display:none;">
+            </div>
+            <div class="pc-field">
+                <span class="pc-field__label">Days</span>
+                <span class="pc-row">
+                {% for label in day_labels %}
+                <label class="pc-daybtn"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> <span>{{ label }}</span></label>
+                {% endfor %}
+                </span>
+            </div>
+            <div class="pc-field">
+                <span class="pc-field__label">From</span>
+                {{ time_select('window_start', 'Window start', {'hour': 4, 'minute': 0, 'meridiem': 'PM'}) }}
+                <span class="pc-field__label">to</span>
+                {{ time_select('window_end', 'Window end', {'hour': 8, 'minute': 0, 'meridiem': 'PM'}) }}
+            </div>
+            <div class="pc-field">
+                <span class="pc-field__label">Allowance</span>
+                <span class="pc-row">
+                    <span class="pc-duration__unit">h</span>
+                    <input type="number" id="window-allowance-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" value="1" placeholder="h" aria-label="Window allowance hours">
+                    <span class="pc-duration__unit">m</span>
+                    <input type="number" id="window-allowance" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" value="30" placeholder="m" aria-label="Window allowance minutes">
+                </span>
+            </div>
+            <div class="pc-card__footer">
+                <button type="button" class="btn-bedtime-save pc-btn pc-btn--primary" onclick="addWindow()">Add weekly window</button>
+            </div>
+        </div>
+    </details>
+    <datalist id="installed-apps">{% for comm in app_names %}<option value="{{ comm }}">{% endfor %}</datalist>
+</section>
+
+{# Hours + minutes input specimen (design Screen 3). #}
+<section class="pc-card" aria-labelledby="hm-specimen-heading">
+    <h2 class="pc-card__title" id="hm-specimen-heading">Hours + minutes input</h2>
+    <div class="pc-row">
+        <span class="pc-duration__unit">h</span>
+        <input type="number" class="pc-input" style="width: 5rem;" min="0" max="23" step="1" value="2" aria-label="Hours (0-23)">
+        <span class="pc-field__hint">Hours (0–23)</span>
+        <span class="pc-duration__unit">m</span>
+        <input type="number" class="pc-input" style="width: 5rem;" min="0" max="59" step="1" value="30" aria-label="Minutes (0-59)">
+        <span class="pc-field__hint">Minutes (0–59)</span>
+    </div>
+</section>
+
+{# App override modal specimen (design Screen 3). #}
+<section class="pc-card" aria-labelledby="override-specimen-heading">
+    <h2 class="pc-card__title" id="override-specimen-heading">App override</h2>
+    <p class="pc-meta">Steam override</p>
+    <table class="pc-table pc-table--stack">
+        <thead><tr><th scope="col">App</th><th scope="col">Override</th></tr></thead>
+        <tbody>
+            <tr><td data-label="App">Steam</td><td data-label="Override">Unlimited</td></tr>
+            <tr><td data-label="App">Firefox</td><td data-label="Override">45m allowance</td></tr>
+            <tr><td data-label="App">YouTube</td><td data-label="Override">Unlimited</td></tr>
+        </tbody>
+    </table>
+    <p class="pc-hint">Specimen only — set real per-app overrides on the Processes screen.</p>
+    <button type="button" class="pc-btn pc-btn--primary pc-btn--block" disabled>Done</button>
+</section>
+
+{# States row (design Screen 3). #}
+<section class="pc-card" aria-labelledby="budget-states-heading">
+    <h2 class="pc-card__title" id="budget-states-heading">States</h2>
+    <div class="pc-grid pc-grid--2">
+        <div class="pc-card">{{ pc_empty('No app budgets yet', 'Add category') }}</div>
+        <div class="pc-card">{{ pc_skeleton(3, 'Loading budgets…') }}</div>
+        <div class="pc-card pc-card--error">
+            <h3 class="pc-card__title">Error</h3>
+            <p>Unable to load budgets</p>
+            <button type="button" class="pc-btn pc-btn--ghost" onclick="window.location.reload()">Retry</button>
+        </div>
+        <div class="pc-card pc-card--muted">
+            <h3 class="pc-card__title">Stale</h3>
+            <p>Last refreshed 4 min ago</p>
+        </div>
+        <div class="pc-card pc-card--muted">
+            <h3 class="pc-card__title">Offline</h3>
+            <p>Offline — edits unavailable</p>
+            <button type="button" class="pc-btn pc-btn--primary" disabled>Save all changes</button>
+        </div>
+    </div>
+</section>
+{% else %}
+<section class="pc-card">{{ pc_empty('No app budgets yet', 'No human accounts were found on this system.') }}</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    const BUDGET_USER = {{ username|tojson }};
+    const CATEGORIES = {{ categories|tojson }};
+    const CATEGORY_LABELS = {{ category_labels|tojson }};
+
+    function showToast(msg, isError) {
+        if (window.pcToast) { window.pcToast(msg, isError ? 'error' : 'success'); }
+    }
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function composeDuration(hoursEl, minsEl) {
+        const hStr = ((hoursEl && hoursEl.value) || '').trim();
+        const mStr = ((minsEl && minsEl.value) || '').trim();
+        if (hStr === '' && mStr === '') return '';
+        const h = parseInt(hStr || '0', 10);
+        const m = parseInt(mStr || '0', 10);
+        if (isNaN(h) || isNaN(m) || h < 0 || h > 99 || m < 0 || m > 59) return null;
+        return h * 60 + m;
+    }
+    function toHHMM(hour, minute, meridiem) {
+        if (hour === '' || minute === '' || meridiem === '') return null;
+        const h = parseInt(hour, 10);
+        if (isNaN(h) || h < 1 || h > 12) return null;
+        if (!/^\d{2}$/.test(String(minute))) return null;
+        const suffix = String(meridiem).toUpperCase();
+        if (suffix !== 'AM' && suffix !== 'PM') return null;
+        let h24 = h % 12;
+        if (suffix === 'PM') h24 += 12;
+        return `${String(h24).padStart(2, '0')}:${minute}`;
+    }
+
+    function switchBudgetUser(name) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('user', name);
+        window.location.href = u.toString();
+    }
+
+    async function post(path, body) {
+        const resp = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+            body: body,
+        });
+        return resp.json();
+    }
+
+    async function saveBudget(username, cat) {
+        const minutes = composeDuration(
+            document.getElementById('budget-' + cat + '-hours'),
+            document.getElementById('budget-' + cat + '-minutes'));
+        if (minutes === null) { showToast('Enter whole hours (0-99) and minutes (0-59)', true); return; }
+        try {
+            const data = await post('/api/budgets', `username=${encodeURIComponent(username)}&category=${encodeURIComponent(cat)}&minutes=${encodeURIComponent(minutes)}`);
+            if (data.success) { showToast('Budget saved for ' + cat, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    async function saveAllBudgets() {
+        if (!BUDGET_USER) { return; }
+        let failed = 0;
+        for (const cat of CATEGORIES) {
+            const hoursEl = document.getElementById('budget-' + cat + '-hours');
+            if (!hoursEl) continue;
+            const minutes = composeDuration(hoursEl, document.getElementById('budget-' + cat + '-minutes'));
+            if (minutes === null) { failed++; continue; }
+            try {
+                const data = await post('/api/budgets', `username=${encodeURIComponent(BUDGET_USER)}&category=${encodeURIComponent(cat)}&minutes=${encodeURIComponent(minutes)}`);
+                if (!data.success) failed++;
+            } catch (e) { failed++; }
+        }
+        if (failed) { showToast('Some budgets could not be saved', true); }
+        else { showToast('All budgets saved', false); window.location.reload(); }
+    }
+
+    async function freezeCategory(username, cat) {
+        try {
+            const data = await post('/api/budgets/freeze', `username=${encodeURIComponent(username)}&category=${encodeURIComponent(cat)}`);
+            if (data.success) { showToast('Froze ' + cat, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    async function unfreezeCategory(username, cat) {
+        try {
+            const data = await post('/api/budgets/unfreeze', `username=${encodeURIComponent(username)}&category=${encodeURIComponent(cat)}`);
+            if (data.success) { showToast('Unfroze ' + cat, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    function windowTargetTypeChanged() {
+        const isApp = document.getElementById('window-target-type').value === 'app';
+        document.getElementById('window-category-target').style.display = isApp ? 'none' : '';
+        document.getElementById('window-app-target').style.display = isApp ? '' : 'none';
+    }
+
+    function selectedWindowDays() {
+        return Array.from(document.querySelectorAll('.window-day:checked')).map(c => c.value).join(',');
+    }
+
+    async function addWindow() {
+        if (!BUDGET_USER) { return; }
+        const targetType = document.getElementById('window-target-type').value;
+        const target = targetType === 'app'
+            ? document.getElementById('window-app-target').value.trim()
+            : document.getElementById('window-category-target').value;
+        if (!target) { showToast('Pick a target first', true); return; }
+        const days = selectedWindowDays();
+        const start = toHHMM(
+            document.querySelector('[name="window_start_hour"]').value,
+            document.querySelector('[name="window_start_minute"]').value,
+            document.querySelector('[name="window_start_meridiem"]').value);
+        const end = toHHMM(
+            document.querySelector('[name="window_end_hour"]').value,
+            document.querySelector('[name="window_end_minute"]').value,
+            document.querySelector('[name="window_end_meridiem"]').value);
+        if (!days || !start || !end) { showToast('Pick days, a start and an end', true); return; }
+        const allowance = composeDuration(
+            document.getElementById('window-allowance-hours'),
+            document.getElementById('window-allowance'));
+        if (allowance === null || allowance < 1) { showToast('Enter an allowance', true); return; }
+        try {
+            const body = `username=${encodeURIComponent(BUDGET_USER)}&action=set&target_type=${encodeURIComponent(targetType)}&target=${encodeURIComponent(target)}&days=${encodeURIComponent(days)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&allowance_minutes=${encodeURIComponent(allowance)}&enabled=1`;
+            const data = await post('/api/budgets/windows', body);
+            if (data.success) { showToast('Weekly window added', false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    async function removeWindow(button) {
+        const id = button.getAttribute('data-window-id');
+        const ok = await window.pcConfirm({
+            title: 'Remove this weekly window?',
+            body: 'The recurring allowance stops applying immediately.',
+            confirmLabel: 'Confirm remove',
+            danger: true,
+        });
+        if (!ok) { return; }
+        try {
+            const data = await post('/api/budgets/windows', `username=${encodeURIComponent(BUDGET_USER)}&action=clear&window_id=${encodeURIComponent(id)}`);
+            if (data.success) { showToast('Window removed', false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    async function toggleWindow(checkbox) {
+        const id = checkbox.getAttribute('data-window-id');
+        try {
+            const data = await post('/api/budgets/windows', `username=${encodeURIComponent(BUDGET_USER)}&action=update&window_id=${encodeURIComponent(id)}&enabled=${checkbox.checked ? 1 : 0}`);
+            if (!data.success) { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+</script>
 {% endblock %}
