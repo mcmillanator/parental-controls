@@ -20,7 +20,7 @@ if not os.path.exists(os.path.join(APP_DIR, 'app.py')):
 
 sys.path.insert(0, APP_DIR)
 
-from app import enforce_bedtime, load_bedtime  # noqa: E402
+from app import enforce_bedtime, get_lock_status, load_bedtime  # noqa: E402
 try:
     from app import notify_user  # noqa: E402
 except ImportError:
@@ -33,8 +33,12 @@ if __name__ == '__main__':
     try:
         # tick_budgets() runs budget enforcement first, then the freezer
         # watchdog (same pass), so this timer path self-heals stuck cgroup
-        # freezes exactly like the app's background thread does.
+        # freezes exactly like the app's background thread does. Locked
+        # accounts bill nothing: get_lock_status (sudo passwd -S, already
+        # covered by the sudoers grants) feeds account_locked the same way
+        # the app thread does.
         budgets.tick_budgets(load_bedtime(), datetime.now(),
-                             notify=notify_user, run_watchdog=True)
+                             notify=notify_user, run_watchdog=True,
+                             account_locked=lambda u: get_lock_status(u)[0])
     except Exception as e:
         print(f'budget tick failed: {e}')

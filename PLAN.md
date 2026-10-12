@@ -165,7 +165,7 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - Per-category budgets first; apps displayed grouped by category; per-app overrides deferred to a later phase
 - Paused apps auto-resume at the next window (plus a manual Resume button for the parent)
 - Budget day resets at bedtime end (midnight fallback when no bedtime is set)
-- Background-idle must NOT burn budget (rules out raw ETIME accounting); CPU-time deltas until a session agent exists
+- Background-idle must NOT burn budget (rules out raw ETIME accounting); CPU-time deltas until a session agent exists. A **locked** account (manual Lock, Lock Screen, bedtime auto-lock) must NOT burn budget either — locked ticks advance the accounting baselines without billing, so the first tick after unlock bills only new activity, never the locked window
 - Enforcement may eventually need a per-user session agent (focus time, warnings) — not this phase
 
 ### Approved decisions (2026-10-10, bonus time — parent)

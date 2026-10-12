@@ -918,9 +918,11 @@ def bedtime_loop():
             traceback.print_exc()
         try:
             # Per-category time budgets: CPU-time accounting + cgroup
-            # freezer enforcement, same 60s cadence as bedtime.
+            # freezer enforcement, same 60s cadence as bedtime. Locked
+            # accounts bill nothing (get_lock_status feeds account_locked).
             budgets.tick_budgets(load_bedtime(), datetime.now(),
-                                 notify=notify_user)
+                                 notify=notify_user,
+                                 account_locked=lambda u: get_lock_status(u)[0])
         except Exception:
             traceback.print_exc()
         time.sleep(60)
