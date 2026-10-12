@@ -1149,6 +1149,98 @@ class TestVerifyWaitsForActive(unittest.TestCase):
         self.assertIn('if [ "$MODE" = "tls" ]; then', region)
 
 
+class TestVerifyProbeRetries(unittest.TestCase):
+    """install.sh's verify-step HTTP probes must retry the slow cheroot bind.
+
+    Regression (observed live on --tls installs): the unit reaches `active`
+    while cheroot is still binding its socket, so a single HTTP probe can
+    return `000` and print 'WARNING: unexpected status' on a perfectly
+    healthy panel; the install-time healthcheck one-shot hit the same race
+    and printed 'health probe -> FAILED'. Every install-time probe must
+    retry for a bounded window (1s apart) until the panel answers with the
+    expected code (200/302 -- under --cacert the TLS handshake is verified
+    on every attempt, so a 302 there is always TLS-validated), warning only
+    on a still-failing probe; and the health-probe step must first wait for
+    that same bind-ready window so FAILED is reserved for broken panels.
+    """
+
+    def _region(self):
+        """From the '== 8/8 verify ==' header through the 'Next steps:' line."""
+        script = read('install.sh')
+        start = script.index('== 8/8 verify ==')
+        end = script.index('Next steps:')
+        return script[start:end]
+
+    def _code_lines(self, region):
+        return [l.strip() for l in region.splitlines()
+                if l.strip() and not l.strip().startswith('#')]
+
+    def _probe_fn_body(self, region):
+        """The probe_http() function body between its braces."""
+        return region.split('probe_http() {', 1)[1].split('\n}', 1)[0]
+
+    def _continued_lines(self, region):
+        """Logical statements with backslash-continuations folded together,
+        so a trailing `|| true` on the wrapped line is seen with its curl."""
+        logical, buf = [], ''
+        for line in region.splitlines():
+            line = line.rstrip()
+            buf = (buf + '\n' + line) if buf else line
+            if not line.endswith('\\'):
+                logical.append(buf)
+                buf = ''
+        if buf:
+            logical.append(buf)
+        return logical
+
+    def test_http_probe_is_inside_a_bounded_retry_loop_with_sleep(self):
+        """The single HTTP probe is a failure-swallowed assignment inside a
+        for..seq retry loop: bounded iteration, 1s sleep between attempts,
+        and an exit only on the expected codes (200/302)."""
+        body = self._probe_fn_body(self._region())
+        self.assertTrue(body,
+                        'probe_http() must be defined in the verify path')
+        self.assertIn('for _ in $(seq 1 "$1")', body)
+        self.assertRegex(body, r'http_code=\$\(curl -s -o /dev/null -w')
+        self.assertIn('|| true', body)
+        self.assertIn('sleep 1', body)
+        self.assertRegex(body, r'200\|302\) return 0')
+        # the caller bounds the window to ~20 seconds
+        self.assertIn('probe_http 20', self._region())
+
+    def test_health_probe_is_preceded_by_a_bind_ready_wait(self):
+        """The install-time healthcheck one-shot must wait for the same
+        bind-ready window before starting: FAILED is for broken panels, not
+        for a socket that is still binding."""
+        region = self._region()
+        code = self._code_lines(region)
+        health = ('if systemctl start --wait --quiet '
+                  'parental-controls-healthcheck.service; then')
+        idx = code.index(health)
+        self.assertEqual(
+            code[idx - 1], 'probe_http 20 || true',
+            'the health-probe step must be immediately preceded by the '
+            'bind-ready wait')
+
+    def test_no_bare_curl_probe_remains_in_the_verify_path(self):
+        """Every curl probe in the verify path must be failure-swallowed
+        (captured with `|| true`), so a refused connection while cheroot is
+        still binding can never abort the installer under `set -euo
+        pipefail`; the retry loop and its warnings carry the verdict."""
+        region = self._region()
+        curled = 0
+        for stmt in self._continued_lines(region):
+            if '$(curl' not in stmt or 'http_code=' not in stmt:
+                continue
+            curled += 1
+            self.assertIn(
+                '|| true', stmt,
+                'verify-path curl must be failure-swallowed: %r' % (stmt,))
+        self.assertGreaterEqual(
+            curled, 2,
+            'expected the probe curl invocations (tls + plain) to remain')
+
+
 class TestSudoersTemplates(unittest.TestCase):
     def test_templates_use_placeholder_not_a_real_user(self):
         for rel in ('sudoers-parental-controls',

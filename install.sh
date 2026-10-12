@@ -524,18 +524,40 @@ else
 fi
 PROBE_HOST="$BIND_HOST"
 [ "$PROBE_HOST" = "0.0.0.0" ] && PROBE_HOST="127.0.0.1"
-if [ "$MODE" = "tls" ]; then
-    # Validated against the installed cert (--cacert: this probe must
-    # actually verify what it connects to; verification is skipped only
-    # in the credential-less healthcheck.sh probe).
-    code=$(curl -s -o /dev/null -w "%{http_code}" --cacert "$TLS_CERT" \
-        "https://${PROBE_HOST}:${BIND_PORT}/" || true)
-else
-    code=$(curl -s -o /dev/null -w "%{http_code}" \
-        "http://${PROBE_HOST}:${BIND_PORT}/" || true)
+# cheroot's cold start (venv interpreter + imports + listen) can still be
+# binding its socket a moment after the unit reports `active`, so a single
+# probe can race the bind and see `000` on a perfectly healthy panel
+# (observed live on --tls installs). Every install-time probe retries for a
+# bounded window (~20s, 1s apart) until the panel answers with the expected
+# code (200/302; with --cacert the TLS handshake is verified on every
+# attempt, so a 302 here is always a TLS-validated response); a still-failing
+# probe then warns for real.
+probe_http() {
+    http_code=000
+    for _ in $(seq 1 "$1"); do
+        if [ "$MODE" = "tls" ]; then
+            # Validated against the installed cert (--cacert: this probe must
+            # actually verify what it connects to; verification is skipped
+            # only in the credential-less healthcheck.sh probe).
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" --cacert "$TLS_CERT" \
+                "https://${PROBE_HOST}:${BIND_PORT}/" || true)
+        else
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                "http://${PROBE_HOST}:${BIND_PORT}/" || true)
+        fi
+        case "$http_code" in
+            200|302) return 0 ;;
+        esac
+        sleep 1
+    done
+    return 1
+}
+PROBE_OK=0
+if probe_http 20; then
+    PROBE_OK=1
 fi
-echo "GET / -> $code (302 login redirect expected)"
-if [ "$code" != "302" ]; then
+echo "GET / -> $http_code (302 login redirect expected)"
+if [ "$PROBE_OK" -ne 1 ]; then
     echo "WARNING: unexpected status; check journalctl -u parental-controls.service" >&2
     case "$BIND_HOST" in
         127.0.0.1|localhost|::1) ;;
@@ -568,7 +590,11 @@ else
     echo "run: sudo systemctl enable --now parental-controls-healthcheck.timer" >&2
 fi
 # Run one probe now (the same script the timer runs) so a broken panel is
-# reported at install time instead of silently on the first tick.
+# reported at install time instead of silently on the first tick. The
+# one-shot can race the same slow cheroot bind, so wait for a short
+# bind-ready window (the same bounded probe above) before starting it —
+# FAILED is then reserved for genuinely broken panels.
+probe_http 20 || true
 if systemctl start --wait --quiet parental-controls-healthcheck.service; then
     echo "health probe -> OK"
 else
