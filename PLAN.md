@@ -133,13 +133,22 @@ Phase 4 (data & accuracy):
       (one row per `(username, field)`, one stable TEXT value type,
       `load_*` reconstructs the identical whole-document dict shape),
       `schema_version` + ordered migrations (v1 whole-document → v2
-      per-field), WAL + busy timeout for the three writers,
-      backup-before-migrate (`state.db.bak.<version>`), fail-closed
-      corruption recovery, and a one-time legacy-JSON import. Atomic
-      JSON mirrors remain as the rollback copy. A corrupt store fails
-      closed rather than being silently replaced
+      per-field → v3 whole-document `overrides` config table), WAL +
+      busy timeout for the writers, backup-before-migrate
+      (`state.db.bak.<version>`), fail-closed corruption recovery, and a
+      one-time legacy-JSON import. Atomic JSON mirrors remain as the
+      rollback copy. A corrupt store fails closed rather than being
+      silently replaced
 - [ ] Per-user session agent for focus-based usage measurement (replaces CPU-delta proxy)
-- [ ] Per-app overrides and weekly budget windows (deferred from Phase 1 budgets)
+- [x] Per-app overrides and weekly budget windows (deferred from Phase 1
+      budgets) — **shipped** (`feature/overrides`, `OVERRIDES_PLAN.md`,
+      schema v3). Per-`comm` exemption/allowance overrides and recurring
+      weekly day/time windows whose allowance replaces the daily limit
+      while active (overnight wrap, auto-resume at close). New
+      `parental-<user>-app-<comm>` cgroups (watchdog + daily-reset
+      aware), fail-closed config parsing, POST endpoints with
+      CSRF/wheel protection, live-payload/UI surfacing, and CLI
+      `unfreeze-all` coverage for per-app groups
 
 Phase 5 (scale & polish):
 - [ ] Multi-device support (multiple Bazzite devices)

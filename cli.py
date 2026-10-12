@@ -73,23 +73,16 @@ def cmd_unfreeze_all(args):
     for name in sorted(names):
         if not name.startswith('parental-'):
             continue
-        rest = name[len('parental-'):]
-        # Split username/category: category is always the last dash part
-        # and must be a known category; username keeps the remainder so
-        # names containing dashes still resolve correctly.
-        parts = rest.split('-')
-        user = cat = None
-        for i in range(1, len(parts)):
-            candidate_user = '-'.join(parts[:i])
-            candidate_cat = '-'.join(parts[i:])
-            if (budgets.valid_category(candidate_cat)
-                    and budgets.valid_username(candidate_user)):
-                user, cat = candidate_user, candidate_cat
-                break
-        if user is None:
+        # Managed category (parental-<user>-<cat>) AND per-app
+        # (parental-<user>-app-<comm>) groups both thaw — the rollback
+        # escape hatch from OVERRIDES_PLAN.md §4.2. Foreign schemes are
+        # left untouched.
+        parsed = budgets.parse_managed_cgroup(name)
+        if parsed is None:
             continue
-        ok, msg = budgets.set_frozen(user, cat, False,
-                                       actor='cli:unfreeze-all')
+        username, bucket = parsed
+        ok, msg = budgets.thaw_bucket(username, bucket,
+                                      actor='cli:unfreeze-all')
         if ok:
             count += 1
         else:

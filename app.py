@@ -1030,6 +1030,30 @@ def _wheel_target_refused(username):
     return None
 
 
+def _form_bool(value, default=False):
+    """Parse a form checkbox ('1'/'0'/'on'/absent) into a bool."""
+    if value is None:
+        return default
+    return str(value).strip().lower() in ('1', 'true', 'on', 'yes')
+
+
+def _refuse_protected_budget_target(username):
+    """403 for a wheel/admin-protected target, else None.
+
+    Shared by the override/window writers: a wheel member's config must
+    be untouchable, matching the freeze/unfreeze endpoints.
+    """
+    refused = _wheel_target_refused(username)
+    if refused is not None:
+        return refused
+    if budgets.is_admin_protected(username):
+        return jsonify({
+            'success': False,
+            'error': (f'Refused: {username} is an admin and cannot be '
+                      'budget-managed')}), 403
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -1534,6 +1558,96 @@ def api_budgets_set():
     return jsonify({'success': True, 'message': msg})
 
 
+@app.route('/api/budgets/overrides', methods=['POST'])
+@require_admin
+def api_budgets_overrides():
+    """Set/clear a per-app allowance or exemption.
+
+    Form fields: username, comm, mode (limit|exempt|none), minutes.
+    `mode=exempt` is unlimited; `mode=none`/absent or `minutes<=0`
+    clears (and releases the app's freeze + thaws its group).
+    """
+    username = request.form.get('username', '').strip()
+    comm = request.form.get('comm', '').strip()
+    mode = request.form.get('mode', '').strip()
+    minutes = request.form.get('minutes', '').strip()
+    if not username:
+        return jsonify({'success': False,
+                        'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _refuse_protected_budget_target(username)
+    if refused is not None:
+        return refused
+    if not comm:
+        return jsonify({'success': False,
+                        'error': 'No command provided'}), 400
+    if not budgets.valid_comm(comm):
+        return jsonify({'success': False,
+                        'error': f'Invalid command: {comm}'}), 400
+    ok, msg = budgets.set_app_override(
+        username, comm, mode, minutes if minutes != '' else None,
+        actor=_req_actor())
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/budgets/windows', methods=['POST'])
+@require_admin
+def api_budgets_windows():
+    """Set/update/clear a recurring weekly window.
+
+    Form fields: username, action (set|update|clear), target_type
+    (category|app), target, days (csv 0-6), start, end (HH:MM),
+    allowance_minutes, enabled (1|0), window_id (update/clear).
+    """
+    username = request.form.get('username', '').strip()
+    action = (request.form.get('action', 'set').strip() or 'set')
+    target_type = request.form.get('target_type', '').strip()
+    target = request.form.get('target', '').strip()
+    window_id = request.form.get('window_id', '').strip()
+    if not username:
+        return jsonify({'success': False,
+                        'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _refuse_protected_budget_target(username)
+    if refused is not None:
+        return refused
+
+    if action == 'clear':
+        ok, msg = budgets.clear_window(
+            username, window_id=window_id or None,
+            target_type=target_type or None, target=target or None,
+            actor=_req_actor())
+    elif action == 'update' or window_id:
+        if not window_id:
+            return jsonify({'success': False,
+                            'error': 'window_id required'}), 400
+        enabled = (_form_bool(request.form.get('enabled'))
+                   if 'enabled' in request.form else None)
+        ok, msg = budgets.update_window(
+            username, window_id,
+            days=request.form.get('days') or None,
+            start=request.form.get('start') or None,
+            end=request.form.get('end') or None,
+            allowance_minutes=request.form.get('allowance_minutes') or None,
+            enabled=enabled, actor=_req_actor())
+    else:
+        ok, msg = budgets.set_window(
+            username, target_type, target,
+            request.form.get('days', ''),
+            request.form.get('start', '').strip(),
+            request.form.get('end', '').strip(),
+            request.form.get('allowance_minutes', '').strip(),
+            enabled=_form_bool(request.form.get('enabled', '1'), default=True),
+            actor=_req_actor())
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    return jsonify({'success': True, 'message': msg})
+
+
 @app.route('/api/budgets/resume', methods=['POST'])
 @require_admin
 def api_budgets_resume():
@@ -1628,6 +1742,8 @@ def user_detail(username):
                            processes=data['processes'], visible=data['visible'],
                            hidden=data['hidden'], groups=data['groups'],
                            budget_state=data['budget_state'],
+                           overrides=data.get('overrides'),
+                           app_names=data.get('app_names') or [],
                            category_labels=budgets.CATEGORY_LABELS,
                            categories=budgets.CATEGORIES,
                            day_labels=DAY_LABELS)
@@ -1685,6 +1801,9 @@ def get_user_live(username):
         # like terminals stay visible. Absent flags default to visible
         # so callers passing unmarked snapshots behave as before.
         names = budgets.build_desktop_names(username)
+        # Installed-app comms for the "add app override" datalist (covers
+        # apps not currently running).
+        app_names = sorted(names)
         budgets.mark_user_apps(processes, names, home)
         visible, hidden = budgets.apply_filter(processes, username, prefs)
         budgets.annotate_display_names(processes, names)
@@ -1701,7 +1820,10 @@ def get_user_live(username):
         hidden = budgets.group_by_comm(hidden)
     else:
         visible, hidden, groups = [], [], {c: [] for c in budgets.CATEGORIES}
-    budget_state = budgets.budget_status(username)
+        app_names = []
+    overrides_data = budgets.load_overrides()
+    user_overrides = overrides_data.get(username)
+    budget_state = budgets.budget_status(username, overrides=user_overrides)
 
     return {
         'user': user_data[0],
@@ -1710,6 +1832,8 @@ def get_user_live(username):
         'hidden': hidden,
         'groups': groups,
         'budget_state': budget_state,
+        'overrides': budgets.overrides_view(username, overrides_data),
+        'app_names': app_names,
     }
 
 
@@ -1764,6 +1888,8 @@ def api_user_live(username):
         'hidden': slim_hidden,
         'error': error,
         'budget': data['budget_state'],
+        'overrides': data.get('overrides')
+        or {'app_overrides': {}, 'windows': []},
     })
 
 

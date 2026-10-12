@@ -57,6 +57,19 @@
             margin-left: 0.5rem;
         }
         .btn-bonus { background: #4ecca3; color: #1a1a2e; }
+        .badge-window {
+            display: inline-block;
+            background: #0f3460;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .weekly-windows { background: #16213e; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+        .window-add-row input, .window-add-row select, .app-override select, .app-override input { margin: 0.15rem; }
+        .override-add { margin-top: 0.75rem; }
         button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; margin: 0.2rem; }
         button:hover { opacity: 0.85; }
         button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -316,12 +329,90 @@
                         {% if b.frozen %}{% if b.paused and b.manual_frozen %}<span class="badge-paused">Frozen — out of time + manual</span>{% elif b.paused %}<span class="badge-paused">Paused — out of time</span>{% else %}<span class="badge-frozen">Frozen — by parent</span>{% endif %}
                         <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
                         {% elif b.exhausted %}<span class="badge-paused">Exhausted</span>{% if b.minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>{% endif %}{% elif b.minutes %}OK <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% else %}<span title="Set a limit first">OK</span>{% endif %}
+                        <span class="badge-window" id="budget-window-{{ cat }}"{% if not b.window_active %} style="display:none;"{% endif %}>{% if b.window_active %}Window active{% endif %}</span>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         </div>
+    </div>
+
+    <!-- Weekly windows + per-app overrides -->
+    <div id="weekly-windows" class="weekly-windows">
+        <h2>Weekly windows &amp; app overrides</h2>
+        <p style="color:#888; font-size:0.85rem;">A weekly window is a recurring day/time range whose allowance <em>replaces</em> the daily limit while it is active (so usage can carry across midnight). An app override sets a per-app allowance, or marks an app Unlimited (never billed, never frozen).</p>
+
+        <h3 style="margin-top: 0.5rem;">Windows</h3>
+        {% if overrides and overrides.windows and overrides.windows|length > 0 %}
+        <div class="table-responsive">
+        <table class="table table-dark table-striped table-hover align-middle mb-0">
+            <thead>
+                <tr><th>Target</th><th>Days</th><th>Time</th><th>Allowance</th><th>Enabled</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for w in overrides.windows %}
+                <tr class="window-row" data-window-id="{{ w.id }}">
+                    <td>{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
+                    <td>{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                    <td>{{ w.start }}–{{ w.end }}</td>
+                    <td>{{ w.allowance_minutes }} min{% if w.window_active %} <span class="badge-window">Window active</span>{% endif %}</td>
+                    <td><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
+                    <td><button type="button" class="btn-unfreeze" data-window-id="{{ w.id }}" onclick="clearWindow(this)">Delete</button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p id="windows-empty">No weekly windows configured.</p>
+        {% endif %}
+
+        <div class="window-add-row" id="window-add" style="margin-top: 0.5rem;">
+            <select id="window-target-type" onchange="windowTargetTypeChanged()">
+                <option value="category">Category</option>
+                <option value="app">App</option>
+            </select>
+            <select id="window-category-target">
+                {% for cat in categories %}<option value="{{ cat }}">{{ category_labels[cat] }}</option>{% endfor %}
+            </select>
+            <input id="window-app-target" list="installed-apps" placeholder="comm" style="display:none;">
+            <span style="margin-left:0.5rem;">Days:</span>
+            {% for label in day_labels %}
+            <label style="font-size:0.85rem;"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> {{ label }}</label>
+            {% endfor %}
+            <span style="margin-left:0.5rem;">From {{ time_select('window_start', 'Window start', {'hour': 2, 'minute': 0, 'meridiem': 'PM'}) }} to {{ time_select('window_end', 'Window end', {'hour': 5, 'minute': 0, 'meridiem': 'PM'}) }}</span>
+            <input type="number" id="window-allowance" min="5" step="1" value="60" style="width:5rem;"> min
+            <button type="button" class="btn-bedtime-save" onclick="saveWindow()">Add window</button>
+        </div>
+
+        <h3 style="margin-top: 1rem;">App overrides</h3>
+        {% if overrides and overrides.app_overrides and overrides.app_overrides|length > 0 %}
+        <ul id="app-override-list">
+            {% for comm, ov in overrides.app_overrides.items() %}
+            <li data-override-row="{{ comm }}">
+                <strong>{{ comm }}</strong>:
+                {% if ov.mode == 'exempt' %}Unlimited{% else %}{{ ov.minutes }} min/day{% endif %}
+                <span class="override-live"></span>
+                <button type="button" class="btn-unfreeze" data-comm="{{ comm }}" onclick="clearOverride(this)">Clear</button>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p id="app-overrides-empty">No app overrides configured.</p>
+        {% endif %}
+        <div class="override-add">
+            <input id="override-comm" list="installed-apps" placeholder="app comm">
+            <select id="override-add-mode">
+                <option value="limit">Limit (min/day)</option>
+                <option value="exempt">Unlimited</option>
+            </select>
+            <input type="number" id="override-add-minutes" min="1" step="1" placeholder="min" style="width:5rem;">
+            <button type="button" class="btn-bedtime-save" onclick="addAppOverride()">Add app override</button>
+        </div>
+        <datalist id="installed-apps">
+            {% for comm in app_names %}<option value="{{ comm }}">{% endfor %}
+        </datalist>
     </div>
 
     <!-- Processes -->
@@ -361,7 +452,19 @@
                        so the row's section category is the freeze target.
                        Hidden groups may span categories ("Mixed") and get no
                        button — those categories freeze from the Budgets table. #}
-                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}</td>
+                    <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}
+                        {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
+                        <span class="app-override">
+                            {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override">Unlimited</span>{% else %}<span class="badge-count">{{ ov.minutes }} min/day</span>{% endif %}{% endif %}
+                            <select class="override-mode" data-comm="{{ group.comm }}">
+                                <option value="">Override…</option>
+                                <option value="limit">Limit</option>
+                                <option value="exempt">Unlimited</option>
+                                <option value="none">Clear</option>
+                            </select>
+                            <input type="number" class="override-minutes" min="1" step="1" style="width:4rem;" placeholder="min">
+                            <button type="button" class="btn-bedtime-save" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Set</button>
+                        </span></td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -493,6 +596,28 @@
             return ' <button type="button" class="btn-freeze" title="Freeze this category now" onclick="freezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Freeze</button>';
         }
 
+        // Per-app override control on a running process-group row. Reads
+        // the current override from the latest /live payload so the badge
+        // reflects state; the comm travels via data-comm, never a JS
+        // string literal (same escaping discipline as Hide/Show).
+        function overrideControlHtml(comm) {
+            const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
+            const ov = ovs[comm] || null;
+            let badge = '';
+            if (ov) {
+                if (ov.mode === 'exempt') badge = '<span class="badge-override">Unlimited</span>';
+                else badge = '<span class="badge-count">' + esc(ov.minutes) + ' min/day</span>';
+            }
+            return '<span class="app-override">' + badge +
+                ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
+                '<option value="">Override…</option>' +
+                '<option value="limit">Limit</option>' +
+                '<option value="exempt">Unlimited</option>' +
+                '<option value="none">Clear</option></select>' +
+                ' <input type="number" class="override-minutes" min="1" style="width:4rem;" placeholder="min">' +
+                ' <button type="button" class="btn-bedtime-save" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Set</button></span>';
+        }
+
         function groupRowsHtml(cat, group) {
             const key = groupKey(cat, group.comm);
             const isOpen = expanded.has(key);
@@ -511,7 +636,7 @@
             const action = cat === 'hidden'
                 ? '<button type="button" class="btn-show-hidden" data-comm="' + esc(group.comm) + '" onclick="showGroup(this)">Show</button>'
                 : '<button type="button" class="btn-hide" data-comm="' + esc(group.comm) + '" onclick="hideGroup(this)">Hide</button>' +
-                    freezeToggleHtml(cat);
+                    freezeToggleHtml(cat) + overrideControlHtml(group.comm);
             let middle;
             // Friendly app name where known; keys, buttons, and titles
             // below stay on comm so Hide/PIDs/expand behavior is unchanged.
@@ -748,7 +873,53 @@
                         statusEl.innerHTML = '<span title="Set a limit first">OK</span>';
                     }
                 }
+                const winEl = document.getElementById('budget-window-' + cat);
+                if (winEl) {
+                    if (b.window_active) {
+                        winEl.textContent = 'Window active';
+                        winEl.style.display = '';
+                    } else {
+                        winEl.textContent = '';
+                        winEl.style.display = 'none';
+                    }
+                }
             }
+            renderOverrideLive(data);
+        }
+
+        // Update the window-active badges and the per-app live usage from
+        // the live payload. Never touches form inputs (forms-never-touched).
+        function renderOverrideLive(data) {
+            const apps = (data.budget && data.budget.app_budgets) || {};
+            const windows = (data.overrides && data.overrides.windows) || [];
+            for (const w of windows) {
+                const row = document.querySelector('.window-row[data-window-id="' + cleanId(w.id) + '"]');
+                if (!row) continue;
+                const cell = row.children[3];
+                let badge = cell ? cell.querySelector('.badge-window') : null;
+                const active = w.target_type === 'category'
+                    ? !!(data.budget && data.budget[w.target] && data.budget[w.target].window_active)
+                    : !!(apps[w.target] && apps[w.target].window_active);
+                if (active && !badge && cell) {
+                    badge = document.createElement('span');
+                    badge.className = 'badge-window';
+                    badge.textContent = 'Window active';
+                    cell.appendChild(badge);
+                } else if (!active && badge) {
+                    badge.remove();
+                }
+            }
+            document.querySelectorAll('[data-override-row]').forEach(li => {
+                const comm = li.getAttribute('data-override-row');
+                const info = apps[comm];
+                const span = li.querySelector('.override-live');
+                if (span && info) {
+                    span.textContent = info.exempt
+                        ? ' — unlimited'
+                        : ' — ' + info.used_minutes + '/' + info.minutes + ' min' +
+                          (info.window_active ? ' (window)' : '');
+                }
+            });
         }
 
         function renderBonus(data) {
@@ -1079,6 +1250,185 @@
             // Back-compat alias: the server keeps /api/budgets/resume, and
             // old callers land here. New UI calls unfreezeCategory.
             await unfreezeCategory(username, category);
+        }
+
+        // -------- per-app overrides + weekly windows --------
+
+        async function postForm(path, params) {
+            const resp = await fetch(path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: new URLSearchParams(params).toString()
+            });
+            return resp.json();
+        }
+
+        // Set/clear a per-app override from a process-group row.
+        // The comm travels via the button's data-comm (no JS string literal).
+        async function applyOverride(button) {
+            const comm = button.getAttribute('data-comm');
+            const wrap = button.closest('.app-override');
+            const mode = wrap.querySelector('.override-mode').value;
+            const minutes = wrap.querySelector('.override-minutes').value;
+            if (!mode) { showToast('Choose an override mode', true); return; }
+            if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
+                showToast('Enter minutes for a Limit override', true);
+                return;
+            }
+            try {
+                const data = await postForm('/api/budgets/overrides', {
+                    username: PAGE_USERNAME, comm: comm, mode: mode,
+                    minutes: minutes || ''
+                });
+                if (data.success) {
+                    showToast('Override saved for ' + comm, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function clearOverride(button) {
+            const comm = button.getAttribute('data-comm');
+            try {
+                const data = await postForm('/api/budgets/overrides', {
+                    username: PAGE_USERNAME, comm: comm, mode: 'none'
+                });
+                if (data.success) {
+                    showToast('Override cleared for ' + comm, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function addAppOverride() {
+            const commInput = document.getElementById('override-comm');
+            const modeEl = document.getElementById('override-add-mode');
+            const minutesEl = document.getElementById('override-add-minutes');
+            const comm = (commInput && commInput.value || '').trim();
+            const mode = modeEl ? modeEl.value : 'limit';
+            const minutes = minutesEl ? minutesEl.value : '';
+            if (!comm) { showToast('Enter an app command (comm)', true); return; }
+            if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
+                showToast('Enter minutes for a Limit override', true);
+                return;
+            }
+            try {
+                const data = await postForm('/api/budgets/overrides', {
+                    username: PAGE_USERNAME, comm: comm, mode: mode,
+                    minutes: mode === 'limit' ? minutes : ''
+                });
+                if (data.success) {
+                    showToast('Override saved for ' + comm, false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        function windowTargetTypeChanged() {
+            const type = document.getElementById('window-target-type').value;
+            const catSel = document.getElementById('window-category-target');
+            const appInput = document.getElementById('window-app-target');
+            const isApp = type === 'app';
+            if (catSel) catSel.style.display = isApp ? 'none' : '';
+            if (appInput) appInput.style.display = isApp ? '' : 'none';
+        }
+
+        function selectedWindowDays() {
+            const days = [];
+            document.querySelectorAll('.window-day').forEach(cb => {
+                if (cb.checked) days.push(cb.value);
+            });
+            return days;
+        }
+
+        async function saveWindow() {
+            const type = document.getElementById('window-target-type').value;
+            const target = type === 'app'
+                ? (document.getElementById('window-app-target').value || '').trim()
+                : document.getElementById('window-category-target').value;
+            const days = selectedWindowDays();
+            const start = toHHMM(
+                document.querySelector('select[name="window_start_hour"]').value,
+                document.querySelector('select[name="window_start_minute"]').value,
+                document.querySelector('select[name="window_start_meridiem"]').value);
+            const end = toHHMM(
+                document.querySelector('select[name="window_end_hour"]').value,
+                document.querySelector('select[name="window_end_minute"]').value,
+                document.querySelector('select[name="window_end_meridiem"]').value);
+            const allowance = document.getElementById('window-allowance').value;
+            if (!target) { showToast('Choose a window target', true); return; }
+            if (days.length === 0) { showToast('Select at least one day', true); return; }
+            if (start === null || end === null || start === end) {
+                showToast('Select a start and end time', true);
+                return;
+            }
+            try {
+                const data = await postForm('/api/budgets/windows', {
+                    username: PAGE_USERNAME, action: 'set',
+                    target_type: type, target: target,
+                    days: days.join(','), start: start, end: end,
+                    allowance_minutes: allowance, enabled: '1'
+                });
+                if (data.success) {
+                    showToast('Window saved', false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
+        }
+
+        async function toggleWindow(checkbox) {
+            const windowId = checkbox.getAttribute('data-window-id');
+            try {
+                const data = await postForm('/api/budgets/windows', {
+                    username: PAGE_USERNAME, action: 'update',
+                    window_id: windowId, enabled: checkbox.checked ? '1' : '0'
+                });
+                if (data.success) {
+                    showToast(checkbox.checked ? 'Window enabled' : 'Window disabled', false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                    checkbox.checked = !checkbox.checked;
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+                checkbox.checked = !checkbox.checked;
+            }
+        }
+
+        async function clearWindow(button) {
+            const windowId = button.getAttribute('data-window-id');
+            if (!confirm('Delete this weekly window? Its target freeze is released.')) return;
+            try {
+                const data = await postForm('/api/budgets/windows', {
+                    username: PAGE_USERNAME, action: 'clear',
+                    window_id: windowId
+                });
+                if (data.success) {
+                    showToast('Window deleted', false);
+                    refreshUserLive();
+                } else {
+                    showToast('Error: ' + (data.error || 'unknown'), true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            }
         }
 
         // Targeted refresh: only status, processes, and budget cells update.

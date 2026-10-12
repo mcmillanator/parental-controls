@@ -2,8 +2,9 @@
 """SQLite-backed runtime state for parental-controls.
 
 Replaces the per-file JSON stores (``bedtime.json``, ``budgets.json``,
-``process_prefs.json``) with a single SQLite database while keeping the
-exact same ``load_*``/``save_*`` behaviour for callers:
+``process_prefs.json``, ``overrides.json``) with a single SQLite
+database while keeping the exact same ``load_*``/``save_*`` behaviour
+for callers:
 
 * one table per store with **per-field granularity**: each user's entry
   is stored as one row per named field ``(username, field, value)`` with
@@ -41,13 +42,23 @@ import os
 import sqlite3
 import tempfile
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_FILENAME = 'state.db'
 BUSY_TIMEOUT_MS = 5000
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-TABLES = ('bedtime', 'budgets', 'process_prefs')
+# Per-field stores: one row per (username, field). The v2 layout.
+PER_FIELD_TABLES = ('bedtime', 'budgets', 'process_prefs')
+# Whole-document store(s): one row per (username, doc), where ``doc`` is
+# the JSON encoding of that user's entire entry. The overrides config is
+# parent-authored, rarely written and read whole (presence checks only),
+# so per-field granularity buys nothing — the plan's JSON-doc-per-user
+# shape is kept. ``TABLES`` stays the per-field set so existing callers
+# and tests that iterate it are untouched.
+DOC_TABLES = ('overrides',)
+TABLES = PER_FIELD_TABLES
+ALL_TABLES = PER_FIELD_TABLES + DOC_TABLES
 
 # Reserved field name that holds a user's entry *whole* (as a JSON
 # value) instead of field-by-field. The per-field split only applies to
@@ -60,6 +71,7 @@ LEGACY_FILES = {
     'bedtime': 'bedtime.json',
     'budgets': 'budgets.json',
     'process_prefs': 'process_prefs.json',
+    'overrides': 'overrides.json',
 }
 
 
@@ -202,6 +214,21 @@ def _migrate_2(conn):
                 'VALUES (?, ?, ?)' % table, payload)
 
 
+def _migrate_3(conn):
+    """v3: per-app override / weekly-window config table.
+
+    A whole-document store (``username``, ``doc``), identical in shape to
+    the v1 tables: the parent-authored overrides config is read whole and
+    rarely written, so per-field granularity buys nothing. Existing v2
+    stores gain the table empty; old binaries never read it (they simply
+    ignore the extra table), so a rollback is inert apart from any
+    per-app cgroups new code may have frozen (see OVERRIDES_PLAN.md
+    §4.2). Idempotent (CREATE ... IF NOT EXISTS).
+    """
+    conn.execute('CREATE TABLE IF NOT EXISTS overrides '
+                 '(username TEXT PRIMARY KEY, doc TEXT NOT NULL)')
+
+
 MIGRATIONS = [
     (1, 'initial schema: schema_version + one JSON-document '
         'table per store (bedtime, budgets, process_prefs)',
@@ -210,6 +237,9 @@ MIGRATIONS = [
         'row per (username, field); empty/non-dict entries kept whole '
         'under the reserved $doc field',
      _migrate_2),
+    (3, 'per-app overrides + weekly budget windows: add the '
+        'whole-document overrides table',
+     _migrate_3),
 ]
 
 
@@ -279,7 +309,15 @@ def open_db(db_path):
             if not existed:
                 for table, json_path in _legacy_map_for(db_path).items():
                     data = _read_legacy_json(json_path)
-                    if data:
+                    if not data:
+                        continue
+                    if table in DOC_TABLES:
+                        conn.executemany(
+                            'INSERT OR IGNORE INTO %s '
+                            '(username, doc) VALUES (?, ?)' % table,
+                            [(u, json.dumps(doc))
+                             for u, doc in data.items()])
+                    else:
                         conn.executemany(
                             'INSERT OR IGNORE INTO %s '
                             '(username, field, value) VALUES (?, ?, ?)'
@@ -306,8 +344,11 @@ def load_table(db_path, table):
     Same contract as the old JSON loaders: missing/corrupt/unreadable
     store -> empty dict, never a crash. Per-row garbage is skipped, so
     one bad document cannot sink the whole store.
+
+    Per-field tables are reconstructed from (username, field, value)
+    rows; whole-document tables (``DOC_TABLES``) from (username, doc).
     """
-    if table not in TABLES:
+    if table not in ALL_TABLES:
         raise ValueError('Unknown state table: %r' % (table,))
     if (not os.path.exists(db_path)
             and _read_legacy_json(_legacy_map_for(db_path)[table]) is None):
@@ -319,6 +360,19 @@ def load_table(db_path, table):
     except (sqlite3.DatabaseError, OSError):
         return {}
     try:
+        if table in DOC_TABLES:
+            try:
+                rows = conn.execute(
+                    'SELECT username, doc FROM %s' % table).fetchall()
+            except sqlite3.DatabaseError:
+                return {}
+            data = {}
+            for username, doc in rows:
+                try:
+                    data[username] = json.loads(doc)
+                except (ValueError, TypeError):
+                    continue
+            return data
         try:
             rows = conn.execute(
                 'SELECT username, field, value FROM %s' % table).fetchall()
@@ -384,7 +438,7 @@ def save_table(db_path, table, data, mirror_json_path=None):
     store is NOT silently replaced: fail closed and let the rollback
     story (delete db -> re-import from mirror) handle recovery.
     """
-    if table not in TABLES:
+    if table not in ALL_TABLES:
         raise ValueError('Unknown state table: %r' % (table,))
     try:
         conn = open_db(db_path)
@@ -402,6 +456,11 @@ def save_table(db_path, table, data, mirror_json_path=None):
             for username, doc in data.items():
                 conn.execute('DELETE FROM %s WHERE username = ?' % table,
                              (username,))
+                if table in DOC_TABLES:
+                    conn.execute(
+                        'INSERT INTO %s (username, doc) VALUES (?, ?)'
+                        % table, (username, json.dumps(doc)))
+                    continue
                 conn.executemany(
                     'INSERT INTO %s (username, field, value) '
                     'VALUES (?, ?, ?)' % table,
