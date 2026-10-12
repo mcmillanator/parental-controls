@@ -25,17 +25,19 @@
 # this rule applies when the service reaches it through sudo — the form every
 # other privileged call in the app uses.
 #
-# ARGUMENT MATCHING IS REGEX-ANCHORED (^…$), not trailing-wildcard. sudo matches
-# arguments as ONE space-joined string, so a bare `*` spans whitespace AND `/`
-# — `usermod -U *` also authorized `usermod -U -p <hash> root` and
+# ARGUMENTS ARE REGEX-ANCHORED. sudoers(5): "If the arguments in a Cmnd begin
+# with the '^' character, they will be interpreted as a regular expression and
+# matched accordingly" -- the regex covers the ARGUMENTS ONLY, after the
+# command path. A trailing-wildcard argument form is unsafe: sudo matches
+# arguments as one concatenated string and `*` spans whitespace, so
+# `usermod -U *` also authorized `usermod -U -p <hash> root` and
 # `terminate-user *` authorized `terminate-user --all`. The patterns below pin
-# each argv exactly; usernames are further constrained to the app's own charset.
-# See sudo-audit.md §2 (what these rules grant) and §5 Step 3 (why regex).
-# `passwd -S` is pinned with the argument list so no other flag can ride along.
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/usermod -L [A-Za-z0-9_.-]+$, ^/usr/bin/usermod -L [A-Za-z0-9_.-]+$, ^/usr/sbin/usermod -U [A-Za-z0-9_.-]+$, ^/usr/bin/usermod -U [A-Za-z0-9_.-]+$
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/loginctl terminate-user [A-Za-z][A-Za-z0-9_.-]*$, ^/usr/bin/loginctl terminate-user [A-Za-z][A-Za-z0-9_.-]*$
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/loginctl show-user [A-Za-z0-9_.-]+ -p Sessions --value$, ^/usr/bin/loginctl show-user [A-Za-z0-9_.-]+ -p Sessions --value$
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/loginctl lock-session [A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$, ^/usr/bin/loginctl lock-session [A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/loginctl show-session [A-Za-z0-9_.-]+ -p Class -p Type$, ^/usr/bin/loginctl show-session [A-Za-z0-9_.-]+ -p Class -p Type$
-@SERVICE_USER@ ALL=(ALL) NOPASSWD: ^/usr/sbin/passwd -S [A-Za-z0-9_.-]+$, ^/usr/bin/passwd -S [A-Za-z0-9_.-]+$
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/systemd-run --machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$, ^/usr/bin/systemd-run --machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$
+# each argv; usernames are further constrained to the app's own charset and
+# `passwd -S` is pinned so no other flag can ride along. See sudo-audit.md §5.
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/usermod ^-L [A-Za-z0-9_.-]+$, /usr/bin/usermod ^-L [A-Za-z0-9_.-]+$, /usr/sbin/usermod ^-U [A-Za-z0-9_.-]+$, /usr/bin/usermod ^-U [A-Za-z0-9_.-]+$
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^terminate-user [A-Za-z][A-Za-z0-9_.-]*$, /usr/bin/loginctl ^terminate-user [A-Za-z][A-Za-z0-9_.-]*$
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^show-user [A-Za-z0-9_.-]+ -p Sessions --value$, /usr/bin/loginctl ^show-user [A-Za-z0-9_.-]+ -p Sessions --value$
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^lock-session [A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$, /usr/bin/loginctl ^lock-session [A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^show-session [A-Za-z0-9_.-]+ -p Class -p Type$, /usr/bin/loginctl ^show-session [A-Za-z0-9_.-]+ -p Class -p Type$
+@SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/passwd ^-S [A-Za-z0-9_.-]+$, /usr/bin/passwd ^-S [A-Za-z0-9_.-]+$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$, /usr/bin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$

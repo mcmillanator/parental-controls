@@ -58,9 +58,7 @@ def granted_commands(rel):
     """[(binary, argument pattern)] for every entry in a sudoers template.
 
     sudoers command specifications are comma separated after NOPASSWD:, so
-    each entry is split out and the binary separated from its arguments. An
-    anchored-ERE entry (leading `^`) carries the path inside the regex and is
-    returned as (None, regex) -- see parse_command_specs().
+    each entry is split out and the binary separated from its arguments.
     """
     out = []
     for line in rule_lines(rel):
@@ -68,9 +66,6 @@ def granted_commands(rel):
         for item in spec.split(','):
             item = item.strip()
             if not item:
-                continue
-            if item.startswith('^'):
-                out.append((None, item))
                 continue
             binary, _, args = item.partition(' ')
             out.append((binary, ' '.join(args.split())))
@@ -82,19 +77,12 @@ def authorizes(rel, argv):
 
     `argv` omits both `sudo` and the binary name (e.g. NOTIFY_ARGV). Command
     arguments are matched as a single, concatenated string against the rule's
-    argument pattern. An anchored-ERE rule (leading `^`, carried as
-    (None, pattern)) has its path baked into the pattern, so the path is
-    prepended before matching.
+    argument pattern: `^…$` is a POSIX ERE over the arguments, anything else
+    uses the shell-style wildcard rules.
     """
     joined = ' '.join(argv)
-    for binary, args in granted_commands(rel):
-        if binary is None:
-            path = args.split(' ', 1)[0].lstrip('^')
-            if re.fullmatch(args, f'{path} {joined}'):
-                return True
-        elif fnmatch.fnmatchcase(joined, args):
-            return True
-    return False
+    return any(args and _args_match(args, joined)
+               for _binary, args in granted_commands(rel))
 
 
 # The exact argv notify_user() runs — pinned by
@@ -217,10 +205,8 @@ def resolve_command(name):
 def parse_command_specs(body):
     """[(binary, argument pattern)] for the NOPASSWD specs in a sudoers body.
 
-    An anchored POSIX ERE (leading `^`) is returned as (None, regex): sudoers
-    matches such a pattern against the WHOLE command line -- binary path and
-    arguments joined -- as one string, so it cannot be split on the first
-    space the way a wildcard spec is.
+    Arguments beginning with `^` are a POSIX ERE over the arguments only
+    (sudoers(5)); they are returned verbatim and matched by _args_match.
     """
     out = []
     for line in body.splitlines():
@@ -230,9 +216,6 @@ def parse_command_specs(body):
         for item in line.split('NOPASSWD:', 1)[-1].split(','):
             item = item.strip()
             if not item:
-                continue
-            if item.startswith('^'):
-                out.append((None, item))
                 continue
             binary, _, args = item.partition(' ')
             out.append((binary, ' '.join(args.split())))
@@ -261,17 +244,10 @@ def sudoers_authorizes(rendered_body, argv):
     if path is None:
         return False
     arg_string = ' '.join(rest[1:])
-    full_line = path if not arg_string else f'{path} {arg_string}'
-    for binary, args in parse_command_specs(rendered_body):
-        if binary is None:
-            # Anchored whole-command-line regex (the hardened templates).
-            if re.fullmatch(args, full_line) is not None:
-                return True
-            continue
-        if binary and _command_matches(binary, path) \
-                and (not args or _args_match(args, arg_string)):
-            return True
-    return False
+    return any(
+        binary and _command_matches(binary, path)
+        and (not args or _args_match(args, arg_string))
+        for binary, args in parse_command_specs(rendered_body))
 
 
 def authorized_by_template(argv):
@@ -713,10 +689,10 @@ class TestSudoersCoversTheCode(unittest.TestCase):
     def test_no_mutator_rule_uses_a_bare_trailing_wildcard(self):
         """A trailing `*` on a mutating command is the bug this fixes.
 
-        `usermod -U *` spans whitespace and `/` in the argument string, so it
-        authorized root mutation. Every mutating command (usermod, loginctl,
-        tee, mkdir, passwd) must use an anchored regex instead. The notify
-        grant keeps `.* .*` deliberately: title and body are free text.
+        `usermod -U *` spans whitespace in the argument string, so it
+        authorized root mutation. Every mutating command must carry an
+        args-anchored POSIX ERE (`^…$`) instead. The notify grant keeps
+        `.* .*` deliberately: title and body are free text.
         """
         for rel in ('sudoers-parental-controls',
                     'sudoers-parental-controls-budgets'):
@@ -727,16 +703,17 @@ class TestSudoersCoversTheCode(unittest.TestCase):
                     grant = grant.strip()
                     if not grant:
                         continue
-                    parts = grant.split()
+                    parts = grant.split(None, 1)
                     if len(parts) < 2:
                         continue
-                    binary = parts[0].lstrip('^')
-                    if binary.rsplit('/', 1)[-1] in (
-                            'usermod', 'loginctl', 'tee', 'mkdir', 'passwd'):
+                    binary = parts[0].rsplit('/', 1)[-1]
+                    if binary in ('usermod', 'loginctl', 'tee', 'mkdir',
+                                  'passwd'):
+                        args = parts[1]
                         self.assertTrue(
-                            grant.startswith('^') and grant.endswith('$'),
-                            f'{rel}: mutating grant must be regex-anchored, '
-                            f'got: {grant}')
+                            args.startswith('^') and args.endswith('$'),
+                            f'{rel}: mutating grant must anchor its arguments,'
+                            f' got: {grant}')
 
     def test_residual_privilege_of_trailing_wildcards_is_now_denied(self):
         """The regex-anchored templates closed the trailing-wildcard residuals.
@@ -963,22 +940,23 @@ class TestSudoersTemplates(unittest.TestCase):
 
     def test_account_rules_cover_resolved_sbin_and_bin_paths(self):
         body = read('sudoers-parental-controls')
-        for binary in ('usermod -L', 'usermod -U',
-                       'loginctl terminate-user', 'loginctl show-user',
-                       'loginctl lock-session', 'loginctl show-session'):
-            self.assertIn(f'/usr/sbin/{binary}', body)
-            self.assertIn(f'/usr/bin/{binary}', body)
+        for verb, sub in (('usermod', '^-L'), ('usermod', '^-U'),
+                          ('loginctl', '^terminate-user'),
+                          ('loginctl', '^show-user'),
+                          ('loginctl', '^lock-session'),
+                          ('loginctl', '^show-session')):
+            for root in ('/usr/sbin', '/usr/bin'):
+                self.assertIn(f'{root}/{verb} {sub} ', body)
 
     def test_passwd_status_check_is_allowed_and_scoped(self):
         body = read('sudoers-parental-controls')
-        self.assertIn('/usr/sbin/passwd -S [A-Za-z0-9_.-]+$', body)
-        self.assertIn('/usr/bin/passwd -S [A-Za-z0-9_.-]+$', body)
+        self.assertIn('/usr/sbin/passwd ^-S [A-Za-z0-9_.-]+$', body)
+        self.assertIn('/usr/bin/passwd ^-S [A-Za-z0-9_.-]+$', body)
         # No unscoped passwd rule: every passwd entry must carry the -S flag,
-        # and the rule is anchored so no other flag (-d/-u/-e) can ride along.
+        # and -S is anchored so no other flag (-d/-u/-e) can ride along.
         for line in body.splitlines():
             if 'passwd' in line and not line.strip().startswith('#'):
-                self.assertIn('passwd -S ', line)
-                self.assertIn('^/usr/sbin/passwd -S', line)
+                self.assertIn('passwd ^-S ', line)
 
     def test_budget_rules_cover_resolved_sbin_and_bin_paths(self):
         body = read('sudoers-parental-controls-budgets')
@@ -986,8 +964,8 @@ class TestSudoersTemplates(unittest.TestCase):
             self.assertIn(f'/usr/sbin/{binary}', body)
             self.assertIn(f'/usr/bin/{binary}', body)
 
-    NOTIFY_ARGS = ('--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send '
-                   '-u critical .* .*')
+    NOTIFY_ARGS = ('^--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send '
+                   '-u critical .* .*$')
 
     def test_systemd_run_granted_for_notifications(self):
         body = read('sudoers-parental-controls')
@@ -998,7 +976,7 @@ class TestSudoersTemplates(unittest.TestCase):
         for line in rule_lines('sudoers-parental-controls'):
             if 'systemd-run' not in line:
                 continue
-            self.assertIn('--machine=[A-Za-z0-9_.-]+@[.]host', line)
+            self.assertIn('^--machine=[A-Za-z0-9_.-]+@[.]host', line)
             self.assertIn('--user notify-send -u critical', line)
             # `--user *` would authorize any command in a child's session
             # (sudoers(5): "Preventing shell escapes").
@@ -1029,10 +1007,7 @@ class TestSudoersTemplates(unittest.TestCase):
     def test_granted_binary_paths_exist_on_this_box(self):
         for rel in ('sudoers-parental-controls',
                     'sudoers-parental-controls-budgets'):
-            for binary, spec in granted_commands(rel):
-                if binary is None:
-                    # Anchored regex: the path lives inside the pattern.
-                    binary = spec.split(' ', 1)[0].lstrip('^')
+            for binary, _ in granted_commands(rel):
                 self.assertTrue(
                     os.path.exists(binary),
                     f'{rel} grants {binary}, which does not exist here')

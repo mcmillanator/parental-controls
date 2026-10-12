@@ -8,15 +8,18 @@
 # (`sudo tee`, `sudo cat`, `sudo mkdir`) and sudo resolves them via
 # secure_path (sbin first). sudo matches on the path string.
 #
-# Paths are regex-anchored (^…$) and the category name is a single path segment
-# ([A-Za-z0-9_.-]+, no slashes): a trailing-wildcard form such as
-# `parental-*/cgroup.freeze` spans `/` in the argument, so
-# `parental-x/../system.slice/sshd.service/cgroup.procs` also matched — an
-# arbitrary PID migration/freeze primitive. `[.]` keeps dots literal; the
-# username pattern matches the app's own validated username charset.
+# ARGUMENTS ARE REGEX-ANCHORED. sudoers(5): "If the arguments in a Cmnd begin
+# with the '^' character, they will be interpreted as a regular expression and
+# matched accordingly" -- the regex covers the ARGUMENTS ONLY, after the
+# command path. A trailing-wildcard argument form is unsafe because sudo
+# matches arguments as one concatenated string and `*` spans '/', so
+# `parental-*/cgroup.procs` also matched
+# `parental-x/../system.slice/sshd.service/cgroup.procs` (an arbitrary PID
+# migration/freeze primitive). The patterns below pin each argument exactly.
+# `[.]` keeps dots literal; the username/category segment cannot contain '/'.
 # See sudo-audit.md §2 and §5 Step 3.
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/tee /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, ^/usr/bin/tee /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/tee /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$, ^/usr/bin/tee /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/cat /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, ^/usr/bin/cat /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/cat /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$, ^/usr/bin/cat /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$
-@SERVICE_USER@ ALL=(root) NOPASSWD: ^/usr/sbin/mkdir -p /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+$, ^/usr/bin/mkdir -p /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, /usr/bin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$, /usr/bin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, /usr/bin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$, /usr/bin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/mkdir ^-p /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+$, /usr/bin/mkdir ^-p /sys/fs/cgroup/parental-[A-Za-z0-9_.-]+$

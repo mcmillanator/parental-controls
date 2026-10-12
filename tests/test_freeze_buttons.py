@@ -594,8 +594,8 @@ class TestFreezeDeploy(unittest.TestCase):
         # (Regex-anchored, not trailing-wildcard: see sudo-audit.md §5.)
         self.assertEqual(len(lines), 5)
         for ln in lines:
-            self.assertIn(f'{service} ALL=(root) NOPASSWD: ^/usr/sbin/', ln)
-            self.assertIn(', ^/usr/bin/', ln)
+            self.assertIn(f'{service} ALL=(root) NOPASSWD: /usr/sbin/', ln)
+            self.assertIn(', /usr/bin/', ln)
             self.assertTrue(ln.endswith('$'), ln)
             self.assertIn('/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+', ln)
         for verb in ('tee', 'cat', 'mkdir'):
