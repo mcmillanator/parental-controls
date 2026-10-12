@@ -224,11 +224,14 @@ sudo visudo -c          # MUST print "parsed OK"; abort if not
 Keep it at `/root/stan-nopasswd.removed` rather than deleting it, so
 rollback is a single `mv` back.
 
-### Step 3 (optional but recommended) — tighten the residuals
+### Step 3 — APPLIED — the residuals are now closed
 
-The gaps in §2 come from the trailing `*` spanning whitespace. Since sudo
-1.9.10, sudoers accepts POSIX extended regexes anchored `^…$`, which pin
-the argv exactly. Both replacements below pass `visudo -c -f`:
+The gaps in §2 came from the trailing `*` spanning whitespace. The templates
+now use POSIX extended regexes anchored `^…$` (sudo ≥ 1.9.10), which pin each
+argv exactly. Applied in `sudoers-parental-controls{,-budgets}`; both render
+and pass `visudo -c -f`. The legitimate command set is unchanged (all 16
+coverage rows still authorize); the seven wildcard escapes below are now
+DENIED.
 
 ```
 stan ALL=(ALL) NOPASSWD: ^/usr/sbin/usermod -L [A-Za-z0-9_.-]+$, ^/usr/bin/usermod -L [A-Za-z0-9_.-]+$, ^/usr/sbin/usermod -U [A-Za-z0-9_.-]+$, ^/usr/bin/usermod -U [A-Za-z0-9_.-]+$
@@ -344,7 +347,9 @@ faithful sudoers matcher and an `ast` argv scanner):
 | `test_dynamic_slots_are_covered_for_every_user_and_category` | every validator-admitted username × all 5 `CATEGORIES` |
 | `test_lock_session_is_only_run_with_at_least_one_session_id` | the empty-`lockable` guard that keeps note A unreachable |
 | `test_scoped_rules_do_not_authorize_privileged_escapes` | 21 must-never-authorize commands stay denied |
-| `test_residual_privilege_of_trailing_wildcards_is_pinned` | characterises the §2 residuals so they cannot change unnoticed |
+| `test_residual_privilege_of_trailing_wildcards_is_now_denied` | the seven former wildcard escapes are now denied |
+| `test_regex_anchored_rules_deny_the_wildcard_attacks` | same escapes, via the pinned command list |
+| `test_no_mutator_rule_uses_a_bare_trailing_wildcard` | no mutator regresses to a trailing `*` |
 | `test_residual_privilege_does_not_include_a_root_shell` | the line between "narrower" and "contained" |
 
 A future commit that adds a privileged command fails
