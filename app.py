@@ -1169,6 +1169,10 @@ def index():
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus_state(entry),
+            # Wheel admins are system-protected: the UI disables their
+            # lock/unlock/logout actions and shows a Protected pill. The
+            # endpoints refuse them anyway (defence in depth).
+            'wheel': auth.is_wheel_member(u['username']),
         })
     devices = _device_entries()
     selected_device = (request.args.get('device', '') or '').strip()

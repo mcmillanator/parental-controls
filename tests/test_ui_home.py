@@ -230,5 +230,73 @@ class ConvertedPageStaticTest(unittest.TestCase):
             self.assertIn(token, src)
 
 
+class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
+    """design-exports/SPEC.md Screen 1 elements on the Overview page."""
+
+    def _render(self, wheel=()):
+        with mock.patch.object(app, 'get_human_users', return_value=USERS), \
+             mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
+             mock.patch.object(app, 'get_lock_status',
+                               side_effect=lambda u: LOCK[u]), \
+             mock.patch.object(app, 'is_in_bedtime',
+                               side_effect=lambda e: bool(e and e.get('manual_override'))), \
+             mock.patch.object(app, 'bonus_state', return_value={'active': False}), \
+             mock.patch.object(app.auth, 'is_wheel_member',
+                               side_effect=lambda u: u == self.ADMIN_USER or u in wheel):
+            resp = self.client.get('/')
+        self.assertEqual(200, resp.status_code)
+        return resp.get_data(as_text=True)
+
+    def test_h1_is_overview_and_subtitle_keeps_login_line(self):
+        html = self._render()
+        self.assertIn('<h1 class="pc-page-title">Overview</h1>', html)
+        self.assertIn('Logged in as', html)
+
+    def test_system_summary_card_with_online_pill(self):
+        html = self._render()
+        self.assertIn('id="summary-heading">System summary<', html)
+        self.assertIn('human accounts', html)
+        self.assertIn('pc-chip pc-chip--ok', html)
+        self.assertIn('>Online<', html)
+
+    def test_offline_sync_banner_has_retry(self):
+        html = self._render()
+        self.assertIn('id="sync-banner"', html)
+        self.assertIn('#pc-i-wifi-off', html)
+        self.assertIn('Local connection healthy', html)
+        self.assertIn('onclick="refreshTable()">Retry<', html)
+
+    def test_wheel_account_is_protected_with_disabled_actions(self):
+        html = self._render(wheel=('kidfree',))
+        idx = html.index('id="row-kidfree"')
+        row = html[idx:html.index('</tr>', idx)]
+        self.assertIn('badge-protected', row)
+        self.assertIn('Protected', row)
+        self.assertIn('wheel admins can never be locked or removed', row)
+        self.assertNotIn('btn-lock', row)
+        self.assertNotIn('btn-unlock', row)
+        self.assertNotIn('btn-logout', row)
+        # a non-wheel row still carries the pinned actions
+        idx2 = html.index('id="row-kidlocked"')
+        row2 = html[idx2:html.index('</tr>', idx2)]
+        self.assertIn('btn-unlock', row2)
+        self.assertIn('btn-lockscreen', row2)
+        self.assertIn('btn-logout', row2)
+
+    def test_emergency_logout_requires_typed_confirmation(self):
+        src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        self.assertIn('requireText: username', src)
+        self.assertIn("'/api/lock-screen'", src)
+        self.assertIn("'/api/logout'", src)
+
+    def test_specimen_cards_present(self):
+        html = self._render()
+        self.assertIn('id="overview-specimens"', html)
+        self.assertIn('Confirmation specimen', html)
+        self.assertIn('Confirm lock action', html)
+        self.assertIn('Design thesis', html)
+        self.assertIn('destructive actions separated and confirmed', html)
+
+
 if __name__ == '__main__':
     unittest.main()
