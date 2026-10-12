@@ -11,6 +11,9 @@ build/
 .venv/
 venv/
 
+# In-project scratch (test temp dirs, tool output)
+.scratch/
+
 # Node
 node_modules/
 
@@ -26,6 +29,7 @@ Thumbs.db
 bedtime.json
 budgets.json
 process_prefs.json
+overrides.json
 auth.json
 audit.jsonl
 .auth-*

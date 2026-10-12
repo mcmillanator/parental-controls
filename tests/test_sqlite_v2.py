@@ -139,7 +139,7 @@ class TestV2Schema(V2Case):
         for table in store.TABLES:
             self.assertEqual(self.column_names(table),
                              ['username', 'field', 'value'])
-        self.assertEqual(version_of(self.db), 2)
+        self.assertEqual(version_of(self.db), store.SCHEMA_VERSION)
 
     def test_value_column_is_one_stable_type(self):
         store.save_table(self.db, 'bedtime', {'kid': {'start': '21:00'}},
@@ -281,7 +281,7 @@ class TestMigrationBackupV1(V2Case):
         self.assertEqual(store.load_table(self.db, 'bedtime'), BEDTIME)
         backup = self.db + '.bak.1'
         self.assertTrue(os.path.isfile(backup))
-        self.assertEqual(version_of(self.db), 2)
+        self.assertEqual(version_of(self.db), store.SCHEMA_VERSION)
         conn = sqlite3.connect(backup)
         try:
             # The backup is the untouched v1 snapshot: old schema, old rows.

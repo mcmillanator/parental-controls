@@ -58,6 +58,7 @@ import store
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROCESS_PREFS_FILE = os.path.join(BASE_DIR, 'process_prefs.json')
 BUDGETS_FILE = os.path.join(BASE_DIR, 'budgets.json')
+OVERRIDES_FILE = os.path.join(BASE_DIR, 'overrides.json')
 CGROUP_ROOT = '/sys/fs/cgroup'
 
 CATEGORIES = ('games', 'browsers', 'media', 'chat', 'other')
@@ -80,8 +81,15 @@ TICK_SECONDS = 60
 # Remaining budget seconds at or below which a "minutes left" warning is
 # sent (once per day per category).
 LOW_WARN_SECONDS = 300.0
+# Minimum allowance for a weekly window (mirrors the bonus custom-entry
+# floor: BONUS_CUSTOM_MIN = 5). A window below this is rejected/malformed.
+WINDOW_MIN_MINUTES = 5
 
 _USERNAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
+# Same charset the sudoers grant is anchored on
+# (parental-[A-Za-z0-9_.-]+): reusing it means per-app cgroup names
+# (parental-<user>-app-<comm>) need NO new privilege grant.
+_COMM_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +138,25 @@ def valid_username(username):
 
 def valid_category(category):
     return category in CATEGORIES
+
+
+def valid_comm(comm):
+    """Guard for per-app override keys and ``parental-<user>-app-<comm>``.
+
+    comm originates from ``ps -o comm`` (already truncated to 15 chars)
+    and reaches privileged cgroup paths and argv as a bare element, so it
+    must stay inside the same charset the sudoers grant is anchored on
+    (``[A-Za-z0-9_.-]``, no leading ``-``), be non-empty and not made
+    only of dots (``.``/``..`` would be path segments), and fit a real
+    comm (1-15 chars). Checked BEFORE any cgroup path/argv construction.
+    """
+    if not comm or len(comm) > 15:
+        return False
+    if comm.startswith('-') or not _COMM_RE.match(comm):
+        return False
+    if not comm.strip('.'):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -830,7 +857,17 @@ def blank_entry():
             'paused': {}, 'resumed': {}, 'manual_frozen': {},
             'manual_frozen_at': {}, 'warned_low': {},
             'warned_paused': {}, 'was_in_bedtime': False,
-            'last_tick': None}
+            'last_tick': None,
+            # Per-app runtime (parallel to the per-category keys above):
+            # keyed by comm. Populated by the tick, reset in lockstep
+            # with the daily reset.
+            'app_used': {}, 'app_paused': {}, 'app_resumed': {},
+            'app_manual_frozen': {}, 'app_manual_frozen_at': {},
+            'app_warned_low': {}, 'app_warned_paused': {},
+            # Weekly-window runtime: keyed by window id. ``window_used``
+            # is deliberately NOT cleared at the daily reset while its
+            # window is active (spans-midnight accumulation).
+            'window_used': {}, 'window_active': {}}
 
 
 def set_limit(username, category, minutes, actor='system'):
@@ -873,23 +910,46 @@ def set_limit(username, category, minutes, actor='system'):
     return True, 'OK'
 
 
-def budget_status(username, data=None):
+def budget_status(username, data=None, overrides=None, now=None):
     """UI-friendly status: {cat: {minutes, used_minutes, remaining_minutes,
-    paused}} for every category. All displayed times are whole minutes —
-    seconds are never shown."""
+    paused}} for every category, plus an ``app_budgets`` map.
+
+    Legacy per-category keys stay byte-identical (regression guard); the
+    new keys are additive: ``window_active`` and ``effective_source``
+    (``window|daily|none``). All displayed times are whole minutes —
+    seconds are never shown.
+    """
     if data is None:
         data = load_budgets()
+    if overrides is None:
+        try:
+            overrides = load_overrides().get(username)
+        except Exception:
+            overrides = None
+    now = now or datetime.now()
     entry = data.get(username, {})
     limits = entry.get('limits', {})
     used = entry.get('used_seconds', {})
     paused = entry.get('paused', {})
     manual_frozen = entry.get('manual_frozen', {})
+    active_by_cat = {}
+    for _wid, win in iter_windows(overrides):
+        if (win['target_type'] == 'category' and win['enabled']
+                and _in_window(win, now)):
+            active_by_cat[win['target']] = win
     status = {}
     for cat in CATEGORIES:
         limit_min = float(limits.get(cat, 0) or 0)
         used_sec = float(used.get(cat, 0) or 0)
         is_paused = bool(paused.get(cat, False))
         is_manual = bool(manual_frozen.get(cat, False))
+        win = active_by_cat.get(cat)
+        if win is not None:
+            effective_source = 'window'
+        elif limit_min > 0:
+            effective_source = 'daily'
+        else:
+            effective_source = 'none'
         status[cat] = {
             'minutes': limit_min,
             'used_minutes': int(round(used_sec / 60.0)),
@@ -899,8 +959,69 @@ def budget_status(username, data=None):
             'exhausted': bool(limit_min > 0 and used_sec >= limit_min * 60),
             'manual_frozen': is_manual,
             'frozen': bool(is_paused or is_manual),
+            'window_active': bool(win),
+            'effective_source': effective_source,
+            'window_allowance_minutes': (win['allowance_minutes']
+                                         if win is not None else None),
         }
+    status['app_budgets'] = app_budget_status(
+        username, data=data, overrides=overrides, now=now)
     return status
+
+
+def app_budget_status(username, data=None, overrides=None, now=None):
+    """Per-app view for the UI/live payload, keyed by comm.
+
+    {'mode', 'exempt', 'minutes', 'used_minutes', 'remaining_minutes',
+    'paused', 'manual_frozen', 'frozen', 'window_active',
+    'effective_source'} — only for comms with a valid override.
+    """
+    if data is None:
+        data = load_budgets()
+    if overrides is None:
+        try:
+            overrides = load_overrides().get(username)
+        except Exception:
+            overrides = None
+    now = now or datetime.now()
+    entry = data.get(username) if isinstance(data, dict) else None
+    entry = entry if isinstance(entry, dict) else {}
+    app_used = entry.get('app_used', {}) or {}
+    app_paused = entry.get('app_paused', {}) or {}
+    app_manual = entry.get('app_manual_frozen', {}) or {}
+    window_used = entry.get('window_used', {}) or {}
+    out = {}
+    for comm, ov in iter_overrides(overrides):
+        is_paused = bool(app_paused.get(comm, False))
+        is_manual = bool(app_manual.get(comm, False))
+        if ov['mode'] == 'exempt':
+            out[comm] = {
+                'mode': 'exempt', 'exempt': True, 'minutes': None,
+                'used_minutes': 0, 'remaining_minutes': None,
+                'paused': is_paused, 'manual_frozen': is_manual,
+                'frozen': bool(is_paused or is_manual),
+                'window_active': False, 'effective_source': 'exempt',
+            }
+            continue
+        win = active_window(overrides, 'app', comm, now)
+        if win is not None:
+            limit_min = float(win['allowance_minutes'])
+            used_sec = float(window_used.get(win['id'], 0.0) or 0.0)
+            source = 'window'
+        else:
+            limit_min = float(ov['minutes'])
+            used_sec = float(app_used.get(comm, 0.0) or 0.0)
+            source = 'daily'
+        out[comm] = {
+            'mode': 'limit', 'exempt': False, 'minutes': limit_min,
+            'used_minutes': int(round(used_sec / 60.0)),
+            'remaining_minutes': int(round(
+                max(0.0, limit_min * 60 - used_sec) / 60.0)),
+            'paused': is_paused, 'manual_frozen': is_manual,
+            'frozen': bool(is_paused or is_manual),
+            'window_active': bool(win), 'effective_source': source,
+        }
+    return out
 
 
 def budget_reset_needed(entry_day, has_bedtime, was_in_bedtime, now_in_bedtime,
@@ -922,6 +1043,422 @@ def budget_reset_needed(entry_day, has_bedtime, was_in_bedtime, now_in_bedtime,
 
 
 # ---------------------------------------------------------------------------
+# overrides config store — per-app allowances/exemptions + weekly windows
+# (whole-document SQLite table; OVERRIDES_FILE is the legacy import source
+# and rollback mirror)
+#
+# Shape: {username: {"app_overrides": {comm: {...}}, "windows": {wid: {...}}}}
+# Fail closed everywhere: a malformed override/window is treated as absent
+# (category rules govern) and must never silently exempt an app.
+# ---------------------------------------------------------------------------
+
+def load_overrides():
+    return store.load_table(store.db_path_for(OVERRIDES_FILE), 'overrides')
+
+
+def save_overrides(data):
+    store.save_table(store.db_path_for(OVERRIDES_FILE), 'overrides',
+                     data, OVERRIDES_FILE)
+
+
+def window_id_for(target_type, target):
+    """Stable per-target window id (V1: one window per target)."""
+    return 'w-%s-%s' % (target_type, target)
+
+
+def _config_entry(data, username):
+    """Per-user config doc with both top-level keys present."""
+    entry = data.get(username)
+    if not isinstance(entry, dict):
+        entry = {}
+        data[username] = entry
+    if not isinstance(entry.get('app_overrides'), dict):
+        entry['app_overrides'] = {}
+    if not isinstance(entry.get('windows'), dict):
+        entry['windows'] = {}
+    return entry
+
+
+def normalize_override(raw):
+    """A validated app override, or None (fail closed).
+
+    {'mode': 'limit'|'exempt', 'minutes': float|None, 'set_by', 'set_at'}
+    Unknown mode / missing / non-positive minutes -> None: the override is
+    ignored and the category rules govern (never silently exempt).
+    """
+    if not isinstance(raw, dict):
+        return None
+    mode = raw.get('mode')
+    if mode == 'exempt':
+        return {'mode': 'exempt', 'minutes': None,
+                'set_by': raw.get('set_by'), 'set_at': raw.get('set_at')}
+    if mode != 'limit':
+        return None
+    try:
+        minutes = float(raw.get('minutes'))
+    except (TypeError, ValueError):
+        return None
+    if minutes <= 0:
+        return None
+    return {'mode': 'limit', 'minutes': minutes,
+            'set_by': raw.get('set_by'), 'set_at': raw.get('set_at')}
+
+
+def normalize_window(raw, window_id=None):
+    """A validated window dict, or None (fail closed).
+
+    Unknown target/target_type, empty/bad ``days``, unparseable times,
+    ``start == end``, or a sub-``WINDOW_MIN_MINUTES`` allowance -> None
+    (the window is ignored; the daily rules govern).
+    """
+    if not isinstance(raw, dict):
+        return None
+    target_type = raw.get('target_type')
+    target = raw.get('target')
+    if target_type == 'category':
+        if not valid_category(target):
+            return None
+    elif target_type == 'app':
+        if not valid_comm(target):
+            return None
+    else:
+        return None
+    start = _parse_hhmm(raw.get('start', ''))
+    end = _parse_hhmm(raw.get('end', ''))
+    if start is None or end is None or start == end:
+        return None
+    try:
+        days = sorted({int(d) for d in raw.get('days', [])})
+    except (TypeError, ValueError):
+        return None
+    if not days or any(d < 0 or d > 6 for d in days):
+        return None
+    try:
+        allowance = int(raw.get('allowance_minutes'))
+    except (TypeError, ValueError):
+        return None
+    if allowance < WINDOW_MIN_MINUTES:
+        return None
+    return {
+        'id': window_id or window_id_for(target_type, target),
+        'target_type': target_type,
+        'target': target,
+        'days': days,
+        'start': raw.get('start'),
+        'end': raw.get('end'),
+        'allowance_minutes': allowance,
+        'enabled': bool(raw.get('enabled', True)),
+        'set_by': raw.get('set_by'),
+        'set_at': raw.get('set_at'),
+    }
+
+
+def parse_days(value):
+    """CSV/list of day numbers -> sorted list, or None on any bad token."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        tokens = list(value)
+    else:
+        tokens = str(value or '').replace(' ', '').split(',')
+    out = set()
+    for token in tokens:
+        if token in ('', None):
+            continue
+        try:
+            day = int(token)
+        except (TypeError, ValueError):
+            return None
+        if day < 0 or day > 6:
+            return None
+        out.add(day)
+    return sorted(out) or None
+
+
+def iter_overrides(overrides):
+    """(comm, normalized_override) for every valid app override."""
+    if not isinstance(overrides, dict):
+        return
+    raw = overrides.get('app_overrides')
+    if not isinstance(raw, dict):
+        return
+    for comm, value in raw.items():
+        if not valid_comm(comm):
+            continue
+        norm = normalize_override(value)
+        if norm is not None:
+            yield comm, norm
+
+
+def iter_windows(overrides):
+    """(window_id, normalized_window) for every valid configured window."""
+    if not isinstance(overrides, dict):
+        return
+    raw = overrides.get('windows')
+    if not isinstance(raw, dict):
+        return
+    for wid, value in raw.items():
+        norm = normalize_window(value, window_id=wid)
+        if norm is not None:
+            yield wid, norm
+
+
+def override_map(overrides):
+    return {comm: ov for comm, ov in iter_overrides(overrides)}
+
+
+def active_window(overrides, target_type, target, now):
+    """The enabled, currently-active window governing ``target`` (or None)."""
+    for _wid, win in iter_windows(overrides):
+        if win['target_type'] != target_type or win['target'] != target:
+            continue
+        if win['enabled'] and _in_window(win, now):
+            return win
+    return None
+
+
+def overrides_view(username, data=None):
+    """UI-facing config view: {'app_overrides': {...}, 'windows': [...]}."""
+    if data is None:
+        data = load_overrides()
+    entry = data.get(username) if isinstance(data, dict) else None
+    raw = entry if isinstance(entry, dict) else {}
+    view = {
+        'app_overrides': {comm: ov for comm, ov in iter_overrides(raw)},
+        'windows': [win for _wid, win in iter_windows(raw)],
+    }
+    return view
+
+
+def _reset_window_runtime(username, window_id):
+    """Drop one window's runtime counters from the budgets doc."""
+    try:
+        data = load_budgets()
+    except Exception:
+        return
+    entry = data.get(username)
+    if not isinstance(entry, dict):
+        return
+    for key in ('window_used', 'window_active'):
+        flags = entry.get(key)
+        if isinstance(flags, dict):
+            flags.pop(window_id, None)
+    try:
+        save_budgets(data)
+    except OSError:
+        pass
+
+
+def _clear_app_runtime(username, comm):
+    """Drop one app's runtime flags from the budgets doc (best effort)."""
+    try:
+        data = load_budgets()
+    except Exception:
+        return
+    entry = data.get(username)
+    if not isinstance(entry, dict):
+        return
+    for key in ('app_paused', 'app_resumed', 'app_manual_frozen',
+                'app_manual_frozen_at'):
+        flags = entry.get(key)
+        if isinstance(flags, dict):
+            flags.pop(comm, None)
+    try:
+        save_budgets(data)
+    except OSError:
+        pass
+
+
+def set_app_override(username, comm, mode, minutes=None, actor='system'):
+    """Set/clear a per-app override.
+
+    mode 'exempt' means unlimited (never billed, never placed in a
+    cgroup); 'limit' needs a positive integer ``minutes``. Any other
+    mode, or a non-positive ``minutes`` with mode=limit, CLEARS the
+    override. Clearing also releases the app's freeze and thaws its
+    group (mirrors ``set_limit``).
+    """
+    if not valid_username(username):
+        return False, 'Invalid username'
+    if not valid_comm(comm):
+        return False, f'Invalid command: {comm}'
+    data = load_overrides()
+    entry = _config_entry(data, username)
+    overrides = entry['app_overrides']
+
+    mode = (mode or '').strip().lower()
+    to_set = None
+    clear = False
+    if mode in ('', 'none', 'absent', 'clear'):
+        clear = True
+    elif mode == 'exempt':
+        to_set = {'mode': 'exempt'}
+    elif mode == 'limit':
+        try:
+            minutes = float(minutes)
+        except (TypeError, ValueError):
+            return False, 'Minutes must be a number'
+        if minutes < 0:
+            return False, 'Minutes must not be negative'
+        if minutes == 0:
+            clear = True
+        else:
+            to_set = {'mode': 'limit', 'minutes': int(minutes)}
+    else:
+        return False, f'Unknown mode: {mode}'
+
+    if clear:
+        overrides.pop(comm, None)
+        try:
+            save_overrides(data)
+        except OSError as e:
+            return False, str(e)
+        _clear_app_runtime(username, comm)
+        ok, msg = set_frozen_app(username, comm, False, actor=actor)
+        audit.safe_log(actor, 'budget.override_cleared',
+                       f'{username}:{comm}',
+                       {'ok': True, 'unfreeze': msg})
+        return True, ('Override cleared'
+                      + ('' if ok else f' (unfreeze: {msg})'))
+
+    to_set['set_by'] = actor
+    to_set['set_at'] = datetime.now().isoformat()
+    overrides[comm] = to_set
+    try:
+        save_overrides(data)
+    except OSError as e:
+        return False, str(e)
+    audit.safe_log(actor, 'budget.override_set', f'{username}:{comm}',
+                   {'mode': to_set['mode'],
+                    'minutes': to_set.get('minutes')})
+    return True, 'OK'
+
+
+def set_window(username, target_type, target, days, start, end,
+               allowance_minutes, enabled=True, actor='system'):
+    """Create a weekly window for a target.
+
+    V1: one window per target. A second create for the same target is a
+    collision -> (False, reason); use ``update_window`` to edit it.
+    """
+    if not valid_username(username):
+        return False, 'Invalid username'
+    if target_type == 'category':
+        if not valid_category(target):
+            return False, f'Unknown category: {target}'
+    elif target_type == 'app':
+        if not valid_comm(target):
+            return False, f'Invalid command: {target}'
+    else:
+        return False, f'Unknown target type: {target_type}'
+    days = parse_days(days)
+    if days is None:
+        return False, 'Invalid days'
+    window_id = window_id_for(target_type, target)
+    data = load_overrides()
+    entry = _config_entry(data, username)
+    if window_id in entry['windows']:
+        return False, 'A window already exists for this target'
+    norm = normalize_window({
+        'target_type': target_type, 'target': target, 'days': days,
+        'start': start, 'end': end, 'allowance_minutes': allowance_minutes,
+        'enabled': enabled, 'set_by': actor,
+        'set_at': datetime.now().isoformat(),
+    }, window_id=window_id)
+    if norm is None:
+        return False, 'Invalid window fields'
+    entry['windows'][window_id] = norm
+    try:
+        save_overrides(data)
+    except OSError as e:
+        return False, str(e)
+    audit.safe_log(actor, 'budget.window_set', f'{username}:{window_id}',
+                   {'target_type': target_type, 'target': target,
+                    'days': norm['days'], 'start': norm['start'],
+                    'end': norm['end'],
+                    'allowance_minutes': norm['allowance_minutes'],
+                    'enabled': norm['enabled']})
+    return True, 'OK'
+
+
+def update_window(username, window_id, days=None, start=None, end=None,
+                  allowance_minutes=None, enabled=None, actor='system'):
+    """Edit/disable an existing window (keyed by its stable id)."""
+    if not valid_username(username):
+        return False, 'Invalid username'
+    data = load_overrides()
+    entry = _config_entry(data, username)
+    windows = entry['windows']
+    stored = windows.get(window_id)
+    if not isinstance(stored, dict):
+        return False, 'No such window'
+    merged = dict(stored)
+    if days is not None:
+        merged['days'] = parse_days(days)
+        if merged['days'] is None:
+            return False, 'Invalid days'
+    if start is not None:
+        merged['start'] = start
+    if end is not None:
+        merged['end'] = end
+    if allowance_minutes is not None:
+        merged['allowance_minutes'] = allowance_minutes
+    if enabled is not None:
+        merged['enabled'] = bool(enabled)
+    norm = normalize_window(merged, window_id=window_id)
+    if norm is None:
+        return False, 'Invalid window fields'
+    norm['set_by'] = actor
+    norm['set_at'] = datetime.now().isoformat()
+    windows[window_id] = norm
+    try:
+        save_overrides(data)
+    except OSError as e:
+        return False, str(e)
+    if enabled is not None and not bool(enabled):
+        # Disabling resets the window's runtime and releases its freeze.
+        _reset_window_runtime(username, window_id)
+        _release_window_freeze(username, norm, actor=actor)
+    audit.safe_log(actor, 'budget.window_set', f'{username}:{window_id}',
+                   {'target_type': norm['target_type'],
+                    'target': norm['target'],
+                    'enabled': norm['enabled']})
+    return True, 'OK'
+
+
+def clear_window(username, window_id=None, target_type=None, target=None,
+                 actor='system'):
+    """Remove a window, reset its runtime, and thaw its target."""
+    if not valid_username(username):
+        return False, 'Invalid username'
+    if window_id is None:
+        if not target_type or not target:
+            return False, 'window id required'
+        window_id = window_id_for(target_type, target)
+    data = load_overrides()
+    entry = _config_entry(data, username)
+    removed = entry['windows'].pop(window_id, None)
+    if not isinstance(removed, dict):
+        return False, 'No such window'
+    try:
+        save_overrides(data)
+    except OSError as e:
+        return False, str(e)
+    _reset_window_runtime(username, window_id)
+    norm = normalize_window(removed, window_id=window_id)
+    if norm is not None:
+        _release_window_freeze(username, norm, actor=actor)
+    audit.safe_log(actor, 'budget.window_cleared', f'{username}:{window_id}',
+                   {'ok': True})
+    return True, 'Window cleared'
+
+
+def _release_window_freeze(username, window, actor='system'):
+    """Thaw a window's target group (open/close/disable/clear)."""
+    if window['target_type'] == 'category':
+        return set_frozen(username, window['target'], False, actor=actor)
+    return set_frozen_app(username, window['target'], False, actor=actor)
+
+
+# ---------------------------------------------------------------------------
 # Cgroup freezer ops (privileged via sudo tee; validated username/category)
 # ---------------------------------------------------------------------------
 
@@ -929,6 +1466,18 @@ def cgroup_path(username, category):
     if not valid_username(username) or not valid_category(category):
         raise ValueError('Invalid username or category for cgroup path')
     return os.path.join(CGROUP_ROOT, f'parental-{username}-{category}')
+
+
+def cgroup_path_app(username, comm):
+    """Path of the per-app group ``parental-<user>-app-<comm>``.
+
+    ``valid_comm`` pins the same charset the sudoers grant is already
+    anchored on (``parental-[A-Za-z0-9_.-]+``), so no privilege grant is
+    needed for these groups.
+    """
+    if not valid_username(username) or not valid_comm(comm):
+        raise ValueError('Invalid username or comm for app cgroup path')
+    return os.path.join(CGROUP_ROOT, f'parental-{username}-app-{comm}')
 
 
 def _sudo_read_file(path):
@@ -958,9 +1507,8 @@ def _sudo_write_file(path, content):
         return False, str(e)
 
 
-def ensure_cgroup(username, category):
-    """Create parental-<user>-<cat> if missing. Never touches other groups."""
-    path = cgroup_path(username, category)
+def _ensure_cgroup_dir(path):
+    """Create a cgroup dir (sudo mkdir -p); never touches other groups."""
     if os.path.isdir(path):
         return True, ''
     try:
@@ -975,65 +1523,96 @@ def ensure_cgroup(username, category):
         return False, str(e)
 
 
-def read_freeze(username, category):
-    content = _sudo_read_file(os.path.join(cgroup_path(username, category),
-                                           'cgroup.freeze'))
+def ensure_cgroup(username, category):
+    """Create parental-<user>-<cat> if missing. Never touches other groups."""
+    return _ensure_cgroup_dir(cgroup_path(username, category))
+
+
+def ensure_cgroup_app(username, comm):
+    """Create parental-<user>-app-<comm> if missing."""
+    return _ensure_cgroup_dir(cgroup_path_app(username, comm))
+
+
+def _read_freeze_path(path):
+    content = _sudo_read_file(path)
     if content is None:
         return None
     return content.strip() == '1'
 
 
-def set_frozen(username, category, frozen, actor='system'):
-    """Freeze (True) or thaw (False) a category cgroup; verify by readback.
+def read_freeze(username, category):
+    return _read_freeze_path(os.path.join(cgroup_path(username, category),
+                                          'cgroup.freeze'))
 
-    The audit hook is best-effort and can never fail the freeze itself.
+
+def read_freeze_app(username, comm):
+    return _read_freeze_path(os.path.join(cgroup_path_app(username, comm),
+                                          'cgroup.freeze'))
+
+
+def _set_frozen_path(path, frozen, actor, target, ensure):
+    """Freeze/thaw one cgroup.freeze file; verify by readback.
+
+    Shared by the category and per-app helpers. The audit hook is
+    best-effort and can never fail the freeze itself.
     """
-    try:
-        path = os.path.join(cgroup_path(username, category), 'cgroup.freeze')
-    except ValueError as e:
-        return False, str(e)
     if not os.path.isdir(os.path.dirname(path)):
         if frozen:
-            ok, msg = ensure_cgroup(username, category)
+            ok, msg = ensure()
             if not ok:
                 return False, msg
         else:
-            audit.safe_log(actor, 'budget.thaw', f'{username}:{category}',
+            audit.safe_log(actor, 'budget.thaw', target,
                            {'ok': True, 'note': 'no cgroup (already unfrozen)',
                             'frozen': False})
             return True, 'no cgroup (already unfrozen)'
     ok, msg = _sudo_write_file(path, '1' if frozen else '0')
     if not ok:
         audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
-                       f'{username}:{category}',
-                       {'ok': False, 'error': msg, 'frozen': bool(frozen)})
+                       target, {'ok': False, 'error': msg,
+                                'frozen': bool(frozen)})
         return False, msg
-    state = read_freeze(username, category)
-    if state is None:
+    content = _sudo_read_file(path)
+    if content is None:
         audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
-                       f'{username}:{category}',
+                       target,
                        {'ok': False, 'error': 'could not verify freeze state',
                         'frozen': bool(frozen)})
         return False, 'could not verify freeze state'
+    state = content.strip() == '1'
     if state != bool(frozen):
         audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
-                       f'{username}:{category}',
+                       target,
                        {'ok': False,
                         'error': 'freeze state mismatch after write',
                         'frozen': bool(frozen)})
         return False, 'freeze state mismatch after write'
     audit.safe_log(actor, 'budget.freeze' if frozen else 'budget.thaw',
-                   f'{username}:{category}',
-                   {'ok': True, 'frozen': bool(frozen)})
+                   target, {'ok': True, 'frozen': bool(frozen)})
     return True, ''
 
 
-def cgroup_members(username, category):
-    """PIDs currently in the category cgroup ([] if missing/unreadable)."""
+def set_frozen(username, category, frozen, actor='system'):
+    """Freeze (True) or thaw (False) a category cgroup; verify by readback."""
     try:
-        path = os.path.join(cgroup_path(username, category), 'cgroup.procs')
-    except ValueError:
-        return []
+        path = os.path.join(cgroup_path(username, category), 'cgroup.freeze')
+    except ValueError as e:
+        return False, str(e)
+    return _set_frozen_path(path, frozen, actor, f'{username}:{category}',
+                            lambda: ensure_cgroup(username, category))
+
+
+def set_frozen_app(username, comm, frozen, actor='system'):
+    """Freeze (True) or thaw (False) a per-app cgroup; verify by readback."""
+    try:
+        path = os.path.join(cgroup_path_app(username, comm), 'cgroup.freeze')
+    except ValueError as e:
+        return False, str(e)
+    return _set_frozen_path(path, frozen, actor, f'{username}:app:{comm}',
+                            lambda: ensure_cgroup_app(username, comm))
+
+
+def _cgroup_members_path(path):
     content = _sudo_read_file(path)
     if content is None:
         return []
@@ -1046,6 +1625,24 @@ def cgroup_members(username, category):
     return pids
 
 
+def cgroup_members(username, category):
+    """PIDs currently in the category cgroup ([] if missing/unreadable)."""
+    try:
+        path = os.path.join(cgroup_path(username, category), 'cgroup.procs')
+    except ValueError:
+        return []
+    return _cgroup_members_path(path)
+
+
+def cgroup_members_app(username, comm):
+    """PIDs currently in the per-app cgroup ([] if missing/unreadable)."""
+    try:
+        path = os.path.join(cgroup_path_app(username, comm), 'cgroup.procs')
+    except ValueError:
+        return []
+    return _cgroup_members_path(path)
+
+
 def migrate_pid(username, category, pid):
     """Move one PID into the category cgroup (no-op behaviorally)."""
     try:
@@ -1055,10 +1652,58 @@ def migrate_pid(username, category, pid):
     return _sudo_write_file(path, str(int(pid)))
 
 
-def unfreeze_all_user(username, actor='system'):
-    """Thaw every parental-<username>-* cgroup. Only our own name pattern."""
+def migrate_pid_app(username, comm, pid):
+    """Move one PID into the per-app cgroup (no-op behaviorally)."""
+    try:
+        path = os.path.join(cgroup_path_app(username, comm), 'cgroup.procs')
+    except ValueError as e:
+        return False, str(e)
+    return _sudo_write_file(path, str(int(pid)))
+
+
+APP_BUCKET_PREFIX = 'app-'
+
+
+def _app_bucket(comm):
+    """Cgroup bucket name for a per-app group (the suffix after <user>-)."""
+    return APP_BUCKET_PREFIX + comm
+
+
+def split_bucket(bucket):
+    """('app', comm) | ('category', cat) | None for a parental suffix."""
+    if bucket.startswith(APP_BUCKET_PREFIX):
+        comm = bucket[len(APP_BUCKET_PREFIX):]
+        if valid_comm(comm):
+            return 'app', comm
+        return None
+    if valid_category(bucket):
+        return 'category', bucket
+    return None
+
+
+def thaw_bucket(username, bucket, actor='system'):
+    """Thaw one managed bucket (category or app), dispatching by kind."""
+    parts = split_bucket(bucket)
+    if parts is None:
+        return False, 'unknown cgroup bucket'
+    kind, target = parts
+    if kind == 'app':
+        return set_frozen_app(username, target, False, actor=actor)
+    return set_frozen(username, target, False, actor=actor)
+
+
+def unfreeze_all_user(username, actor='system', keep_categories=None,
+                      keep_apps=None):
+    """Thaw every parental-<username>-* cgroup (category + app groups).
+
+    keep_categories/keep_apps list targets governed by an ACTIVE weekly
+    window: their groups are skipped so a day reset does not undo a
+    window-exhaustion freeze (the window close thaws them instead).
+    """
     if not valid_username(username):
         return False, 'Invalid username'
+    keep_categories = set(keep_categories or ())
+    keep_apps = set(keep_apps or ())
     results = []
     try:
         names = os.listdir(CGROUP_ROOT)
@@ -1068,13 +1713,22 @@ def unfreeze_all_user(username, actor='system'):
     for name in names:
         if not name.startswith(prefix):
             continue
-        category = name[len(prefix):]
-        if not valid_category(category):
+        bucket = name[len(prefix):]
+        parts = split_bucket(bucket)
+        if parts is None:
             continue
-        ok, msg = set_frozen(username, category, False, actor=actor)
-        results.append((category, ok, msg))
+        kind, target = parts
+        if kind == 'category':
+            if target in keep_categories:
+                continue
+            ok, msg = set_frozen(username, target, False, actor=actor)
+        else:
+            if target in keep_apps:
+                continue
+            ok, msg = set_frozen_app(username, target, False, actor=actor)
+        results.append((bucket, ok, msg))
     audit.safe_log(actor, 'budget.unfreeze_all', username,
-                   {'thawed': [c for c, ok, _m in results if ok]})
+                   {'thawed': [b for b, ok, _m in results if ok]})
     return True, results
 
 
@@ -1099,25 +1753,35 @@ def unfreeze_all_user(username, actor='system'):
 # skipped, never thawed — this avoids flapping with a freeze that is still
 # landing. Any unreadable/ambiguous state is logged + skipped, never thawed
 # blindly. Only UNFREEZE writes are ever issued, only on OUR
-# `parental-<user>-<category>` groups. No signals, no kills, no membership
-# changes anywhere.
+# `parental-<user>-<category>` and `parental-<user>-app-<comm>` groups.
+# No signals, no kills, no membership changes anywhere.
 
 def parse_managed_cgroup(name):
-    """Split `parental-<user>-<category>` -> (username, category).
+    """Split a managed group name -> (username, bucket), or None.
 
-    Returns None for anything not matching our naming scheme (foreign
-    groups such as a future `parental-*-quarantine` reappearing). The split
-    is on the LAST hyphen so usernames containing hyphens still parse.
+    ``bucket`` is a category name (``parental-<user>-<category>``) or an
+    ``app-<comm>`` bucket (``parental-<user>-app-<comm>``); use
+    ``split_bucket`` to tell them apart. Returns None for anything not
+    matching our naming scheme (foreign groups such as a reappearing
+    ``parental-*-quarantine``). The category split is on the LAST hyphen
+    so hyphenated usernames still parse; app groups are recognized by the
+    ``-app-`` infix (a real category never contains a hyphen).
     """
     if not name.startswith('parental-'):
         return None
     rest = name[len('parental-'):]
     if '-' not in rest:
         return None
-    username, category = rest.rsplit('-', 1)
-    if not valid_username(username) or not valid_category(category):
-        return None
-    return username, category
+    username, last = rest.rsplit('-', 1)
+    if valid_username(username) and valid_category(last):
+        return username, last
+    idx = rest.rfind('-' + APP_BUCKET_PREFIX)
+    if idx > 0:
+        username = rest[:idx]
+        comm = rest[idx + len(APP_BUCKET_PREFIX) + 1:]
+        if valid_username(username) and valid_comm(comm):
+            return username, _app_bucket(comm)
+    return None
 
 
 def _read_desired_frozen(cgroup_dir):
@@ -1166,15 +1830,16 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
 
     budgets_data: budget-store-shaped dict (default: loaded from the store).
     cgroup_root: directory to scan (default: real /sys/fs/cgroup).
-    thaw_fn: callable(username, category) -> (ok, msg) used for the
-      unfreeze write (default: set_frozen(..., False) on the real tree,
-      direct '0' write on any alternate root so tests never touch sudo
-      or the real hierarchy).
+    thaw_fn: callable(username, bucket) -> (ok, msg) used for the
+      unfreeze write, where bucket is a category or ``app-<comm>``
+      (default: thaw_bucket on the real tree, direct '0' write on any
+      alternate root so tests never touch sudo or the real hierarchy).
 
     Returns a summary dict {thawed, legit, clean, unknown, skipped, note}.
     Only OUR managed groups are ever thawed, and only when truly frozen
     (desired AND effective) with NO paused/manual-frozen flag for that
-    user/category.
+    user/bucket (category flags for category groups, ``app_*`` flags for
+    app groups).
     Foreign `parental-*` groups are logged loudly and reported in
     `unknown` but NEVER touched.
     """
@@ -1192,17 +1857,17 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
     if thaw_fn is None:
         if root != CGROUP_ROOT:
             # Alternate/test root: direct write, no sudo, no real tree.
-            def thaw_fn(username, category, _root=root):
+            def thaw_fn(username, bucket, _root=root):
                 try:
                     cdir = os.path.join(
-                        _root, f'parental-{username}-{category}')
+                        _root, f'parental-{username}-{bucket}')
                     with open(os.path.join(cdir, 'cgroup.freeze'), 'w') as f:
                         f.write('0')
                 except (OSError, ValueError) as e:
                     return False, str(e)
                 return True, ''
         else:
-            thaw_fn = lambda u, c: set_frozen(u, c, False)  # noqa: E731
+            thaw_fn = thaw_bucket
     summary = {'thawed': [], 'legit': [], 'clean': [], 'unknown': [],
                'skipped': [], 'note': ''}
     try:
@@ -1222,7 +1887,12 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
                   flush=True)
             summary['unknown'].append(name)
             continue
-        username, category = parsed
+        username, bucket = parsed
+        parts = split_bucket(bucket)
+        if parts is None:
+            summary['unknown'].append(name)
+            continue
+        kind, target = parts
         cdir = os.path.join(root, name)
         desired = _read_desired_frozen(cdir)
         if desired is None:
@@ -1246,13 +1916,17 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
                 name + ' (transition: freeze=1, frozen 0)')
             continue
         # Truly frozen (desired + effective). Legitimate ONLY when the
-        # budget state marks this user/category paused (auto-exhaustion)
-        # OR manually frozen by the parent.
+        # budget state marks this bucket paused (auto-exhaustion) OR
+        # manually frozen by the parent. App buckets consult the parallel
+        # app_* maps.
+        if kind == 'app':
+            paused_key, manual_key = 'app_paused', 'app_manual_frozen'
+        else:
+            paused_key, manual_key = 'paused', 'manual_frozen'
         try:
             user_entry = budgets_data.get(username) or {}
-            paused = bool(user_entry.get('paused', {}).get(category, False))
-            manual = bool(user_entry.get('manual_frozen', {})
-                           .get(category, False))
+            paused = bool(user_entry.get(paused_key, {}).get(target, False))
+            manual = bool(user_entry.get(manual_key, {}).get(target, False))
         except (AttributeError, TypeError):
             paused, manual = False, False
         if paused or manual:
@@ -1262,7 +1936,7 @@ def watchdog_tick(budgets_data=None, cgroup_root=None, thaw_fn=None):
               f'(freeze=1, frozen 1) with NO paused budget state; '
               f'thawing to self-heal', flush=True)
         try:
-            ok, msg = thaw_fn(username, category)
+            ok, msg = thaw_fn(username, bucket)
         except Exception as e:
             ok, msg = False, str(e)
         if ok:
@@ -1321,16 +1995,45 @@ def verify_freeze_safety(username, member_pids, expected_freezable):
     return True, ''
 
 
+def _visible_category_members(procs, username, category, prefs, index,
+                              exclude_comms=None):
+    """Visible + categorized-into-category + not NEVER-pause members.
+
+    ``exclude_comms`` drops comms that carry an app override (exempt or
+    allowance) so a category freeze/window never bills or freezes them.
+    """
+    visible, _hidden = apply_filter(procs, username, prefs)
+    exclude = exclude_comms or frozenset()
+    out = []
+    for proc in visible:
+        if categorize(proc, index) != category:
+            continue
+        if is_never_pause(proc):
+            continue
+        if proc.get('comm') in exclude:
+            continue
+        out.append(proc)
+    return out
+
+
 def freezable_members(procs, username, category, limits, prefs=None,
-                      index=None):
+                      index=None, exclude_comms=None):
     """Match-time gate: visible after filtering AND in the budgeted category
     AND not NEVER-pause AND category actually has a limit configured."""
     if float(limits.get(category, 0) or 0) <= 0:
         return []
+    return _visible_category_members(procs, username, category, prefs, index,
+                                     exclude_comms)
+
+
+def freezable_app_members(procs, username, comm, prefs=None):
+    """Match-time gate for a per-app allowance: visible, same comm, and
+    not NEVER-pause. (Exempt apps call this? No — exempt comms never
+    enter a cgroup, so callers skip them entirely.)"""
     visible, _hidden = apply_filter(procs, username, prefs)
     out = []
     for proc in visible:
-        if categorize(proc, index) != category:
+        if (proc.get('comm') or '') != comm:
             continue
         if is_never_pause(proc):
             continue
@@ -1342,16 +2045,168 @@ def freezable_members(procs, username, category, limits, prefs=None,
 # Tick: accounting + reset + enforcement (called every 60s)
 # ---------------------------------------------------------------------------
 
+def _clear_window_target_freeze(entry, window, username, act, summary):
+    """Clear a window target's freeze flags on an open/close transition.
+
+    On open: fresh allowance. On close: auto-resume. Pops the auto-pause
+    and resume-inhibit flags and (when acting) thaws the target's cgroup
+    so the daily governor or the next window re-evaluates cleanly.
+    """
+    target = window['target']
+    if window['target_type'] == 'category':
+        entry.setdefault('paused', {}).pop(target, None)
+        entry.setdefault('resumed', {}).pop(target, None)
+        if act:
+            ok, msg = set_frozen(username, target, False)
+            if not ok:
+                summary['note'] = f'window thaw failed for {target}: {msg}'
+    else:
+        entry.setdefault('app_paused', {}).pop(target, None)
+        entry.setdefault('app_resumed', {}).pop(target, None)
+        if act:
+            ok, msg = set_frozen_app(username, target, False)
+            if not ok:
+                summary['note'] = (f'window thaw failed for app:'
+                                   f'{target}: {msg}')
+
+
+def _enforce_target(username, t, wall, deltas, summary, act):
+    """Shared billing + freeze state machine for one target.
+
+    ``t`` bundles: limit_sec, used, used_key, paused, paused_key, resumed,
+    resumed_key, manual, manual_key, members, ensure, migrate,
+    get_members, set_frozen, label, tag, warned_low, low_key, today_str,
+    notify_low() -> bool, notify_paused(). The branches mirror the
+    original per-category tick exactly, so with no app override or window
+    configured the behavior is unchanged.
+    """
+    used = t['used']
+    key = t['used_key']
+    limit_sec = t['limit_sec']
+    used[key] = float(used.get(key, 0.0) or 0.0)
+    members = t['members']
+    # An active target burns the whole tick's wall-clock duration; an idle
+    # one burns nothing — usage tracks the Elapsed time parents see.
+    if any(deltas.get(p['pid'], 0.0) >= ACTIVE_THRESHOLD_SECONDS
+           for p in members):
+        used[key] += wall
+    exhausted = used[key] >= limit_sec
+    remaining = limit_sec - used[key]
+    if (not exhausted and 0 < remaining <= LOW_WARN_SECONDS
+            and t['warned_low'].get(t['low_key']) != t['today_str']):
+        if t['notify_low']():
+            t['warned_low'][t['low_key']] = t['today_str']
+
+    paused = t['paused']
+    resumed = t['resumed']
+    manual = t['manual']
+    pkey = t['paused_key']
+    if (exhausted and not paused.get(pkey)
+            and not resumed.get(t['resumed_key'])
+            and not manual.get(t['manual_key'])):
+        if not act:
+            paused[pkey] = True
+            summary['froze'].append(t['tag'] + ' (dry-run)')
+            t['notify_paused']()
+            return
+        ok, msg = t['ensure']()
+        if not ok:
+            summary['note'] = f"ensure cgroup: {msg}"
+            return
+        for proc in members:
+            t['migrate'](proc['pid'])
+        expected = {p['pid']: p for p in members}
+        current = t['get_members']()
+        safe, reason = verify_freeze_safety(username, current, expected)
+        if not safe:
+            summary['note'] = f"freeze aborted for {t['label']}: {reason}"
+            return
+        if not members and not current:
+            paused[pkey] = True  # exhausted, nothing running yet
+            t['notify_paused']()
+            return
+        if not members:
+            summary['note'] = (f"freeze aborted for {t['label']}: "
+                               'cgroup has members but nothing is freezable')
+            return
+        ok, msg = t['set_frozen'](True)
+        if ok:
+            paused[pkey] = True
+            summary['froze'].append(t['tag'])
+            t['notify_paused']()
+        else:
+            summary['note'] = f"freeze failed for {t['label']}: {msg}"
+    elif exhausted and paused.get(pkey) and members and act:
+        # Exhausted earlier while nothing was running: a matching app
+        # launched since. Migrate it in and (re-)freeze.
+        ok, _msg = t['ensure']()
+        if ok:
+            current = set(t['get_members']())
+            for proc in members:
+                if proc['pid'] not in current:
+                    t['migrate'](proc['pid'])
+            expected = {p['pid']: p for p in members}
+            safe, reason = verify_freeze_safety(
+                username, t['get_members'](), expected)
+            if safe:
+                ok, msg = t['set_frozen'](True)
+                if ok:
+                    summary['froze'].append(t['tag'] + ' (late start)')
+                else:
+                    summary['note'] = (
+                        f"re-freeze failed for {t['label']}: {msg}")
+            else:
+                summary['note'] = (
+                    f"re-freeze aborted for {t['label']}: {reason}")
+    elif manual.get(t['manual_key']) and act:
+        # Manually-frozen steady state: re-assert for late starters only.
+        ok, _msg = t['ensure']()
+        if ok:
+            current = set(t['get_members']())
+            for proc in members:
+                if proc['pid'] not in current:
+                    t['migrate'](proc['pid'])
+            expected = {p['pid']: p for p in members}
+            safe, reason = verify_freeze_safety(
+                username, t['get_members'](), expected)
+            if safe:
+                ok, msg = t['set_frozen'](True)
+                if ok:
+                    summary['froze'].append(t['tag'] + ' (manual)')
+                else:
+                    summary['note'] = (
+                        f"manual re-freeze failed for {t['label']}: {msg}")
+            else:
+                summary['note'] = (
+                    f"manual re-freeze aborted for {t['label']}: {reason}")
+    elif members and act and not paused.get(pkey):
+        # Pre-place matching processes so a later freeze is instant.
+        ok, _msg = t['ensure']()
+        if ok:
+            current = set(t['get_members']())
+            for proc in members:
+                if proc['pid'] not in current:
+                    t['migrate'](proc['pid'])
+
+
 def account_and_enforce(username, entry, procs, bedtime_entry, now,
-                        prefs=None, index=None, act=True, notify=None):
+                        prefs=None, index=None, act=True, notify=None,
+                        overrides=None):
     """One budget tick for a single user. Mutates `entry` in place.
+
+    ``overrides`` is this user's config doc
+    (``{"app_overrides": ..., "windows": ...}``) or None/empty; absent
+    config reproduces the pre-feature behavior exactly.
+
+    Precedence (most specific wins): app exemption > app allowance (its
+    own active window, else its daily override) > category active window
+    > category daily limit. An active target window replaces the daily
+    allowance entirely (limit AND reset timing).
 
     Returns a summary dict {reset, froze: [...], notified: [...], note}.
     With act=False no privileged cgroup operations are performed (used by
     unit tests). notify, when given, is a callable
-    ``notify(username, title, body)`` used for best-effort "minutes left"
-    and "paused" warnings — every call is guarded so a notification
-    failure never blocks enforcement.
+    ``notify(username, title, body)`` used for best-effort warnings.
     """
     today_str = now.date().isoformat()
     has_bedtime = bool(bedtime_entry and bedtime_entry.get('start'))
@@ -1363,7 +2218,7 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     def _warn(title, body, tag):
         """Best-effort notification; records tag in summary, never raises."""
         if notify is None:
-            return
+            return False
         try:
             notify(username, title, body)
             summary['notified'].append(tag)
@@ -1380,6 +2235,25 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         summary['note'] = note
         return summary
 
+    # ---- weekly-window lifecycle: open/close transitions ----
+    window_used = entry.setdefault('window_used', {})
+    window_active = entry.setdefault('window_active', {})
+    configured_windows = [w for _wid, w in iter_windows(overrides)]
+    active_windows = []
+    for win in configured_windows:
+        wid = win['id']
+        was_active = bool(window_active.get(wid, False))
+        is_active = bool(win['enabled'] and _in_window(win, now))
+        if is_active:
+            active_windows.append(win)
+        if is_active and not was_active:
+            window_used[wid] = 0.0            # open: fresh allowance
+            _clear_window_target_freeze(entry, win, username, act, summary)
+        elif was_active and not is_active:
+            window_used[wid] = 0.0            # close: auto-resume
+            _clear_window_target_freeze(entry, win, username, act, summary)
+        window_active[wid] = is_active
+
     if entry.get('day') is None:
         entry['day'] = today_str
     if budget_reset_needed(entry.get('day'), has_bedtime, was_in, now_in,
@@ -1391,15 +2265,36 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         entry['manual_frozen_at'] = {}
         entry['warned_low'] = {}
         entry['warned_paused'] = {}
+        entry['app_used'] = {}
+        entry['app_paused'] = {}
+        entry['app_resumed'] = {}
+        entry['app_manual_frozen'] = {}
+        entry['app_manual_frozen_at'] = {}
+        entry['app_warned_low'] = {}
+        entry['app_warned_paused'] = {}
         entry['day'] = today_str
+        # window_used is NOT cleared for active windows (spans midnight).
+        for wid in list(window_used):
+            if not window_active.get(wid, False):
+                window_used.pop(wid, None)
         summary['reset'] = True
         if act:
-            ok, _res = unfreeze_all_user(username)
+            keep_cats = {w['target'] for w in active_windows
+                         if w['target_type'] == 'category'}
+            keep_apps = {w['target'] for w in active_windows
+                         if w['target_type'] == 'app'}
+            if keep_cats or keep_apps:
+                ok, _res = unfreeze_all_user(
+                    username, keep_categories=keep_cats,
+                    keep_apps=keep_apps)
+            else:
+                ok, _res = unfreeze_all_user(username)
             summary['unfroze'].append('all' if ok else 'failed')
     entry['was_in_bedtime'] = now_in
 
-    limits = entry.get('limits', {})
-    if not limits:
+    limits = entry.get('limits', {}) or {}
+    app_overrides = override_map(overrides)
+    if not limits and not configured_windows and not app_overrides:
         entry['last_cpu'] = {}
         return summary
 
@@ -1424,136 +2319,106 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     manual_frozen = entry.setdefault('manual_frozen', {})
     warned_low = entry.setdefault('warned_low', {})
     warned_paused = entry.setdefault('warned_paused', {})
+    app_used = entry.setdefault('app_used', {})
+    app_paused = entry.setdefault('app_paused', {})
+    app_resumed = entry.setdefault('app_resumed', {})
+    app_manual_frozen = entry.setdefault('app_manual_frozen', {})
+    app_warned_low = entry.setdefault('app_warned_low', {})
+    app_warned_paused = entry.setdefault('app_warned_paused', {})
 
-    def _note_paused(category):
-        """'Out of time' notification, once per day per category."""
-        if warned_paused.get(category) == today_str:
-            return
+    def _low_note(warned_map, key, label):
+        def fn():
+            return _warn('%s: 5 minutes left' % label,
+                         'Less than 5 minutes of %s time left today.' % label,
+                         key + ' (low)')
+        return fn
+
+    def _paused_note(warned_map, key, label):
+        def fn():
+            if warned_map.get(key) == today_str:
+                return
+            if _warn('%s paused \u2014 out of time' % label,
+                     'Your %s time is up for today.' % label,
+                     key + ' (paused)'):
+                warned_map[key] = today_str
+        return fn
+
+    governed_comms = set(app_overrides)
+    win_by_category = {w['target']: w for w in active_windows
+                       if w['target_type'] == 'category'}
+
+    # ---- category targets (window replaces the daily limit) ----
+    ordered = list(limits.keys())
+    for cat in win_by_category:
+        if cat not in ordered:
+            ordered.append(cat)
+    for category in ordered:
+        if category not in CATEGORIES:
+            continue
+        members = _visible_category_members(
+            procs, username, category, prefs, index,
+            exclude_comms=governed_comms)
         label = CATEGORY_LABELS.get(category, category)
-        if _warn('%s paused \u2014 out of time' % label,
-                 'Your %s time is up for today.' % label,
-                 category + ' (paused)'):
-            warned_paused[category] = today_str
+        win = win_by_category.get(category)
+        if win is not None:
+            limit_sec = float(win['allowance_minutes']) * 60.0
+            used_map, used_key = window_used, win['id']
+        else:
+            try:
+                limit_sec = float(limits.get(category, 0) or 0) * 60.0
+            except (TypeError, ValueError):
+                continue
+            if limit_sec <= 0:
+                continue
+            used_map, used_key = used, category
+        _enforce_target(username, {
+            'limit_sec': limit_sec,
+            'used': used_map, 'used_key': used_key,
+            'paused': paused, 'paused_key': category,
+            'resumed': resumed, 'resumed_key': category,
+            'manual': manual_frozen, 'manual_key': category,
+            'members': members,
+            'ensure': lambda c=category: ensure_cgroup(username, c),
+            'migrate': lambda pid, c=category: migrate_pid(username, c, pid),
+            'get_members': lambda c=category: cgroup_members(username, c),
+            'set_frozen': lambda fr, c=category: set_frozen(username, c, fr),
+            'label': label, 'tag': category,
+            'warned_low': warned_low, 'low_key': category,
+            'today_str': today_str,
+            'notify_low': _low_note(warned_low, category, label),
+            'notify_paused': _paused_note(warned_paused, category, label),
+        }, wall, deltas, summary, act)
 
-    for category, limit_min in list(limits.items()):
-        try:
-            limit_sec = float(limit_min) * 60.0
-        except (TypeError, ValueError):
-            continue
-        if limit_sec <= 0:
-            continue
-        members = freezable_members(procs, username, category, limits,
-                                    prefs, index)
-        # An active category burns the whole tick's wall-clock duration;
-        # an idle one burns nothing — so usage tracks the Elapsed time
-        # parents see for apps actually in use.
-        used[category] = float(used.get(category, 0.0) or 0.0)
-        category_active = any(
-            deltas.get(p['pid'], 0.0) >= ACTIVE_THRESHOLD_SECONDS
-            for p in members)
-        if category_active:
-            used[category] += wall
-        exhausted = used[category] >= limit_sec
-        remaining = limit_sec - used[category]
-        if (not exhausted and 0 < remaining <= LOW_WARN_SECONDS
-                and warned_low.get(category) != today_str):
-            label = CATEGORY_LABELS.get(category, category)
-            if _warn('%s: 5 minutes left' % label,
-                     'Less than 5 minutes of %s time left today.' % label,
-                     category + ' (low)'):
-                warned_low[category] = today_str
-        if exhausted and not paused.get(category) and not resumed.get(category) and not manual_frozen.get(category):
-            if not act:
-                paused[category] = True
-                summary['froze'].append(category + ' (dry-run)')
-                _note_paused(category)
-                continue
-            ok, msg = ensure_cgroup(username, category)
-            if not ok:
-                summary['note'] = f'ensure cgroup: {msg}'
-                continue
-            for proc in members:
-                migrate_pid(username, category, proc['pid'])
-            expected = {p['pid']: p for p in members}
-            current = cgroup_members(username, category)
-            safe, reason = verify_freeze_safety(username, current, expected)
-            if not safe:
-                summary['note'] = f'freeze aborted for {category}: {reason}'
-                continue
-            if not members and not current:
-                paused[category] = True  # exhausted, nothing running yet
-                _note_paused(category)
-                continue
-            if not members:
-                summary['note'] = (f'freeze aborted for {category}: '
-                                    'cgroup has members but nothing is freezable')
-                continue
-            ok, msg = set_frozen(username, category, True)
-            if ok:
-                paused[category] = True
-                summary['froze'].append(category)
-                _note_paused(category)
-            else:
-                summary['note'] = f'freeze failed for {category}: {msg}'
-        elif exhausted and paused.get(category) and members and act:
-            # Exhausted earlier while nothing was running: a matching app
-            # launched since. Migrate it in and (re-)freeze.
-            ok, _msg = ensure_cgroup(username, category)
-            if ok:
-                current = set(cgroup_members(username, category))
-                for proc in members:
-                    if proc['pid'] not in current:
-                        migrate_pid(username, category, proc['pid'])
-                expected = {p['pid']: p for p in members}
-                safe, reason = verify_freeze_safety(
-                    username, cgroup_members(username, category), expected)
-                if safe:
-                    ok, msg = set_frozen(username, category, True)
-                    if ok:
-                        summary['froze'].append(category + ' (late start)')
-                    else:
-                        summary['note'] = (f're-freeze failed for {category}: '
-                                           f'{msg}')
-                else:
-                    summary['note'] = (f're-freeze aborted for {category}: '
-                                       f'{reason}')
-        elif manual_frozen.get(category) and act:
-            # Manually-frozen steady state: the parent deliberately froze
-            # this category, so the tick must neither thaw it nor record
-            # an auto-pause — just re-assert the freeze for late starters
-            # (apps launched after the click), under the same safety
-            # gates. Fail-closed: a safety failure leaves the freeze in
-            # place and records a note (no notify — the parent sees the
-            # state in the UI).
-            ok, _msg = ensure_cgroup(username, category)
-            if ok:
-                current = set(cgroup_members(username, category))
-                for proc in members:
-                    if proc['pid'] not in current:
-                        migrate_pid(username, category, proc['pid'])
-                expected = {p['pid']: p for p in members}
-                safe, reason = verify_freeze_safety(
-                    username, cgroup_members(username, category), expected)
-                if safe:
-                    ok, msg = set_frozen(username, category, True)
-                    if ok:
-                        summary['froze'].append(category + ' (manual)')
-                    else:
-                        summary['note'] = (f'manual re-freeze failed for '
-                                           f'{category}: {msg}')
-                else:
-                    summary['note'] = (f'manual re-freeze aborted for '
-                                       f'{category}: {reason}')
-        elif members and act and not paused.get(category):
-            # Pre-place matching processes so a later freeze is instant.
-            # No budget configured -> code never reaches here (limits gate
-            # in freezable_members), so uninvolved users are untouched.
-            ok, _msg = ensure_cgroup(username, category)
-            if ok:
-                current = set(cgroup_members(username, category))
-                for proc in members:
-                    if proc['pid'] not in current:
-                        migrate_pid(username, category, proc['pid'])
+    # ---- app targets ----
+    for comm, ov in sorted(app_overrides.items()):
+        if ov['mode'] == 'exempt':
+            continue  # unlimited: never billed, never placed in a cgroup
+        win = active_window(overrides, 'app', comm, now)
+        members = freezable_app_members(procs, username, comm, prefs)
+        if win is not None:
+            limit_sec = float(win['allowance_minutes']) * 60.0
+            used_map, used_key = window_used, win['id']
+        else:
+            limit_sec = float(ov['minutes']) * 60.0
+            used_map, used_key = app_used, comm
+        _enforce_target(username, {
+            'limit_sec': limit_sec,
+            'used': used_map, 'used_key': used_key,
+            'paused': app_paused, 'paused_key': comm,
+            'resumed': app_resumed, 'resumed_key': comm,
+            'manual': app_manual_frozen, 'manual_key': comm,
+            'members': members,
+            'ensure': lambda c=comm: ensure_cgroup_app(username, c),
+            'migrate': lambda pid, c=comm: migrate_pid_app(username, c, pid),
+            'get_members': lambda c=comm: cgroup_members_app(username, c),
+            'set_frozen': lambda fr, c=comm: set_frozen_app(username, c, fr),
+            'label': comm, 'tag': 'app:' + comm,
+            'warned_low': app_warned_low, 'low_key': comm,
+            'today_str': today_str,
+            'notify_low': _low_note(app_warned_low, comm, comm),
+            'notify_paused': _paused_note(app_warned_paused, comm, comm),
+        }, wall, deltas, summary, act)
+
     return summary
 
 
@@ -1608,13 +2473,22 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     Returns a list of per-user summary dicts (+ watchdog entry).
     """
     data = load_budgets()
+    overrides_map = load_overrides()
     if prefs is None:
         prefs = load_prefs()
     changed = True  # usage baselines always advance; persist every tick
     summaries = []
-    for username, entry in list(data.items()):
-        if not valid_username(username):
-            continue
+    usernames = [u for u in data if valid_username(u)]
+    # A user may have only an overrides config (app override / window)
+    # with no category limits yet: give them a blank budget entry so the
+    # tick governs them too.
+    for u in overrides_map:
+        if u not in data and valid_username(u):
+            data[u] = blank_entry()
+            usernames.append(u)
+    for username in usernames:
+        entry = data[username]
+        user_overrides = overrides_map.get(username)
         if is_admin_protected(username):
             # Admin self-protection: not even a live `ps` snapshot is taken
             # for wheel members — skip entirely with a logged note.
@@ -1626,7 +2500,11 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             continue
         for key in ('limits', 'used_seconds', 'last_cpu', 'paused', 'resumed',
                     'manual_frozen', 'manual_frozen_at',
-                    'warned_low', 'warned_paused'):
+                    'warned_low', 'warned_paused',
+                    'app_used', 'app_paused', 'app_resumed',
+                    'app_manual_frozen', 'app_manual_frozen_at',
+                    'app_warned_low', 'app_warned_paused',
+                    'window_used', 'window_active'):
             entry.setdefault(key, {})
         if procs_provider is not None:
             procs = procs_provider(username)
@@ -1646,7 +2524,7 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             continue
         summaries.append(account_and_enforce(
             username, entry, procs, (bedtime_map or {}).get(username),
-            now, prefs, index, act, notify))
+            now, prefs, index, act, notify, overrides=user_overrides))
     if changed:
         try:
             save_budgets(data)
@@ -1795,7 +2673,13 @@ def _parse_hhmm(value):
     return None
 
 
-def _in_bedtime(entry, now):
+def _in_window(entry, now):
+    """Recurring day-of-week + HH:MM range check with overnight wrap.
+
+    Used for both bedtime and weekly budget windows (identical temporal
+    model). Returns False for a missing/malformed entry or ``start ==
+    end``.
+    """
     if not entry:
         return False
     start = _parse_hhmm(entry.get('start', ''))
@@ -1816,3 +2700,7 @@ def _in_bedtime(entry, now):
     if yesterday in days and cur < end:
         return True
     return False
+
+
+def _in_bedtime(entry, now):
+    return _in_window(entry, now)
