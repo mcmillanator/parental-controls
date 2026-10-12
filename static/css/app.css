@@ -2127,6 +2127,12 @@ body.pc-reduced-motion *::after {
 .pc-layout--phone {
   padding-bottom: var(--tabbar-h);
 }
+/* Overview's header is in the flow (not a fixed app bar), so the shell must
+   not reserve --nav-h of top padding for it — the canvas S1 puts the content
+   straight under the header. */
+.pc-layout--phone .pc-shell {
+  padding-top: var(--sp-4);
+}
 /* The 4-tab bar is the only navigation on Overview; keep it at every width
    (the phone-only hide is for the sidebar-driven screens). */
 @media (min-width: 768px) {

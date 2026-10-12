@@ -174,46 +174,56 @@ tokens and `prefers-color-scheme` (see open question Q1).
 ### 3.1 Tokens (3-tier)
 
 **Tier 1 — core palette** (names are stable; values are the only thing a theme
-swaps). Existing values preserved where they already pass; failures corrected.
+swaps). **Values re-sampled from the live Flowstep canvas** (§11.6): the design
+is a warm cream/ivory + amber theme, so the warm family is mapped onto the
+original names (`--pc-green-500` now holds the amber the "primary" role uses).
 
 ```
---pc-ink-900:#12121f  --pc-ink-800:#16213e  --pc-ink-700:#1a1a2e
---pc-ink-600:#1a1a3e  --pc-ink-500:#1f2b50  --pc-ink-400:#2a3a5e
---pc-navy-700:#0f3460  --pc-navy-800:#131c36
---pc-green-500:#4ecca3  --pc-green-600:#2f9e79
---pc-red-500:#e94560    --pc-red-700:#7a1f2b
---pc-amber-400:#f0c040  --pc-amber-700:#8a5a00
---pc-violet-500:#6a4c93 --pc-orange-500:#e67e22 --pc-blue-500:#4a90d9
---pc-slate-100:#e0e0e0  --pc-slate-400:#a8c0d8  --pc-slate-500:#8b8b9c
---pc-slate-600:#6b6b7b
+--pc-ink-900:#1f1c17  --pc-ink-800:#2a251c  --pc-ink-700:#241f18
+--pc-ink-600:#322c22  --pc-ink-500:#3d3628  --pc-ink-400:#4a4132
+--pc-navy-700:#57492f  --pc-navy-800:#3a3226
+--pc-green-500:#c47f17  --pc-green-600:#a5650f   /* canvas amber = primary */
+--pc-red-500:#d92d20    --pc-red-700:#7a1f16
+--pc-amber-400:#c47f17  --pc-amber-700:#8a5a12
+--pc-violet-500:#6a4c93 --pc-orange-500:#e08a2b --pc-blue-500:#4a7d8c
+--pc-slate-100:#f4efe4  --pc-slate-400:#c4b8a2  --pc-slate-500:#b3a68d
+--pc-slate-600:#6a6255
 --pc-white:#ffffff     --pc-black:#000000
 ```
 
 **Tier 2 — semantic tokens** (`:root` = dark; `[data-theme="light"]` overrides).
-These are what components use; nothing uses Tier 1 directly.
+These are what components use; nothing uses Tier 1 directly. The canvas only
+specifies the light (cream) theme; the dark theme is its warm counterpart.
 
 ```
---bg:            var(--pc-ink-700);   /* page */
---surface:       var(--pc-ink-800);   /* card / table */
---surface-2:     var(--pc-ink-600);   /* zebra, nested */
---surface-3:     var(--pc-ink-500);   /* hover */
---surface-raised:var(--pc-ink-800);   /* dialog (elevation via border/shadow) */
---border:        var(--pc-ink-400);
---border-strong: var(--pc-navy-700);
---text:          var(--pc-slate-100);
---text-muted:    var(--pc-slate-400);   /* #a8c0d8 – AA on surface */
---text-faint:    var(--pc-slate-500);   /* #8b8b9c – AA on surface */
---link:          var(--pc-green-500);
---focus-ring:    var(--pc-green-500);   /* 2px + 2px offset */
+--bg:            #241f18;            /* page */
+--surface:       #2a251c;            /* card / table */
+--surface-2:     #383126;            /* zebra, nested */
+--surface-3:     #423a2d;            /* hover */
+--surface-raised:#322c22;            /* dialog (elevation via border/shadow) */
+--border:        #4a4132;
+--border-strong: #5c5140;
+--text:          #f4efe4;
+--text-muted:    #c4b8a2;            /* AA on surface + surface-2 */
+--text-faint:    #b3a68d;            /* AA on surface + surface-2 */
+--link:          #e0a94a;
+--focus-ring:    #e0a94a;            /* 2px + 2px offset */
+
+/* warm-palette roles the canvas introduces */
+--primary-bg:#c47f17 --primary-fg:#ffffff --primary-hover:#d68c1e
+--accent-bg:#3d4a45  --accent-fg:#eaf3f0   /* sage active-nav / Protected */
+--sidebar-bg:#2a2419                       /* sidebar is a distinct surface */
 
 /* status foregrounds chosen to pass AA on their chip background */
---ok-fg:#062b20;   --ok-bg:#4ecca3;
---danger-fg:#ffffff; --danger-bg:#c62b45;   /* darkened from #e94560 (was 3.8) */
---warn-fg:#3a2600;  --warn-bg:#f0c040;
---info-fg:#04223f;  --info-bg:#7cc0f5;      /* lightened from #4a90d9 (was 3.4) */
---override-fg:#2a1200; --override-bg:#f3a95c; /* lightened from #e67e22 (was 2.8) */
---bedtime-fg:#ffffff; --bedtime-bg:#6a4c93;   /* 7:1 – keep */
---neutral-fg:#ffffff; --neutral-bg:#0f3460;
+--ok-fg:#eafaf1;   --ok-bg:#2c6e4f;
+--danger-fg:#ffffff; --danger-bg:#d92d20;
+--danger-soft-fg:#ffb3ac; --danger-soft-bg:#4a201c;  /* pale Locked pill */
+--warn-fg:#ffffff;  --warn-bg:#8a5a12;
+--info-fg:#f6dfae;  --info-bg:#4a3a1c;
+--override-fg:#ffffff; --override-bg:#a5650f;
+--bedtime-fg:#e6def7; --bedtime-bg:#4a3d63;
+--bonus-fg:#ffffff; --bonus-bg:#a5650f;
+--neutral-fg:#f4efe4; --neutral-bg:#423a2d;
 ```
 
 **Tier 3 — component tokens** derive from tier 2 (`--btn-bg`, `--chip-bg`,
@@ -237,16 +247,21 @@ Four Zero Three — never a glow on pure black):
 **Motion:** `--dur:140ms --ease:cubic-bezier(.2,.6,.2,1)`; all transitions
 wrapped in `@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}`.
 
-**Light theme** (illustrative): `--bg:#f4f5f8 --surface:#ffffff
---surface-2:#eef0f5 --surface-3:#e4e8f0 --text:#1a1c26 --text-muted:#4a5568
---border:#c9cfdb --link:#1f7a5c`, status chips darkened for white surfaces.
+**Light theme** — the canvas palette (sampled, see §11.6): `--bg:#faf7f0
+--surface:#ffffff --surface-2:#f4efe4 --surface-3:#eae3d4 --border:#e4dcc9
+--border-strong:#cec2a8 --text:#1f1c17 --text-muted:#6a6255 --text-faint:#75695a
+--link:#8a5a12 --focus-ring:#8a5a12`, amber primary `#c47f17` on white, sage
+accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas Online/Unlocked pill
+`#d7ebd7`/`#003a05`, soft Locked pill `#fbe3e0`/`#8f1d15`, destructive
+`#d92d20`, status text tokens `--ok-text:#14602f --warn-text:#8a5a12
+--danger-text:#b3261e --info-text:#7a4f0a`.
 
 ### 3.2 Component inventory
 
 | Component | Notes / current mapping |
 |---|---|
-| **App bar** | Sticky top; title + tier line; account menu (Change password / Log out) as a `<details>` popover (no JS framework) |
-| **Bottom tab bar** (phone only) | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11) |
+| **App bar** | Sticky top; brand (below 768 px only — from tablet up the brand lives in the sidebar), account menu (Change password / Log out) and Help as `<details>` popovers, theme toggle (no JS framework) |
+| **Bottom tab bar** | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11). Hidden from 768 px up except on the phone-first Overview shell |
 | **Skip link** | "Skip to content" first focusable |
 | **Button** `.pc-btn` variants `--primary` (green: Unlock, Save, Set, Add), `--danger` (Lock, Clear, Remove, Emergency logout), `--warn` (Freeze), `--neutral` (Hide, secondary), `--ghost` (Load more, Details). Sizes: default 44 px; `--sm` **min 32 px** with 8 px spacing (fixes 2.5.8); `--icon`. |
 | **Chip / badge** `.pc-chip` variants `ok/danger/warn/info/override/bedtime/neutral/bonus`. Always **icon + text + color** (never color alone). |
@@ -870,10 +885,15 @@ this project's stack.
 - **Overview (Screen 1) is phone-first:** a simple header (brand + "Local /
   Online") over a single column and the 4-tab bar at every width —
   **no desktop sidebar** (`base.html` `layout_class` = `pc-layout--phone`,
-  `_partials/phone_header.html`).
-- **Screens 3–6** use the desktop **sidebar** (Overview / Time rules /
-  Activity / Admin / Settings, ≥960 px) and the top header (user chip + theme
-  toggle + Help).
+  `_partials/phone_header.html`). S1 is a `mobile_android` mockup, so the
+  canvas does **not** support giving Overview a desktop sidebar.
+- **Screens 3–6** use the **sidebar** (Overview / Time rules / Activity /
+  Admin / Settings) from **768 px** (canvas S3/S4 are *tablet* screens and
+  already show the 236 px sidebar), widening to 280 px at **960 px** (canvas
+  S5/S6), plus the top header with the account chip, theme toggle and Help.
+  The brand lives in the sidebar from 768 px up so it is never duplicated in
+  the top bar, which keeps only the right-aligned account / theme / Help
+  cluster (canvas S5/S6).
 - The phone bottom bar is **Home / Time / Activity / Admin** plus an
   **Account** menu (Settings / Change password / Log out); Settings is not a
   tab. Active destinations keep `aria-current="page"`.
@@ -900,9 +920,56 @@ comes from a shared macro were updated: `test_ui_shell` (sidebar/appbar/tabbar
 new rendered disabled-attribute check). New `tests/test_ui_macros.py` guards
 the macro library and its adoption. **Zero** `katalon/objects/*` changes.
 
+The §11.6 QA pass re-sampled the palette, so two tests that pinned the old
+*cool* hexes were updated (values only, no selector change):
+
+- `tests/test_ui_assets.py::test_light_theme_is_an_override_not_a_rewrite`
+  (`--bg:#f4f5f8`→`#faf7f0`, `--info-bg:#2368a8`→`#f9efdc`,
+  `--warn-bg:#8a5a00`→`#8a5a12`);
+- `tests/test_ui_a11y.py::test_dark_is_the_default_and_light_is_available`
+  (`--bg:#f4f5f8`→`#faf7f0`).
+
+No id/class/attribute/`data-*` selector changed in either file, and the
+WCAG-AA contrast guardrails in `test_ui_a11y` (chip pairs + text tokens, both
+themes) were **not** weakened — they still pass on the new palette.
+
 ### 11.5 Verification
 
 Full stdlib suite green via
 `TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`
 (1232 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
 device/browser passes (§7.6) remain the owner's to run on the live box.
+
+### 11.6 Canvas QA pass — palette re-sample + desktop elements
+
+Owner report: elements missing on desktop, and the palette not matching the
+canvas. Both were confirmed against the live canvas and fixed.
+
+**Palette.** The branch shipped a cool navy/teal/pink theme; the canvas is warm
+cream/ivory + amber. Every token was re-pointed (§3.1) — tier-1/tier-2 names
+kept so no component or selector moved. Sampled values (light): cream page
+`#faf7f0`, white cards, tan hairline `#e4dcc9`, ink `#1f1c17`, amber primary
+`#c47f17`, sage accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas
+Online/Unlocked pill `#d7ebd7`/`#003a05`, soft Locked pill `#fbe3e0`/`#8f1d15`,
+destructive `#d92d20`. Components that hard-coded the old family were
+re-pointed: primary buttons, the sidebar surface + logo, the nav active pill,
+status pills, banners, the table head, the switch and the day buttons.
+
+**Desktop elements.** Sidebar gains the canvas's visible "Selected machine"
+eyebrow and drops the footer the canvas does not have; the sidebar is now shown
+from 768 px (canvas S3/S4 tablet); the duplicated app-bar brand is removed from
+768 px up and the account/theme/Help cluster is right-aligned and plain with
+Help's visible label; `#admin-specimens` and `#settings-annotations` are plain
+visible sections again (they were collapsed `<details>`) and the missing
+"Dialog"/"Focus ring" callouts plus the Audit/Admin card-header glyphs were
+added; Settings' Local access column was nested inside the Notifications
+column and now sits beside it; the Overview shell no longer reserves `--nav-h`
+of top padding for a header that is in the flow.
+
+**Known canvas conflicts (owner decision).** (a) The canvas draws white text on
+the amber button `#c47f17`, which is 3.3:1 — below WCAG AA 4.5:1; the amber
+fill was kept canvas-exact for buttons and the text-bearing amber chips use the
+AA-safe `#a5650f`. (b) The canvas' Settings screen (S6) renders `primary` as
+near-black and its switches dark, while S1–S5 render amber; the amber reading
+was taken as authoritative (5 of 6 screens + the brief). (c) The canvas does
+not specify a desktop Overview, so the phone-first shell was kept unconstrained.
