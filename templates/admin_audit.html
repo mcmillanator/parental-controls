@@ -1,381 +1,453 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ g.csrf_token }}">
-    <title>Parental Controls — Admin Console</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            padding: 2rem;
-        }
-        h1 { margin-bottom: 0.5rem; font-size: 1.8rem; }
-        .subtitle { color: #888; margin-bottom: 1.5rem; font-size: 0.95rem; }
-        .back-link { color: #4ecca3; text-decoration: none; margin-bottom: 1rem; display: inline-block; }
-        .back-link:hover { text-decoration: underline; }
-        .page-wrap { max-width: 1200px; margin: 0 auto; }
-        section { background: #16213e; border-radius: 8px; padding: 1.25rem; margin: 1.25rem 0; }
-        h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
-        table { width: 100%; border-collapse: collapse; background: #16213e; border-radius: 8px; margin: 1rem 0; }
-        th, td { padding: 0.6rem 0.85rem; text-align: left; vertical-align: top; }
-        th { background: #0f3460; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        tr:nth-child(even) { background: #1a1a3e; }
-        tr:hover { background: #1f2b50; }
-        button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; margin: 0.2rem; }
-        button:hover { opacity: 0.85; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn-lock { background: #e94560; color: #fff; }
-        .btn-unlock { background: #4ecca3; color: #1a1a2e; }
-        .btn-more { background: #0f3460; color: #4ecca3; }
-        .btn-sm { padding: 0.15rem 0.6rem; font-size: 0.75rem; }
-        #toast { position: fixed; bottom: 2rem; right: 2rem; padding: 0.75rem 1.25rem; border-radius: 6px; font-size: 0.9rem; display: none; z-index: 100; }
-        .toast-success { background: #4ecca3; color: #1a1a2e; }
-        .toast-error { background: #e94560; color: #fff; }
-        .chain-intact { display: inline-block; background: #1d3b2f; color: #4ecca3; border-radius: 4px; padding: 0.3rem 0.75rem; font-weight: 600; font-size: 0.9rem; }
-        .chain-broken { display: inline-block; background: #5c1f2b; color: #ff8096; border-radius: 4px; padding: 0.3rem 0.75rem; font-weight: 600; font-size: 0.9rem; }
-        .badge-protected { display: inline-block; background: #6a4c93; color: #fff; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; font-weight: 600; }
-        .audit-detail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: #a8c0d8; word-break: break-all; }
-        .audit-time { font-size: 0.8rem; color: #a8c0d8; white-space: nowrap; }
-        .hint { color: #888; font-size: 0.8rem; margin-top: 0.4rem; }
-        input[type="text"] { padding: 0.4rem; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a3e; color: #e0e0e0; }
-        .otp-box { border: 1px solid #4ecca3; border-radius: 6px; padding: 0.75rem 1rem; margin: 0.75rem 0; background: #0f2a22; font-size: 0.9rem; }
-        .otp-box code { background: #1a1a2e; padding: 0.15rem 0.4rem; border-radius: 4px; color: #4ecca3; font-size: 1rem; }
-        .refresh-info { color: #666; font-size: 0.8rem; margin-top: 1rem; }
-        @media (max-width: 576px) { body { padding: 1rem; } }
-    </style>
-</head>
-<body data-bs-theme="dark">
-    <div class="container-fluid page-wrap">
-    <a href="/" class="back-link">← Back to Parental Controls</a>
-    <span style="float: right; font-size: 0.85rem;">
-        <a href="/change-password" style="color: #4ecca3;">Change password</a>
-        &nbsp;·&nbsp; <a href="/logout" style="color: #e94560;">Log out</a></span>
+{% extends "base.html" %}
+{# =========================================================================
+   Admin console (/admin/audit) — mobile-first redesign (UI_UX_PLAN.md §5.5,
+   Phase 4).
 
-    <h1>Admin Console</h1>
-    <p class="subtitle">Audit log + admin accounts — logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})</p>
-    {% include '_insecure_banner.html' %}
+   The shared head/nav/banner/toast now live in base.html; this page keeps only
+   the content block + its page script. Layout per the plan:
 
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Audit log viewer (read-only)                                        -->
-    <!-- ------------------------------------------------------------------ -->
-    <section id="audit-section" aria-label="Audit log">
-        <h2>Audit Log</h2>
-        <p class="hint">Tamper-evident, append-only. Newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
-        <div id="chain-status" style="margin: 0.75rem 0;">
-            {% if chain_ok %}
-            <span class="chain-intact">Audit chain intact</span>
+   * the audit log is a `.pc-table--stack` (semantic <table> + `data-label`s;
+     the page JS inserts local-day group headings between rows),
+   * the chain status is a `.pc-banner--ok` / `.pc-banner--danger` with the
+     legacy `.chain-intact` / `.chain-broken` classes preserved,
+   * "Load more entries" shows a busy state (skeleton + aria-busy),
+   * "Remove" goes through the native <dialog> helper (window.pcConfirm() —
+     no blocking browser confirm),
+   * the one-time password is a native <dialog> (ids + `.otp-box` kept),
+   * the admin rows are `.pc-chip` cards with a "Protected" wheel pill.
+
+   Every id/class/attr/text pinned by UI_UX_PLAN.md §7.4, the Katalon
+   validator (tests/test_katalon_objects.py), tests/test_admin_console.py and
+   tests/test_time12h.py is preserved literally.
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty %}
+
+{% block title %}Parental Controls — Admin Console{% endblock %}
+{# The two wide tables want the full-width shell, like Home (not the narrow
+   auth/user shell). #}
+{% block shell_class %}{% endblock %}
+
+{% block content %}
+<h1 class="pc-page-title">Admin Console</h1>
+<p class="subtitle pc-subtitle">Audit log + admin accounts — logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})</p>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Audit log viewer (read-only)                                        -->
+<!-- ------------------------------------------------------------------ -->
+<section id="audit-section" aria-labelledby="audit-heading">
+    <h2 id="audit-heading">Audit Log</h2>
+    <p class="pc-hint">Tamper-evident, append-only. Newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
+
+    {# Chain status: a status banner (role=status when intact, role=alert when
+       broken). The legacy `.chain-intact`/`.chain-broken` classes ride along so
+       the runtime Katalon selector keeps resolving. #}
+    <div id="chain-status" class="pc-banner pc-banner--{{ 'ok' if chain_ok else 'danger' }} {{ 'chain-intact' if chain_ok else 'chain-broken' }}" role="{{ 'status' if chain_ok else 'alert' }}">
+        {% if chain_ok %}Audit chain intact{% else %}Audit chain broken{% if bad_seq %} — first bad entry: seq {{ bad_seq }}{% else %} — unparseable entry{% endif %}{% endif %}
+    </div>
+
+    <p class="pc-meta">
+        Showing <span id="audit-count">{{ entries|length }}</span> entries (limit {{ limit }})
+        <input type="hidden" id="audit-limit" value="{{ limit }}">
+    </p>
+
+    <table class="pc-table pc-table--stack" id="audit-table">
+        <thead>
+            <tr>
+                <th>Seq</th>
+                <th>Time (local)</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr class="audit-row" data-seq="{{ e.seq }}">
+                <td data-label="Seq" class="pc-num">{{ e.seq }}</td>
+                <td data-label="Time (local)" class="audit-time" data-at="{{ e.at or '' }}">{{ e.at or '' }}</td>
+                <td data-label="Actor">{{ e.actor or '' }}</td>
+                <td data-label="Action">{{ e.action or '' }}</td>
+                <td data-label="Target">{{ e.target or '' }}</td>
+                <td data-label="Detail" class="audit-detail" style="word-break: break-all;">{{ e.detail_summary or '' }}</td>
+            </tr>
             {% else %}
-            <span class="chain-broken">Audit chain broken{% if bad_seq %} — first bad entry: seq {{ bad_seq }}{% else %} — unparseable entry{% endif %}</span>
-            {% endif %}
+            <tr><td colspan="6" data-label="">{{ pc_empty('No audit entries yet.') }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p class="pc-row">
+        <button type="button" id="load-more" class="pc-btn pc-btn--ghost btn-more" onclick="loadMore()" {% if not has_more %}disabled{% endif %}>Load more entries</button>
+        <span id="load-more-status" class="pc-skeleton pc-skeleton--row" role="status" aria-live="polite" hidden>Loading entries…</span>
+    </p>
+    <p class="refresh-info">Up to 1000 entries shown (100 at a time).</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Admin management (add/remove app-only, wheel-actor only)            -->
+<!-- ------------------------------------------------------------------ -->
+<section id="admin-section" aria-labelledby="admin-heading">
+    <h2 id="admin-heading">Admin Accounts</h2>
+    <p class="pc-hint">Wheel admins are system-protected and can never be removed (or added) from the console. App-only admins manage app logins only.</p>
+
+    <table class="pc-table pc-table--stack" id="admin-table">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Tier</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in admins %}
+            <tr class="admin-row" data-username="{{ a.username }}">
+                <td data-label="Username"><strong>{{ a.username }}</strong></td>
+                <td data-label="Tier"><span class="pc-chip pc-chip--neutral">{{ 'wheel' if a.tier == 'wheel' else 'app-only' if a.tier == 'app-only' else 'revoked' }}</span></td>
+                <td data-label="Status">{% if a.must_change %}must change password{% if a.locked %}, {% endif %}{% endif %}{% if a.locked %}locked{% endif %}{% if not a.must_change and not a.locked %}—{% endif %}</td>
+                <td data-label="Actions">
+                    {% if a.tier == 'wheel' %}
+                    <span class="badge-protected pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>Protected — wheel admin</span>
+                    {% elif a.username == g.admin %}
+                    <span class="pc-meta">(you)</span>
+                    {% elif g.tier == 'wheel' %}
+                    <button type="button" class="btn-lock pc-btn pc-btn--sm pc-btn--danger" onclick="removeAdmin('{{ a.username }}')">Remove</button>
+                    {% else %}
+                    <span class="pc-meta">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" data-label="">{{ pc_empty('No admins.') }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# One-time password: a native <dialog> (focus-trapped, Esc closes). The
+       `.otp-box` class id/markup is kept for the alert-box contract. #}
+    <dialog id="onetime-password" class="pc-dialog otp-box" role="alert" aria-labelledby="otp-title">
+        <div class="pc-dialog__header" id="otp-title">One-time app password</div>
+        <div class="pc-dialog__body">
+            <p>One-time app password for <strong id="otp-user"></strong>:</p>
+            <p><code id="otp-value"></code></p>
+            <p class="pc-hint">Shown once — it must be changed at first login.</p>
         </div>
-        <p style="font-size: 0.85rem; color: #888;">
-            Showing <span id="audit-count">{{ entries|length }}</span> entries (limit {{ limit }})
-            <input type="hidden" id="audit-limit" value="{{ limit }}">
-        </p>
-        <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover align-middle mb-0" id="audit-table">
-            <thead>
-                <tr>
-                    <th>Seq</th>
-                    <th>Time (local)</th>
-                    <th>Actor</th>
-                    <th>Action</th>
-                    <th>Target</th>
-                    <th>Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for e in entries %}
-                <tr class="audit-row" data-seq="{{ e.seq }}">
-                    <td>{{ e.seq }}</td>
-                    <td class="audit-time" data-at="{{ e.at or '' }}">{{ e.at or '' }}</td>
-                    <td>{{ e.actor or '' }}</td>
-                    <td>{{ e.action or '' }}</td>
-                    <td>{{ e.target or '' }}</td>
-                    <td class="audit-detail">{{ e.detail_summary or '' }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="6" style="color:#888;">No audit entries yet.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="pc-dialog__footer">
+            <button type="button" class="pc-btn pc-btn--neutral" onclick="copyOtp()">Copy password</button>
+            <button type="button" class="btn-unlock pc-btn pc-btn--primary" onclick="dismissOtp()">I've saved it</button>
         </div>
-        <button type="button" id="load-more" class="btn-more"
-            onclick="loadMore()" {% if not has_more %}disabled{% endif %}>
-            Load more entries
-        </button>
-        <p class="refresh-info">Up to 1000 entries shown (100 at a time).</p>
-    </section>
+    </dialog>
 
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Admin management (add/remove app-only, wheel-actor only)            -->
-    <!-- ------------------------------------------------------------------ -->
-    <section id="admin-section" aria-label="Admin accounts">
-        <h2>Admin Accounts</h2>
-        <p class="hint">Wheel admins are system-protected and can never be removed (or added) from the console. App-only admins manage app logins only.</p>
-        <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover align-middle mb-0" id="admin-table">
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Tier</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for a in admins %}
-                <tr class="admin-row" data-username="{{ a.username }}">
-                    <td><strong>{{ a.username }}</strong></td>
-                    <td>
-                        {% if a.tier == 'wheel' %}wheel
-                        {% elif a.tier == 'app-only' %}app-only
-                        {% else %}revoked{% endif %}
-                    </td>
-                    <td>{% if a.must_change %}must change password{% if a.locked %}, {% endif %}{% endif %}{% if a.locked %}locked{% endif %}{% if not a.must_change and not a.locked %}—{% endif %}</td>
-                    <td>
-                        {% if a.tier == 'wheel' %}
-                        <span class="badge-protected">Protected — wheel admin</span>
-                        {% elif a.username == g.admin %}
-                        <span style="color: #888;">(you)</span>
-                        {% elif g.tier == 'wheel' %}
-                        <button type="button" class="btn-lock btn-sm" onclick="removeAdmin('{{ a.username }}')">Remove</button>
-                        {% else %}
-                        <span style="color: #888;">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="4" style="color:#888;">No admins.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    {% if g.tier == 'wheel' %}
+    <details class="pc-disclosure" id="admin-add">
+        <summary>Add admin</summary>
+        <div class="pc-disclosure__body">
+            <div class="pc-field">
+                <label class="pc-field__label" for="new-admin-username">New app-only admin username:</label>
+                <input type="text" id="new-admin-username" class="pc-input" placeholder="new app-only admin username"
+                    autocomplete="off" spellcheck="false">
+            </div>
+            <div class="pc-card__footer">
+                <button type="button" class="btn-unlock pc-btn pc-btn--primary" onclick="addAdmin()">Add admin</button>
+            </div>
+            <p class="pc-hint">App-only admins only. System accounts (except wheel) and wheel members can never be added from the console.</p>
         </div>
+    </details>
+    {% endif %}
+</section>
+{% endblock %}
 
-        <div id="onetime-password" class="otp-box" style="display: none;" role="alert">
-            <strong>One-time app password for <span id="otp-user"></span>:</strong>
-            <code id="otp-value"></code><br>
-            <span style="color: #a8c0d8; font-size: 0.85rem;">Shown once — it must be changed at first login.</span>
-            <button type="button" class="btn-unlock btn-sm" onclick="dismissOtp()" style="margin-left: 0.5rem;">I've saved it</button>
-        </div>
+{% block scripts %}
+<script>
+    const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    const MAX_AUDIT_LIMIT = 1000;
+    const AUDIT_STEP = 100;
 
-        {% if g.tier == 'wheel' %}
-        <div id="admin-add" style="margin-top: 0.75rem; font-size: 0.9rem;">
-            <input type="text" id="new-admin-username" placeholder="new app-only admin username"
-                autocomplete="off" spellcheck="false">
-            <button type="button" class="btn-unlock" onclick="addAdmin()">Add admin</button>
-            <p class="hint">App-only admins only. System accounts (except wheel) and wheel members can never be added from the console.</p>
-        </div>
-        {% endif %}
-    </section>
+    // Toast helper now delegates to the shared shell (base.html): window.pcToast
+    // renders a role=status/alert live region under #toast.
+    function showToast(msg, isError) {
+        if (window.pcToast) { return window.pcToast(msg, isError ? 'error' : 'success'); }
+    }
 
-    <div id="toast"></div>
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
+            '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
 
-    <script>
-        const CSRF = document.querySelector('meta[name="csrf-token"]').content;
-        const MAX_AUDIT_LIMIT = 1000;
-        const AUDIT_STEP = 100;
+    // Raw UTC ISO ('2026-10-11T02:50:43+00:00') -> local 12-hour
+    // ('Oct 11, 2026 10:50 PM'). Display-only: the API/store keep the
+    // raw `at`. Deterministic text (fixed month names, no
+    // locale-sensitive toLocale*), so every browser renders the same
+    // punctuation. Unparseable input passes through unchanged.
+    const AUDIT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul',
+                          'Aug','Sep','Oct','Nov','Dec'];
 
-        function showToast(msg, isError) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = isError ? 'toast-error' : 'toast-success';
-            toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    function formatAuditAt(at) {
+        if (!at) return '';
+        const d = new Date(at);
+        if (isNaN(d.getTime())) return String(at);
+        let h = d.getHours();
+        const suffix = h < 12 ? 'AM' : 'PM';
+        h = h % 12 || 12;
+        const m = String(d.getMinutes()).padStart(2, '0');
+        return AUDIT_MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
+            d.getFullYear() + ' ' + h + ':' + m + ' ' + suffix;
+    }
+
+    function detailSummary(detail) {
+        if (detail === null || detail === undefined) return '';
+        let text = typeof detail === 'string' ? detail : '';
+        if (!text) {
+            try { text = JSON.stringify(detail); } catch (e) { text = String(detail); }
         }
+        return text.length > 120 ? text.slice(0, 119) + '\u2026' : text;
+    }
 
-        function esc(s) {
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;',
-                '"': '&quot;', "'": '&#39;'
-            }[c]));
-        }
+    // Local calendar-day key ('2026-10-11') for the optional day grouping.
+    function auditDayKey(at) {
+        if (!at) return '';
+        const d = new Date(at);
+        if (isNaN(d.getTime())) return '';
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
 
-        // Raw UTC ISO ('2026-10-11T02:50:43+00:00') -> local 12-hour
-        // ('Oct 11, 2026 10:50 PM'). Display-only: the API/store keep the
-        // raw `at`. Deterministic text (fixed month names, no
-        // locale-sensitive toLocale*), so every browser renders the same
-        // punctuation. Unparseable input passes through unchanged.
-        const AUDIT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul',
-                              'Aug','Sep','Oct','Nov','Dec'];
+    // A day heading covers the whole stacked table (colspan + empty label so
+    // the mobile `td::before` label rule is skipped).
+    function auditDayHtml(at) {
+        const d = new Date(at);
+        const label = AUDIT_MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
+            d.getFullYear();
+        return '<tr class="audit-day" data-day="' + esc(auditDayKey(at)) + '">' +
+            '<td colspan="6" data-label="" class="pc-meta">' + esc(label) + '</td></tr>';
+    }
 
-        function formatAuditAt(at) {
-            if (!at) return '';
-            const d = new Date(at);
-            if (isNaN(d.getTime())) return String(at);
-            let h = d.getHours();
-            const suffix = h < 12 ? 'AM' : 'PM';
-            h = h % 12 || 12;
-            const m = String(d.getMinutes()).padStart(2, '0');
-            return AUDIT_MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
-                d.getFullYear() + ' ' + h + ':' + m + ' ' + suffix;
-        }
+    function auditRowHtml(e) {
+        return '<tr class="audit-row" data-seq="' + esc(e.seq) + '">' +
+            '<td data-label="Seq" class="pc-num">' + esc(e.seq) + '</td>' +
+            '<td data-label="Time (local)" class="audit-time" data-at="' + esc(e.at || '') + '">' +
+                esc(formatAuditAt(e.at || '')) + '</td>' +
+            '<td data-label="Actor">' + esc(e.actor || '') + '</td>' +
+            '<td data-label="Action">' + esc(e.action || '') + '</td>' +
+            '<td data-label="Target">' + esc(e.target || '') + '</td>' +
+            '<td data-label="Detail" class="audit-detail" style="word-break: break-all;">' + esc(detailSummary(e.detail)) + '</td></tr>';
+    }
 
-        function detailSummary(detail) {
-            if (detail === null || detail === undefined) return '';
-            let text = typeof detail === 'string' ? detail : '';
-            if (!text) {
-                try { text = JSON.stringify(detail); } catch (e) { text = String(detail); }
-            }
-            return text.length > 120 ? text.slice(0, 119) + '\u2026' : text;
-        }
-
-        function auditRowHtml(e) {
-            return '<tr class="audit-row" data-seq="' + esc(e.seq) + '">' +
-                '<td>' + esc(e.seq) + '</td>' +
-                '<td class="audit-time">' + esc(formatAuditAt(e.at || '')) + '</td>' +
-                '<td>' + esc(e.actor || '') + '</td>' +
-                '<td>' + esc(e.action || '') + '</td>' +
-                '<td>' + esc(e.target || '') + '</td>' +
-                '<td class="audit-detail">' + esc(detailSummary(e.detail)) + '</td></tr>';
-        }
-
-        function renderChain(data) {
-            const el = document.getElementById('chain-status');
-            if (!el) return;
-            if (data.chain_ok) {
-                el.innerHTML = '<span class="chain-intact">Audit chain intact</span>';
-            } else {
-                el.innerHTML = '<span class="chain-broken">Audit chain broken' +
-                    (data.bad_seq ? ' — first bad entry: seq ' + esc(data.bad_seq) : '') + '</span>';
-            }
-        }
-
-        // Load more: grow the limit through the existing /api/audit endpoint
-        // (default 100, capped at 1000) and re-render the table body.
-        async function loadMore() {
-            const btn = document.getElementById('load-more');
-            const limitInput = document.getElementById('audit-limit');
-            const current = parseInt(limitInput.value, 10) || 100;
-            const next = Math.min(current + AUDIT_STEP, MAX_AUDIT_LIMIT);
-            try {
-                const resp = await fetch('/api/audit?limit=' + next);
-                const data = await resp.json();
-                if (!data.success) {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                    return;
-                }
-                const tbody = document.querySelector('#audit-table tbody');
-                tbody.innerHTML = (data.entries || []).map(auditRowHtml).join('');
-                limitInput.value = data.limit;
-                document.getElementById('audit-count').textContent = (data.entries || []).length;
-                renderChain(data);
-                if ((data.entries || []).length >= data.limit && data.limit >= MAX_AUDIT_LIMIT) {
-                    btn.disabled = true;
-                    btn.textContent = 'Cap of ' + MAX_AUDIT_LIMIT + ' entries reached';
-                } else if ((data.entries || []).length < data.limit) {
-                    btn.disabled = true;
-                    btn.textContent = 'All entries loaded';
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function refreshAdmins() {
-            try {
-                const resp = await fetch('/api/admins');
-                const data = await resp.json();
-                if (!data.success) return;
-                const tbody = document.querySelector('#admin-table tbody');
-                const canManage = data.tier === 'wheel';
-                const rows = (data.admins || []).map(a => {
-                    const status = [];
-                    if (a.must_change) status.push('must change password');
-                    if (a.locked) status.push('locked');
-                    let action;
-                    if (a.tier === 'wheel') {
-                        action = '<span class="badge-protected">Protected — wheel admin</span>';
-                    } else if (a.username === data.self) {
-                        action = '<span style="color: #888;">(you)</span>';
-                    } else if (canManage) {
-                        action = '<button type="button" class="btn-lock btn-sm" onclick="removeAdmin(\'' +
-                            esc(a.username) + '\')">Remove</button>';
-                    } else {
-                        action = '<span style="color: #888;">—</span>';
-                    }
-                    const tier = a.tier === 'wheel' ? 'wheel' : a.tier === 'app-only' ? 'app-only' : 'revoked';
-                    return '<tr class="admin-row" data-username="' + esc(a.username) + '">' +
-                        '<td><strong>' + esc(a.username) + '</strong></td>' +
-                        '<td>' + esc(tier) + '</td>' +
-                        '<td>' + (status.length ? esc(status.join(', ')) : '—') + '</td>' +
-                        '<td>' + action + '</td></tr>';
-                }).join('');
-                tbody.innerHTML = rows || '<tr><td colspan="4" style="color:#888;">No admins.</td></tr>';
-            } catch (e) { /* leave the server-rendered table as-is */ }
-        }
-
-        function showOtp(username, password) {
-            const el = document.getElementById('onetime-password');
-            if (!el) return;
-            document.getElementById('otp-user').textContent = username;
-            document.getElementById('otp-value').textContent = password;
-            el.style.display = 'block';
-        }
-
-        function dismissOtp() {
-            const el = document.getElementById('onetime-password');
-            if (el) el.style.display = 'none';
-        }
-
-        async function addAdmin() {
-            const input = document.getElementById('new-admin-username');
-            const username = input.value.trim();
-            if (!username) return;
-            try {
-                const resp = await fetch('/api/admins', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    input.value = '';
-                    showOtp(username, data.password);
-                    refreshAdmins();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        async function removeAdmin(username) {
-            if (!confirm('Remove admin "' + username + '"? They lose console access immediately.')) return;
-            try {
-                const resp = await fetch('/api/admins/remove', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username)
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    showToast('Removed ' + username, false);
-                    refreshAdmins();
-                } else {
-                    showToast('Error: ' + (data.error || 'unknown'), true);
-                }
-            } catch (e) {
-                showToast('Error: ' + e.message, true);
-            }
-        }
-
-        // Server-rendered rows carry the raw UTC ISO in data-at; upgrade
-        // each cell in place to local 12-hour (same formatter the JS
-        // loadMore rows use via auditRowHtml). No server-side locale
-        // string is ever shipped.
+    // In-place decoration of every server-rendered / freshly loaded row:
+    // upgrade the raw UTC `data-at` to local 12-hour and insert a day heading
+    // before the first row of each local calendar day.
+    function decorateRows() {
+        const tbody = document.querySelector('#audit-table tbody');
+        if (!tbody) return;
         document.querySelectorAll('#audit-table td.audit-time[data-at]')
             .forEach(cell => {
                 cell.textContent = formatAuditAt(cell.getAttribute('data-at'));
             });
+        tbody.querySelectorAll('tr.audit-day').forEach(row => row.remove());
+        Array.from(tbody.querySelectorAll('tr.audit-row')).forEach(row => {
+            const cell = row.querySelector('td.audit-time[data-at]');
+            const key = cell ? auditDayKey(cell.getAttribute('data-at')) : '';
+            if (!key) return;
+            const prev = row.previousElementSibling;
+            if (prev && prev.classList.contains('audit-day') &&
+                    prev.getAttribute('data-day') === key) {
+                return;
+            }
+            row.insertAdjacentHTML('beforebegin', auditDayHtml(cell.getAttribute('data-at')));
+        });
+    }
 
-        refreshAdmins();
-    </script>
-</body>
-</html>
+    function renderChain(data) {
+        const el = document.getElementById('chain-status');
+        if (!el) return;
+        const ok = !!data.chain_ok;
+        el.className = 'pc-banner pc-banner--' + (ok ? 'ok' : 'danger') +
+            (ok ? ' chain-intact' : ' chain-broken');
+        el.setAttribute('role', ok ? 'status' : 'alert');
+        el.textContent = ok ? 'Audit chain intact'
+            : 'Audit chain broken' +
+              (data.bad_seq ? ' — first bad entry: seq ' + data.bad_seq : '');
+    }
+
+    // Load more: grow the limit through the existing /api/audit endpoint
+    // (default 100, capped at 1000) and re-render the table body. Shows a
+    // busy state while the request is in flight.
+    async function loadMore() {
+        const btn = document.getElementById('load-more');
+        const status = document.getElementById('load-more-status');
+        const limitInput = document.getElementById('audit-limit');
+        const label = 'Load more entries';
+        const current = parseInt(limitInput.value, 10) || 100;
+        const next = Math.min(current + AUDIT_STEP, MAX_AUDIT_LIMIT);
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Loading…';
+        if (status) { status.hidden = false; }
+        try {
+            const resp = await fetch('/api/audit?limit=' + next);
+            const data = await resp.json();
+            if (!data.success) {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+                btn.disabled = false;
+                btn.textContent = label;
+                return;
+            }
+            const tbody = document.querySelector('#audit-table tbody');
+            const rows = (data.entries || []).map(auditRowHtml).join('');
+            tbody.innerHTML = rows ||
+                '<tr><td colspan="6" data-label="">No audit entries yet.</td></tr>';
+            limitInput.value = data.limit;
+            document.getElementById('audit-count').textContent = (data.entries || []).length;
+            decorateRows();
+            renderChain(data);
+            if ((data.entries || []).length >= data.limit && data.limit >= MAX_AUDIT_LIMIT) {
+                btn.disabled = true;
+                btn.textContent = 'Cap of ' + MAX_AUDIT_LIMIT + ' entries reached';
+            } else if ((data.entries || []).length < data.limit) {
+                btn.disabled = true;
+                btn.textContent = 'All entries loaded';
+            } else {
+                btn.disabled = false;
+                btn.textContent = label;
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+            btn.disabled = false;
+            btn.textContent = label;
+        } finally {
+            btn.setAttribute('aria-busy', 'false');
+            if (status) { status.hidden = true; }
+        }
+    }
+
+    function adminRowHtml(a, self, canManage) {
+        const status = [];
+        if (a.must_change) status.push('must change password');
+        if (a.locked) status.push('locked');
+        const tier = a.tier === 'wheel' ? 'wheel' : a.tier === 'app-only' ? 'app-only' : 'revoked';
+        let action;
+        if (a.tier === 'wheel') {
+            action = '<span class="badge-protected pc-chip pc-chip--ok">Protected — wheel admin</span>';
+        } else if (a.username === self) {
+            action = '<span class="pc-meta">(you)</span>';
+        } else if (canManage) {
+            action = '<button type="button" class="btn-lock pc-btn pc-btn--sm pc-btn--danger" onclick="removeAdmin(\'' +
+                esc(a.username) + '\')">Remove</button>';
+        } else {
+            action = '<span class="pc-meta">—</span>';
+        }
+        return '<tr class="admin-row" data-username="' + esc(a.username) + '">' +
+            '<td data-label="Username"><strong>' + esc(a.username) + '</strong></td>' +
+            '<td data-label="Tier"><span class="pc-chip pc-chip--neutral">' + esc(tier) + '</span></td>' +
+            '<td data-label="Status">' + (status.length ? esc(status.join(', ')) : '—') + '</td>' +
+            '<td data-label="Actions">' + action + '</td></tr>';
+    }
+
+    async function refreshAdmins() {
+        try {
+            const resp = await fetch('/api/admins');
+            const data = await resp.json();
+            if (!data.success) return;
+            const tbody = document.querySelector('#admin-table tbody');
+            if (!tbody) return;
+            const canManage = data.tier === 'wheel';
+            tbody.innerHTML = (data.admins || []).map(
+                a => adminRowHtml(a, data.self, canManage)).join('') ||
+                '<tr><td colspan="4" data-label="">No admins.</td></tr>';
+        } catch (e) { /* leave the server-rendered table as-is */ }
+    }
+
+    function showOtp(username, password) {
+        const el = document.getElementById('onetime-password');
+        if (!el) return;
+        document.getElementById('otp-user').textContent = username;
+        document.getElementById('otp-value').textContent = password;
+        if (typeof el.showModal === 'function') {
+            el.showModal();
+        } else {
+            el.setAttribute('open', '');
+            el.style.display = 'block';
+        }
+    }
+
+    function dismissOtp() {
+        const el = document.getElementById('onetime-password');
+        if (!el) return;
+        if (typeof el.close === 'function' && el.open) {
+            el.close();
+        } else {
+            el.removeAttribute('open');
+            el.style.display = 'none';
+        }
+    }
+
+    async function copyOtp() {
+        const value = document.getElementById('otp-value');
+        if (!value) return;
+        try {
+            await navigator.clipboard.writeText(value.textContent);
+            showToast('One-time password copied', false);
+        } catch (e) {
+            showToast('Copy failed — select the password and copy it manually', true);
+        }
+    }
+
+    async function addAdmin() {
+        const input = document.getElementById('new-admin-username');
+        const username = input.value.trim();
+        if (!username) return;
+        try {
+            const resp = await fetch('/api/admins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                input.value = '';
+                showOtp(username, data.password);
+                refreshAdmins();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    async function removeAdmin(username) {
+        const ok = await window.pcConfirm({
+            title: 'Remove admin?',
+            body: 'Remove admin "' + username + '"? They lose console access immediately.',
+            confirmLabel: 'Remove',
+            danger: true,
+        });
+        if (!ok) { return; }
+        try {
+            const resp = await fetch('/api/admins/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Removed ' + username, false);
+                refreshAdmins();
+            } else {
+                showToast('Error: ' + (data.error || 'unknown'), true);
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
+    // First paint: decorate the server-rendered rows (local 12h + day groups)
+    // and refresh the admin list.
+    decorateRows();
+    refreshAdmins();
+</script>
+{% endblock %}

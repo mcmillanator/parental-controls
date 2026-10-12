@@ -406,6 +406,72 @@ class UserPageConversionTest(unittest.TestCase):
         self.assertIn('_insecure_banner.html', self.html)
 
 
+class AdminConsoleConversionTest(unittest.TestCase):
+    """`admin_audit.html` extends the shell and adopts the design system.
+
+    Source-level (no Flask): the rendered page is covered by
+    tests/test_ui_admin.py. Phase 4 (UI_UX_PLAN.md §5.5) converts the last
+    desktop-shaped page; this is the guardrail that it left the CDN/inline-CSS
+    world and carries the stack/banner/dialog markup the plan requires.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = read(TEMPLATE_DIR / 'admin_audit.html')
+
+    def test_extends_the_shared_shell(self):
+        self.assertTrue(
+            self.html.lstrip().startswith('{% extends "base.html" %}'),
+            'admin_audit.html must extend templates/base.html')
+        self.assertIn('{% block content %}', self.html)
+        self.assertIn('{% block scripts %}', self.html)
+
+    def test_has_no_doctype_head_cdn_or_inline_style(self):
+        self.assertNotIn('<!DOCTYPE html>', self.html)
+        self.assertNotIn('<head>', self.html)
+        self.assertNotIn('<style', self.html)
+        self.assertIsNone(EXTERNAL_ASSET.search(self.html),
+                          'admin_audit.html must not reference a CDN')
+
+    def test_uses_the_stacked_table_pattern_with_labels(self):
+        self.assertIn('pc-table--stack', self.html)
+        for label in ('Seq', 'Time (local)', 'Actor', 'Action', 'Target',
+                      'Detail', 'Username', 'Tier', 'Status', 'Actions'):
+            with self.subTest(label=label):
+                self.assertIn('data-label="%s"' % label, self.html)
+        # semantic theads stay in the DOM (clipped on phones, not removed)
+        self.assertGreaterEqual(self.html.count('<thead>'), 2)
+
+    def test_chain_status_is_a_banner_keeping_legacy_classes(self):
+        self.assertIn('pc-banner--', self.html)
+        self.assertIn('chain-intact', self.html)
+        self.assertIn('chain-broken', self.html)
+
+    def test_remove_uses_the_dialog_helper(self):
+        self.assertIn('pcConfirm(', self.html)
+        self.assertNotIn('window.confirm(', self.html)
+        self.assertNotIn('!confirm(', self.html)
+
+    def test_pinned_selectors_still_render(self):
+        pinned_ids = ('audit-section', 'chain-status', 'audit-count',
+                      'audit-limit', 'audit-table', 'load-more',
+                      'admin-section', 'admin-table', 'onetime-password',
+                      'otp-user', 'otp-value', 'new-admin-username',
+                      'admin-add')
+        pinned_classes = ('audit-row', 'audit-time', 'audit-detail',
+                          'admin-row', 'badge-protected', 'btn-lock',
+                          'btn-unlock', 'refresh-info')
+        for token in pinned_ids:
+            with self.subTest(kind='id', token=token):
+                self.assertIn('id="%s"' % token, self.html)
+        for token in pinned_classes:
+            with self.subTest(kind='class', token=token):
+                self.assertIn(token, self.html)
+        for attr in ('data-seq', 'data-at', 'data-username', 'data-label'):
+            with self.subTest(kind='attr', attr=attr):
+                self.assertIn(attr, self.html)
+
+
 class PartialTest(unittest.TestCase):
     """The reusable pieces are present, offline and wired for accessibility."""
 
