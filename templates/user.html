@@ -112,8 +112,12 @@
             {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
         </div>
         <div class="pc-field">
-            <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
-            <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox">
+            {# Label + checkbox share one row (they used to sit on separate
+               lines); the checkbox's id/name/behaviour are unchanged. #}
+            <span class="pc-row">
+                <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox">
+                <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
+            </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
         <div class="pc-field">
@@ -146,8 +150,12 @@
             {{ time_select('end', 'End', None) }}
         </div>
         <div class="pc-field">
-            <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
-            <input type="checkbox" name="all_days" id="all_days_checkbox">
+            {# Label + checkbox share one row (they used to sit on separate
+               lines); the checkbox's id/name/behaviour are unchanged. #}
+            <span class="pc-row">
+                <input type="checkbox" name="all_days" id="all_days_checkbox">
+                <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
+            </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
         <div class="pc-field">
@@ -328,8 +336,16 @@
             {{ time_select('window_end', 'Window end', {'hour': 5, 'minute': 0, 'meridiem': 'PM'}) }}
         </div>
         <div class="pc-field">
-            <label class="pc-field__label" for="window-allowance">Allowance (min):</label>
-            <input type="number" id="window-allowance" class="pc-input" min="5" step="1" value="60" style="width:6rem;">
+            <span class="pc-field__label">Allowance:</span>
+            {# Hours + minutes compose the POSTed allowance (the server still
+               takes whole `allowance_minutes`). The pinned `#window-allowance`
+               id stays on the minutes field, mirroring the budget h/m pair. #}
+            <span class="pc-row">
+                <span class="pc-duration__unit">h</span>
+                <input type="number" id="window-allowance-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" value="1" placeholder="h" aria-label="Window allowance hours">
+                <span class="pc-duration__unit">m</span>
+                <input type="number" id="window-allowance" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" value="0" placeholder="m" aria-label="Window allowance minutes">
+            </span>
         </div>
         <div class="pc-card__footer">
             <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveWindow()">Add window</button>
@@ -364,8 +380,16 @@
             </select>
         </div>
         <div class="pc-field">
-            <label class="pc-field__label" for="override-add-minutes">Minutes:</label>
-            <input type="number" id="override-add-minutes" class="pc-input" min="1" step="1" placeholder="min" style="width:6rem;">
+            <span class="pc-field__label">Allowance:</span>
+            {# Hours + minutes compose the POSTed override (the server still
+               takes whole `minutes`). `#override-add-minutes` keeps its id on
+               the minutes field, next to the new hours input. #}
+            <span class="pc-row">
+                <span class="pc-duration__unit">h</span>
+                <input type="number" id="override-add-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Override allowance hours">
+                <span class="pc-duration__unit">m</span>
+                <input type="number" id="override-add-minutes" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Override allowance minutes">
+            </span>
         </div>
         <div class="pc-card__footer">
             <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="addAppOverride()">Add app override</button>
@@ -426,7 +450,12 @@
                                 <option value="exempt">Unlimited</option>
                                 <option value="none">Clear</option>
                             </select>
-                            <input type="number" class="override-minutes pc-input" min="1" step="1" style="width:4rem;" placeholder="min">
+                            <span class="pc-row">
+                                <span class="pc-duration__unit">h</span>
+                                <input type="number" class="override-hours pc-input" style="width:4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Override hours" value="{{ (ov.minutes // 60) if ov and ov.mode == 'limit' and ov.minutes else '' }}">
+                                <span class="pc-duration__unit">m</span>
+                                <input type="number" class="override-minutes pc-input" style="width:4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Override minutes" value="{{ (ov.minutes % 60) if ov and ov.mode == 'limit' and ov.minutes else '' }}">
+                            </span>
                             <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Set</button>
                         </span></td>
                 </tr>
@@ -592,9 +621,22 @@
         const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
         const ov = ovs[comm] || null;
         let badge = '';
+        let hoursVal = '';
+        let minsVal = '';
         if (ov) {
-            if (ov.mode === 'exempt') badge = '<span class="badge-override pc-chip pc-chip--override">Unlimited</span>';
-            else badge = '<span class="badge-count pc-chip pc-chip--neutral">' + esc(fmtHM(ov.minutes)) + '/day</span>';
+            if (ov.mode === 'exempt') {
+                badge = '<span class="badge-override pc-chip pc-chip--override">Unlimited</span>';
+            } else {
+                badge = '<span class="badge-count pc-chip pc-chip--neutral">' + esc(fmtHM(ov.minutes)) + '/day</span>';
+                // Prefill the h/m pair from the stored allowance, so
+                // editing an existing Limit override starts from its
+                // current value.
+                const stored = Math.floor(Number(ov.minutes));
+                if (!isNaN(stored) && stored > 0) {
+                    hoursVal = String(Math.floor(stored / 60));
+                    minsVal = String(stored % 60);
+                }
+            }
         }
         return '<span class="app-override pc-field">' + badge +
             ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
@@ -602,7 +644,10 @@
             '<option value="limit">Limit</option>' +
             '<option value="exempt">Unlimited</option>' +
             '<option value="none">Clear</option></select>' +
-            ' <input type="number" class="override-minutes pc-input" min="1" style="width:4rem;" placeholder="min">' +
+            ' <span class="pc-row"><span class="pc-duration__unit">h</span>' +
+            '<input type="number" class="override-hours pc-input" style="width:4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Override hours" value="' + esc(hoursVal) + '">' +
+            '<span class="pc-duration__unit">m</span>' +
+            '<input type="number" class="override-minutes pc-input" style="width:4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Override minutes" value="' + esc(minsVal) + '"></span>' +
             ' <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Set</button></span>';
     }
 
@@ -734,6 +779,23 @@
         if (h && m) return `${h}h ${m}m`;
         if (h) return `${h}h`;
         return `${m}m`;
+    }
+
+    // Compose an hours + minutes input pair into whole minutes for the
+    // unchanged POST contracts (budgets/overrides/windows all take a
+    // single minutes/allowance_minutes field). Both blank -> '' (clear);
+    // a non-numeric or out-of-range part (hours 0-99, minutes 0-59) -> null
+    // so the caller can refuse the save.
+    function composeDuration(hoursEl, minsEl) {
+        const hStr = ((hoursEl && hoursEl.value) || '').trim();
+        const mStr = ((minsEl && minsEl.value) || '').trim();
+        if (hStr === '' && mStr === '') return '';
+        const h = parseInt(hStr || '0', 10);
+        const m = parseInt(mStr || '0', 10);
+        if (isNaN(h) || isNaN(m) || h < 0 || h > 99 || m < 0 || m > 59) {
+            return null;
+        }
+        return h * 60 + m;
     }
 
     // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
@@ -1418,16 +1480,22 @@
         const comm = button.getAttribute('data-comm');
         const wrap = button.closest('.app-override');
         const mode = wrap.querySelector('.override-mode').value;
-        const minutes = wrap.querySelector('.override-minutes').value;
         if (!mode) { showToast('Choose an override mode', true); return; }
-        if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
-            showToast('Enter minutes for a Limit override', true);
-            return;
+        let minutes = '';
+        if (mode === 'limit') {
+            const total = composeDuration(
+                wrap.querySelector('.override-hours'),
+                wrap.querySelector('.override-minutes'));
+            if (total === null || total < 1) {
+                showToast('Enter an allowance for a Limit override', true);
+                return;
+            }
+            minutes = total;
         }
         try {
             const data = await postForm('/api/budgets/overrides', {
                 username: PAGE_USERNAME, comm: comm, mode: mode,
-                minutes: minutes || ''
+                minutes: minutes
             });
             if (data.success) {
                 showToast('Override saved for ' + comm, false);
@@ -1460,14 +1528,19 @@
     async function addAppOverride() {
         const commInput = document.getElementById('override-comm');
         const modeEl = document.getElementById('override-add-mode');
-        const minutesEl = document.getElementById('override-add-minutes');
         const comm = (commInput && commInput.value || '').trim();
         const mode = modeEl ? modeEl.value : 'limit';
-        const minutes = minutesEl ? minutesEl.value : '';
+        let minutes = '';
         if (!comm) { showToast('Enter an app command (comm)', true); return; }
-        if (mode === 'limit' && (!minutes || parseInt(minutes, 10) < 1)) {
-            showToast('Enter minutes for a Limit override', true);
-            return;
+        if (mode === 'limit') {
+            const total = composeDuration(
+                document.getElementById('override-add-hours'),
+                document.getElementById('override-add-minutes'));
+            if (total === null || total < 1) {
+                showToast('Enter an allowance for a Limit override', true);
+                return;
+            }
+            minutes = total;
         }
         try {
             const data = await postForm('/api/budgets/overrides', {
@@ -1516,11 +1589,17 @@
             document.querySelector('select[name="window_end_hour"]').value,
             document.querySelector('select[name="window_end_minute"]').value,
             document.querySelector('select[name="window_end_meridiem"]').value);
-        const allowance = document.getElementById('window-allowance').value;
+        const allowance = composeDuration(
+            document.getElementById('window-allowance-hours'),
+            document.getElementById('window-allowance'));
         if (!target) { showToast('Choose a window target', true); return; }
         if (days.length === 0) { showToast('Select at least one day', true); return; }
         if (start === null || end === null || start === end) {
             showToast('Select a start and end time', true);
+            return;
+        }
+        if (allowance === null || allowance === '' || allowance < 5) {
+            showToast('Enter an allowance of at least 5 minutes', true);
             return;
         }
         try {
