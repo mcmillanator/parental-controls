@@ -20,8 +20,15 @@ runs is authorized, so the blanket is not needed for the app to function.
 But the scoped rules are **not yet contained**: the trailing `*` in the
 `usermod`, `loginctl` and cgroup rules still authorizes argument injection
 that reaches full root. Removing the blanket is safe *functionally*; it is
-a meaningful security improvement only after the regex hardening in
-[Step 3](#step-3-optional-but-recommended-hardening) lands.
+a meaningful security improvement only after argument-regex containment of
+those trailing wildcards lands.
+
+> **Status note (2026-10-11, docs refresh).** The containment work described
+> above (hardening the trailing-wildcard grants to anchored argument regexes)
+> exists and is tracked as its own workstream; its landing details — the final
+> rule text and its verification — will be recorded in this file by that work.
+> The coverage tables in this audit describe the grant set the code needs, not
+> the final rule form.
 
 ---
 
@@ -308,7 +315,9 @@ sudo -n -u pcverify sudo -n -l -- /usr/sbin/tee /etc/shadow   # must be DENY
 #    Log in to http://localhost:5000 as the admin and, for that account:
 #      a) Lock        -> "Account locked and screen locked (...)"
 #      b) Unlock      -> "OK"
-#      c) Lock Screen -> screen locks, session survives
+#      c) Lock again  -> the child's screen locks and the session survives
+#         (the Lock button covers the screen lock; there is no separate
+#         "Lock Screen" button in the UI any more)
 #      d) Emergency logout -> session terminated
 #      e) Set a tiny app budget -> the category freezes (app freezes, not
 #         the whole session); let it expire and confirm it thaws
