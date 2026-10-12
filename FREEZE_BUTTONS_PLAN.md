@@ -57,9 +57,9 @@ time. "Frozen" = cgroup `cgroup.freeze == 1` (desired) — see
 | Budget card table | `user.html:246-282` | Columns Category / Limit / Used / Left / Status. Row ids `budget-<cat>`, `budget-used-<cat>`, `budget-left-<cat>`, `budget-status-<cat>`. |
 | Manual Resume button | `user.html:274` + `user.html:925` (`resumeCategory`) | Server-rendered only when `b.paused`; `renderBudgets` re-renders it on each live poll when `b.paused` (`user.html:648`). POSTs `username,category` to `/api/budgets/resume` with `X-CSRF-Token`, toasts, calls `refreshUserLive()`. No confirm dialog (deliberate parent action, instantly reversible). |
 | `renderBudgets(data)` | `user.html:637` | Updates used/left/status cells only; never touches limit inputs. New buttons MUST be rendered here (not just server-side) or the 10s `refreshUserLive` (`user.html:676`, interval `user.html:949`) will wipe them. |
-| Process group rows | `user.html:302-317` (visible), `user.html:342-355` (hidden) | Per-comm groups: toggle-expand button, name + `× count`, elapsed, **per-group Hide/Show button** (`hideGroup`/`showGroup`, `user.html:878-884`, `data-comm` attribute pattern — comm never in a JS string literal). |
+| Process group rows | `user.html:302-317` (visible), `user.html:342-355` (hidden) | Per-comm groups: toggle-expand button, name + `× count`, used (billable budget usage since the last reset, not ps ETIME), **per-group Hide/Show button** (`hideGroup`/`showGroup`, `user.html:878-884`, `data-comm` attribute pattern — comm never in a JS string literal). |
 | `renderProcesses(data)` / `groupRowsHtml(cat, group)` | `user.html:560` / `user.html:431` | Full rebuild every 10s; expand state survives via `expanded` Set (`user.html:380`); focus preserved (`user.html:622`). New process-table buttons must follow this pattern: render from `LIVE_DATA`, no local state. |
-| `groupDetailHtml` member rows | `user.html:411` | Columns PID / Command / Elapsed / Category. Currently no per-member buttons. |
+| `groupDetailHtml` member rows | `user.html:411` | Columns PID / Command / Used / Category. Currently no per-member buttons. |
 | Confirm-dialog conventions | `user.html:716-854` | Lock/logout/unlock/clear/revoke/custom-bonus use `confirm()`; one-click bonus shortcuts and Hide/Show do NOT (instantly reversible, low stakes). Freeze/unfreeze is instantly reversible → **no confirm** (§3 justification). |
 | Bonus Revoke button | `user.html:177`, `user.html:836` | Uses confirm (re-lock side effect). Freeze has no lock side effect — different case. |
 
@@ -322,8 +322,8 @@ same `/api/budgets/freeze|unfreeze`.**
   `budgets.py:290`), so their categories are freezable from the Budgets
   table. Per-member `category` labels stay as-is for information.
 - **Detail (expanded) member rows** (`groupDetailHtml`, `user.html:411`):
-  NO per-member buttons (reasons 1–3). Member rows keep PID/Command/Elapsed/
-  Category display only.
+  NO per-member buttons (reasons 1–3). Member rows keep PID/Command/Used/
+  Category display only (Used shows the group's budget usage, not ps ETIME).
 - **NEVER_PAUSE handling per member**: unchanged — enforced inside
   `freeze_category` via `freezable_members` (match) +
   `verify_freeze_safety` (freeze). A group containing a NEVER_PAUSE member

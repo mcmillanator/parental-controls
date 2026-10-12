@@ -52,7 +52,7 @@ minutes derived from CPU-time deltas**:
    the child is not engaging with that category at all.
 2. **The active-threshold is a blunt instrument.** It cannot tell "Firefox is
    focused and the child is reading" from "Firefox is minimized, one tab is
-   rendering". All it sees is aggregate CPU. The *Elapsed* column parents are
+   rendering". All it sees is aggregate CPU. The *Used* column parents are
    told usage tracks is the wrong axis for a "you get 60 minutes of X" promise.
 3. **The locked-account rule now halts billing entirely** — forcing us to
    choose between two bad outcomes. Locked = the child provably cannot reach the

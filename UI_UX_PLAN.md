@@ -425,11 +425,11 @@ Exhausted    → [ ⏸ Exhausted ] [ Freeze ]
 #### Process group (card + accordion detail)
 ```
 ┌ ▸ firefox  ×3   (3 instances)      │
-│   Elapsed 12m                       │
+│   Used 12m                          │
 │   [ Hide ] [ Freeze ]  Override ▾   │
 └─────────────────────────────────────┘
 expanded (native <details>):
-│ PID  Command          Elapsed Category
+│ PID  Command          Used    Category
 │ 9001 firefox          12m     browsers
 ```
 

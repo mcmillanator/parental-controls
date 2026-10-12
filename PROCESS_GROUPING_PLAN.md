@@ -196,7 +196,7 @@ A group dict carries (server-computed):
 | Column | Rule |
 |---|---|
 | Command | `comm` + count badge `× N` (hidden when `count == 1`) |
-| **Elapsed** | **max (oldest)** member's elapsed — computed from raw `etime`
+| **Elapsed** | *(superseded — see §10: the column now shows budget **usage** since the last reset, not process age)* **max (oldest)** member's elapsed — computed from raw `etime`
   minutes, **never by string comparison** (`format_etime` output like `'21h 47m'`
   sorts lexicographically wrong). Parse each member's `etime` via the same
   mm logic as `format_etime` (`app.py:342-369`), take the max minutes, format
@@ -360,3 +360,29 @@ this research phase):
    always-on.)
 9. **JS unit tests**: introduce a Node/jsdom toolchain (new repo convention) or
    keep JS declarative and covered via the Python contract tests (§7)?
+---
+
+## 10. Update — Used column shows budget usage, not ps ETIME
+
+The owner report ("Processes have elapsed time greater than 1 day.
+Elapsed time should reset when the budget resets. I don't care how long
+a process has been running. I care how long it's been used.") supersedes
+the §4 aggregate decision: the process column now shows **billable
+usage since the last reset**, the same counter the budget rows show.
+
+- Header/cell/label renamed **Elapsed -> Used** (server markup and the
+  JS renderers `groupRowsHtml` / `groupDetailHtml` / `renderProcesses`).
+- Per group: an app override's `used_minutes` when the comm has one
+  (an `exempt` override bills nothing, so it reads `0m`); otherwise the
+  owning category's `budget_status[cat]['used_minutes']`. Derivation is
+  `budgets.group_usage_minutes()` fed the payload `get_user_live` already
+  computes — no recomputation.
+- Per-PID detail rows: usage is tracked per app/category, never per PID,
+  so every member row shows the **group's** Used value (or `—` for a
+  mixed-category hidden group).
+- `ps` ETIME is still collected internally (`group_by_comm` keeps
+  `max_minutes` / `max_elapsed`) but never reaches the Processes UI or
+  the `/live` payload (`used` replaces `elapsed`, in `app.py` and the
+  remote `agent.py`).
+- Resets for free: the value is read from `budget_status`, so it zeroes
+  exactly when the daily reset zeroes `used_seconds`.

@@ -68,9 +68,9 @@ def live_dict():
     }
     live['groups']['browsers'] = [
         {'comm': 'firefox', 'display_name': 'Firefox Web Browser',
-         'count': 1, 'elapsed': '12m', 'max_elapsed': '12m',
+         'count': 1, 'used': '12m', 'used_minutes': 12,
          'members': [{'pid': 9001, 'comm': 'firefox',
-                      'display_name': 'Firefox Web Browser', 'elapsed': '12m'}]},
+                      'display_name': 'Firefox Web Browser'}]},
     ]
     return live
 

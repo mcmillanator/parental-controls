@@ -1965,6 +1965,21 @@ def get_user_live(username):
     user_overrides = overrides_data.get(username)
     budget_state = budgets.budget_status(username, overrides=user_overrides)
 
+    # Processes show billable USAGE since the last reset -- the same counter
+    # the budget rows show -- never the process's ps ETIME wall-clock age.
+    # Visible groups are single-category (bucketed by category BEFORE
+    # grouping): the owning category's used_minutes apply unless the comm
+    # carries an app override. Hidden groups can span categories and have
+    # no single usage value, so they stay '' (rendered as an em dash).
+    for cat, cat_groups in groups.items():
+        for g in cat_groups:
+            mins = budgets.group_usage_minutes(cat, g['comm'], budget_state)
+            g['used_minutes'] = mins
+            g['used'] = budgets.format_hm(mins) if mins is not None else ''
+    for g in hidden:
+        g['used_minutes'] = None
+        g['used'] = ''
+
     return {
         'user': user_data[0],
         'processes': processes,
@@ -1994,11 +2009,10 @@ def api_user_live(username):
         cat: [{'comm': g['comm'],
                'display_name': g.get('display_name') or g['comm'],
                'count': g['count'],
-               'elapsed': g.get('max_elapsed') or '',
+               'used': g.get('used') or '',
                'members': [
                    {'pid': m['pid'], 'comm': m['comm'],
-                    'display_name': m.get('display_name') or m.get('comm', ''),
-                    'elapsed': m.get('elapsed') or m.get('etime', '')}
+                    'display_name': m.get('display_name') or m.get('comm', '')}
                    for m in g['members']]}
               for g in procs]
         for cat, procs in data['groups'].items()
@@ -2012,8 +2026,7 @@ def api_user_live(username):
          'members': [
              {'pid': m.get('pid'), 'comm': m.get('comm'),
               'display_name': m.get('display_name') or m.get('comm', ''),
-              'category': m.get('category'),
-              'elapsed': m.get('elapsed') or m.get('etime', '')}
+              'category': m.get('category')}
              for m in g['members']]}
         for g in data['hidden'] if 'error' not in g
     ]

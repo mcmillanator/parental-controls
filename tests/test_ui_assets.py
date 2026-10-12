@@ -332,7 +332,7 @@ class UserPageConversionTest(unittest.TestCase):
     def test_uses_the_stacked_table_pattern_with_labels(self):
         self.assertIn('pc-table--stack', self.html)
         for label in ('Category', 'Limit (per day)', 'Used', 'Left', 'Status',
-                      'Usage', 'Command', 'Elapsed', 'Actions', 'Allowance'):
+                      'Usage', 'Command', 'Actions', 'Allowance'):
             with self.subTest(label=label):
                 self.assertIn('data-label="%s"' % label, self.html)
         # semantic theads stay in the DOM (clipped on phones, not removed)

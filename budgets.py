@@ -1095,6 +1095,32 @@ def app_budget_status(username, data=None, overrides=None, now=None):
     return out
 
 
+def group_usage_minutes(category, comm, budget_state):
+    """Billable minutes a process group has accrued since the last reset.
+
+    The Processes table shows budget USAGE, not the process's ps ETIME
+    wall-clock age, so it resets with the budget day reset (and a
+    matching window reset) exactly like the budget rows. An app override
+    governs its comm: use the override's per-app ``used_minutes`` (``0``
+    for an ``exempt`` override, which is never billed at all). Otherwise
+    the owning CATEGORY's ``used_minutes`` applies.
+
+    ``budget_state`` is a ``budget_status()`` payload. Unknown comm and
+    category both return ``None`` so the caller can render its own empty
+    placeholder (``'—'``).
+    """
+    if not isinstance(budget_state, dict):
+        return None
+    app_budgets = budget_state.get('app_budgets') or {}
+    app = app_budgets.get(comm) if isinstance(app_budgets, dict) else None
+    if isinstance(app, dict) and 'used_minutes' in app:
+        return app.get('used_minutes')
+    cat = budget_state.get(category)
+    if isinstance(cat, dict) and 'used_minutes' in cat:
+        return cat.get('used_minutes')
+    return None
+
+
 def budget_reset_needed(entry_day, has_bedtime, was_in_bedtime, now_in_bedtime,
                         today_str):
     """Pure reset rule (unit-tested):
