@@ -444,19 +444,7 @@
                         {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
                         <span class="app-override">
                             {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Unlimited</span>{% else %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">{{ ov.minutes|hm }}/day</span>{% endif %}{% endif %}
-                            <select class="override-mode" data-comm="{{ group.comm }}">
-                                <option value="">Override…</option>
-                                <option value="limit">Limit</option>
-                                <option value="exempt">Unlimited</option>
-                                <option value="none">Clear</option>
-                            </select>
-                            <span class="pc-row">
-                                <span class="pc-duration__unit">h</span>
-                                <input type="number" class="override-hours pc-input" style="width:4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Override hours" value="{{ (ov.minutes // 60) if ov and ov.mode == 'limit' and ov.minutes else '' }}">
-                                <span class="pc-duration__unit">m</span>
-                                <input type="number" class="override-minutes pc-input" style="width:4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Override minutes" value="{{ (ov.minutes % 60) if ov and ov.mode == 'limit' and ov.minutes else '' }}">
-                            </span>
-                            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Set</button>
+                            <button type="button" class="btn-override{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" data-comm="{{ group.comm }}" onclick="applyOverride(this)">Override</button>
                         </span></td>
                 </tr>
                 {% endfor %}
@@ -613,42 +601,28 @@
         return ' <button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn" title="Freeze this category now" onclick="freezeCategory(\'' + PAGE_USERNAME + '\', \'' + esc(cat) + '\')">Freeze</button>';
     }
 
-    // Per-app override control on a running process-group row. Reads
-    // the current override from the latest /live payload so the badge
-    // reflects state; the comm travels via data-comm, never a JS
-    // string literal (same escaping discipline as Hide/Show).
+    // Per-app override control on a running process-group row. The row
+    // carries only a small state chip (when an override is set) plus a
+    // compact "Override" button; the editor itself is the shared
+    // #pc-override dialog in the shell — deliberately OUTSIDE the
+    // 10s-refreshed #process-section, so a live poll can never wipe a
+    // half-typed allowance. Reads the current override from the latest
+    // /live payload so the chip reflects state; the comm travels via
+    // data-comm, never a JS string literal (same escaping discipline as
+    // Hide/Show).
     function overrideControlHtml(comm) {
         const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
         const ov = ovs[comm] || null;
-        let badge = '';
-        let hoursVal = '';
-        let minsVal = '';
+        let chip = '';
         if (ov) {
             if (ov.mode === 'exempt') {
-                badge = '<span class="badge-override pc-chip pc-chip--override">Unlimited</span>';
+                chip = '<span class="badge-override pc-chip pc-chip--override">Unlimited</span>';
             } else {
-                badge = '<span class="badge-count pc-chip pc-chip--neutral">' + esc(fmtHM(ov.minutes)) + '/day</span>';
-                // Prefill the h/m pair from the stored allowance, so
-                // editing an existing Limit override starts from its
-                // current value.
-                const stored = Math.floor(Number(ov.minutes));
-                if (!isNaN(stored) && stored > 0) {
-                    hoursVal = String(Math.floor(stored / 60));
-                    minsVal = String(stored % 60);
-                }
+                chip = '<span class="badge-count pc-chip pc-chip--neutral">' + esc(fmtHM(ov.minutes)) + '/day</span>';
             }
         }
-        return '<span class="app-override">' + badge +
-            ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
-            '<option value="">Override…</option>' +
-            '<option value="limit">Limit</option>' +
-            '<option value="exempt">Unlimited</option>' +
-            '<option value="none">Clear</option></select>' +
-            ' <span class="pc-row"><span class="pc-duration__unit">h</span>' +
-            '<input type="number" class="override-hours pc-input" style="width:4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Override hours" value="' + esc(hoursVal) + '">' +
-            '<span class="pc-duration__unit">m</span>' +
-            '<input type="number" class="override-minutes pc-input" style="width:4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Override minutes" value="' + esc(minsVal) + '"></span>' +
-            ' <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Set</button></span>';
+        return '<span class="app-override">' + chip +
+            '<button type="button" class="btn-override pc-btn pc-btn--sm pc-btn--primary" data-comm="' + esc(comm) + '" onclick="applyOverride(this)">Override</button></span>';
     }
 
     function groupRowsHtml(cat, group) {
@@ -1474,31 +1448,40 @@
         return resp.json();
     }
 
-    // Set/clear a per-app override from a process-group row.
-    // The comm travels via the button's data-comm (no JS string literal).
+    // Open the shared override dialog for a process-group row, then POST
+    // the chosen override. The comm travels via the row button's
+    // data-comm (no JS string literal); the current override is read from
+    // the latest /live payload so the dialog opens pre-filled. The dialog
+    // itself lives in the shell, outside the 10s-refreshed process region,
+    // so a poll can never wipe a half-typed allowance and there is no
+    // per-row open state to preserve. Set -> POST (whole minutes, composed
+    // in the dialog) -> refresh; Cancel/Esc resolves null and posts nothing.
     async function applyOverride(button) {
         const comm = button.getAttribute('data-comm');
-        const wrap = button.closest('.app-override');
-        const mode = wrap.querySelector('.override-mode').value;
-        if (!mode) { showToast('Choose an override mode', true); return; }
-        let minutes = '';
-        if (mode === 'limit') {
-            const total = composeDuration(
-                wrap.querySelector('.override-hours'),
-                wrap.querySelector('.override-minutes'));
-            if (total === null || total < 1) {
-                showToast('Enter an allowance for a Limit override', true);
-                return;
-            }
-            minutes = total;
+        if (!comm || typeof window.pcOverrideDialog !== 'function') return;
+        const ovs = (LIVE_DATA && LIVE_DATA.overrides && LIVE_DATA.overrides.app_overrides) || {};
+        const ov = ovs[comm] || null;
+        let mode = 'none';
+        let minutes = null;
+        if (ov && ov.mode === 'exempt') {
+            mode = 'exempt';
+        } else if (ov && ov.mode === 'limit') {
+            mode = 'limit';
+            minutes = ov.minutes;
         }
+        const choice = await window.pcOverrideDialog({
+            comm: comm, mode: mode, minutes: minutes
+        });
+        if (!choice) { return; }  // Cancel / Esc / backdrop: no change.
         try {
             const data = await postForm('/api/budgets/overrides', {
-                username: PAGE_USERNAME, comm: comm, mode: mode,
-                minutes: minutes
+                username: PAGE_USERNAME, comm: comm, mode: choice.mode,
+                minutes: choice.minutes
             });
             if (data.success) {
-                showToast('Override saved for ' + comm, false);
+                showToast(choice.mode === 'none'
+                    ? 'Override cleared for ' + comm
+                    : 'Override saved for ' + comm, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.error || 'unknown'), true);
