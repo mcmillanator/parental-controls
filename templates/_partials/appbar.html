@@ -1,15 +1,21 @@
-{# Sticky app bar (UI_UX_PLAN.md §4.2).
-   Phone: title + account <details> menu. >=768px: the same three destinations
-   inline (Home · Admin) plus the account menu; the bottom tab bar handles the
-   phone case (see _partials/tabbar.html).
+{# Top header (all widths) — design-exports/SPEC.md "Shared shell".
+   Left: product brand. Middle: the 5-section nav for the 768-959px tablet range
+   (the >=960px sidebar owns it; the phone tab bar owns it below 768px). Right:
+   user chip (+ wheel mark), theme toggle and Help.
 
    Context (all optional, with defaults so any page can render the shell):
-     active_nav   : 'home' | 'admin' | ''  -> aria-current on the active link
-     app_title    : product name shown top-left
-     app_subtitle : one-line "what this is" under the title
-     current_user : actor name shown in the account menu, if known
+     active_nav   : 'overview'|'time'|'activity'|'admin'|'settings'|''
+     current_user : actor name shown in the account chip, if known
+     current_tier : 'wheel' | 'app-only' (adds the wheel mark)
 #}
 {% set _active = active_nav|default('') %}
+{% set _nav = [
+  ('overview', 'pc-i-home', 'Overview', url_for('index')),
+  ('time', 'pc-i-clock', 'Time rules', url_for('time_rules')),
+  ('activity', 'pc-i-activity', 'Activity', url_for('processes')),
+  ('admin', 'pc-i-shield', 'Admin', url_for('admin_audit')),
+  ('settings', 'pc-i-settings', 'Settings', url_for('settings')),
+] %}
 <header class="pc-appbar">
   <div class="pc-appbar__brand">
     <span class="pc-appbar__title">{{ app_title|default('Parental Controls') }}</span>
@@ -17,19 +23,37 @@
   </div>
 
   <nav class="pc-appbar__nav" aria-label="Primary">
-    <a class="pc-btn pc-btn--ghost" href="{{ url_for('index') }}"{% if _active == 'home' %} aria-current="page"{% endif %}>
-      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-home"/></svg>Home
+    {% for key, icon, label, href in _nav %}
+    <a class="pc-btn pc-btn--ghost" href="{{ href }}"{% if _active == key %} aria-current="page"{% endif %}>
+      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>{{ label }}
     </a>
-    <a class="pc-btn pc-btn--ghost" href="{{ url_for('admin_audit') }}"{% if _active == 'admin' %} aria-current="page"{% endif %}>
-      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>Admin
-    </a>
+    {% endfor %}
   </nav>
 
   <div class="pc-appbar__actions">
+    <button type="button" id="pc-theme-toggle" class="pc-btn pc-btn--ghost pc-btn--icon pc-theme-toggle" onclick="pcToggleTheme()" aria-label="Toggle light or dark theme" title="Toggle theme">
+      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-sun"/></svg>
+      <span class="pc-visually-hidden">Toggle theme</span>
+    </button>
+    <details class="pc-menu">
+      <summary aria-label="Help">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-help"/></svg>
+        <span class="pc-visually-hidden">Help</span>
+      </summary>
+      <div class="pc-menu__panel">
+        <span class="pc-menu__item pc-menu__item--label">Sections</span>
+        {% for key, icon, label, href in _nav %}
+        <a class="pc-menu__item" href="{{ href }}">{{ label }}</a>
+        {% endfor %}
+        <span class="pc-menu__item pc-menu__item--label">Tips</span>
+        <span class="pc-menu__item pc-meta">Tab moves, Esc closes dialogs. Every control keeps a text label.</span>
+      </div>
+    </details>
     <details class="pc-menu">
       <summary aria-label="Account menu">
         <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>
         <span aria-hidden="true">{{ current_user|default('Account') }}</span>
+        {% if current_tier == 'wheel' %}<svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>{% endif %}
       </summary>
       <div class="pc-menu__panel">
         <a class="pc-menu__item" href="{{ url_for('change_password') }}">Change password</a>
@@ -40,3 +64,37 @@
     </details>
   </div>
 </header>
+
+<script>
+/* Theme toggle: flips data-theme on <html> and remembers the choice. The
+   no-flash reader in base.html applies it before first paint. No external
+   asset; a no-op when localStorage is unavailable (private mode). */
+(function () {
+  'use strict';
+  function current() {
+    var attr = document.documentElement.getAttribute('data-theme');
+    if (attr === 'light' || attr === 'dark') { return attr; }
+    try {
+      var stored = localStorage.getItem('pc-theme');
+      if (stored === 'light' || stored === 'dark') { return stored; }
+    } catch (e) { /* ignore */ }
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+      ? 'light' : 'dark';
+  }
+  function apply(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    var btn = document.getElementById('pc-theme-toggle');
+    if (btn) {
+      var icon = theme === 'light' ? '#pc-i-moon' : '#pc-i-sun';
+      var use = btn.querySelector('use');
+      if (use) { use.setAttribute('href', icon); }
+    }
+  }
+  window.pcToggleTheme = function () {
+    var next = current() === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem('pc-theme', next); } catch (e) { /* ignore */ }
+    apply(next);
+  };
+  document.addEventListener('DOMContentLoaded', function () { apply(current()); });
+})();
+</script>

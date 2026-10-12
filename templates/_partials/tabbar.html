@@ -1,17 +1,22 @@
-{# Bottom tab bar — phone only, hidden >=768px by app.css.
-   Three flat destinations, 44px targets, aria-current on the active one
-   (UI_UX_PLAN.md §4.2, Q3). The Account entry is a native <details> popover so
-   the bar works without any JS framework. #}
+{# Bottom tab bar — phone only (<768px), hidden above by app.css.
+   The 5-section IA: Overview / Time rules / Activity / Admin / Settings, plus
+   the account popover (a native <details>, no JS framework). 44px targets,
+   aria-current on the active destination (design-exports/SPEC.md). #}
 {% set _active = active_nav|default('') %}
+{% set _nav = [
+  ('overview', 'pc-i-home', 'Overview', url_for('index')),
+  ('time', 'pc-i-clock', 'Time rules', url_for('time_rules')),
+  ('activity', 'pc-i-activity', 'Activity', url_for('processes')),
+  ('admin', 'pc-i-shield', 'Admin', url_for('admin_audit')),
+  ('settings', 'pc-i-settings', 'Settings', url_for('settings')),
+] %}
 <nav class="pc-tabbar" aria-label="Primary">
-  <a class="pc-tab" href="{{ url_for('index') }}"{% if _active == 'home' %} aria-current="page"{% endif %}>
-    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-home"/></svg>
-    <span>Home</span>
+  {% for key, icon, label, href in _nav %}
+  <a class="pc-tab" href="{{ href }}"{% if _active == key %} aria-current="page"{% endif %}>
+    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>
+    <span>{{ label }}</span>
   </a>
-  <a class="pc-tab" href="{{ url_for('admin_audit') }}"{% if _active == 'admin' %} aria-current="page"{% endif %}>
-    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>
-    <span>Admin</span>
-  </a>
+  {% endfor %}
   <details class="pc-tabmenu">
     <summary class="pc-tab" aria-label="Account">
       <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>

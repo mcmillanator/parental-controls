@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{# Time budgets section (/budgets) — Screen 3. Built out in the Screen 3 commit. #}
+{% from '_partials/flash.html' import pc_empty %}
+{% block title %}Parental Controls — Time budgets{% endblock %}
+{% block content %}
+<p class="pc-eyebrow">Time rules</p>
+<h1 class="pc-page-title">Time budgets</h1>
+<p class="pc-subtitle">Daily limits and current usage{% if username %} for {{ username }}{% endif %}.</p>
+<div class="pc-card">{{ pc_empty('Time budgets', 'This screen is being translated.') }}</div>
+{% endblock %}

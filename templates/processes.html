@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{# Processes section (/processes) — Screen 4. Built out in the Screen 4 commit. #}
+{% from '_partials/flash.html' import pc_empty %}
+{% block title %}Parental Controls — Processes{% endblock %}
+{% block content %}
+<p class="pc-eyebrow">Activity</p>
+<h1 class="pc-page-title">Processes</h1>
+<p class="pc-subtitle">Grouped apps and their usage today.</p>
+<div class="pc-card">{{ pc_empty('Processes', 'This screen is being translated.') }}</div>
+{% endblock %}

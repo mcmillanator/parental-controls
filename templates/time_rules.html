@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{# =========================================================================
+   Time rules section home (/time-rules) — the 5-section IA landing for the
+   "Time rules" nav item (design-exports/SPEC.md shared shell). Picks a child
+   and links into the per-child Time rules screen (/user/<username>, Screen 2).
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty %}
+
+{% block title %}Parental Controls — Time rules{% endblock %}
+
+{% block content %}
+<p class="pc-eyebrow">Time rules</p>
+<h1 class="pc-page-title">Time rules</h1>
+<p class="pc-subtitle">Bedtime schedules, bonus time and daily budgets, per child.</p>
+
+{% if children %}
+<div class="pc-grid pc-grid--2">
+    {% for child in children %}
+    {% set status_cls = 'locked' if child.locked == True else 'unlocked' if child.locked == False else 'unknown' %}
+    <article class="pc-card" id="child-{{ child.username }}">
+        <div class="pc-card__header">
+            <h2 class="pc-card__title">{{ child.username }}</h2>
+            <span class="pc-status pc-status--{{ status_cls }}">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if status_cls == 'locked' else 'unlock' if status_cls == 'unlocked' else 'alert' }}"/></svg>
+                {{ child.status_detail }}
+            </span>
+        </div>
+        <p class="pc-meta">
+            Bedtime:
+            {% if child.bedtime and child.bedtime.start %}
+                {{ child.bedtime.start|twelve }} – {{ child.bedtime.end|twelve }}
+            {% else %}
+                Not set
+            {% endif %}
+        </p>
+        <p class="pc-row">
+            {% if child.in_bedtime %}<span class="pc-chip pc-chip--bedtime">In Bedtime</span>{% endif %}
+            {% if child.bonus and child.bonus.active %}<span class="pc-chip pc-chip--bonus">Bonus {{ child.bonus.remaining_minutes|hm }}</span>{% endif %}
+        </p>
+        <div class="pc-card__footer">
+            <a class="pc-btn pc-btn--primary" href="/user/{{ child.username }}">Open time rules</a>
+        </div>
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<div class="pc-card">{{ pc_empty('No human accounts found', 'Check the machine connection, then refresh.') }}</div>
+{% endif %}
+{% endblock %}

@@ -1577,7 +1577,371 @@ body.pc-body--auth {
   }
 }
 
+/* ============================================================ 5-section shell
+   design-exports/SPEC.md "Shared shell": a >=960px desktop sidebar (brand +
+   "Selected machine" card + vertical nav) beside the top header; the phone
+   keeps the bottom tab bar. Everything is additive — the pre-existing
+   app bar/tab bar and their hide rule above are untouched. */
+.pc-layout {
+  display: block;
+}
+.pc-layout__main {
+  min-width: 0;
+}
+.pc-sidebar {
+  display: none;
+}
+.pc-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+.pc-sidebar__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--link);
+}
+.pc-sidebar__logo-svg {
+  width: 20px;
+  height: 20px;
+}
+.pc-sidebar__title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+.pc-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2);
+}
+.pc-navlink {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-navlink:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.pc-navlink[aria-current='page'] {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 600;
+}
+.pc-navlink__icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+.pc-sidebar__foot {
+  margin-top: auto;
+  padding: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+
+/* "Selected machine" card. The URL is deliberately scheme-less: rendered
+   pages must never contain an http:// literal (offline promise, test_ui_*). */
+.pc-machine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0 var(--sp-3) var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.pc-machine__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.pc-machine__name {
+  color: var(--text);
+}
+.pc-machine__url code {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pc-machine__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+.pc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-pill);
+  background: var(--text-faint);
+  flex: 0 0 auto;
+}
+.pc-dot--online {
+  background: var(--pc-green-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-green-500) 25%, transparent);
+}
+.pc-machine__status {
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.pc-theme-toggle {
+  min-width: var(--touch);
+}
+.pc-menu__item--label {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 0;
+  padding: var(--sp-1) var(--sp-3);
+}
+
+@media (min-width: 960px) {
+  .pc-sidebar {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: var(--nav-h);
+    bottom: 0;
+    left: 0;
+    width: 280px;
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .pc-layout__main {
+    margin-left: 280px;
+  }
+  .pc-appbar__nav {
+    display: none;
+  }
+}
+.pc-body--auth .pc-sidebar {
+  display: none;
+}
+.pc-body--auth .pc-layout__main {
+  margin-left: 0;
+}
+
+/* ------------------------------------------------- new design-system pieces
+   Added by the design translation; token-driven and theme-aware. */
+
+/* Toggle switch (enable/disable, reduced motion, HTTPS, notifications). */
+.pc-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  cursor: pointer;
+}
+.pc-switch input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background var(--dur) var(--ease);
+  flex: 0 0 auto;
+}
+.pc-switch input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  transition: transform var(--dur) var(--ease);
+}
+.pc-switch input[type='checkbox']:checked {
+  background: var(--link);
+  border-color: var(--link);
+}
+.pc-switch input[type='checkbox']:checked::after {
+  transform: translateX(20px);
+  background: var(--pc-white);
+}
+
+/* Segmented control / tabs (Visible | Hidden | All, Dark | Light). */
+.pc-segmented,
+.pc-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.pc-tabbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.pc-tabbtn[aria-pressed='true'],
+.pc-tabbtn[aria-selected='true'] {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Toolbar row (page actions on the right). */
+.pc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.pc-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Two-up card grid that collapses to one column below 960px. */
+.pc-grid {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 960px) {
+  .pc-grid--2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Live countdown readout. */
+.pc-timer {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+/* Fieldset group (Settings / specimen sections). */
+.pc-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin: 0 0 var(--sp-4);
+}
+.pc-fieldset > legend,
+.pc-fieldset__legend {
+  padding: 0 var(--sp-2);
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Section heading used above a stack of cards. */
+.pc-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: var(--sp-5) 0 var(--sp-3);
+}
+.pc-section-head > h2 {
+  margin: 0;
+}
+.pc-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-faint);
+  margin: 0 0 var(--sp-1);
+}
+
+/* Stat / KPI block used in the system summary + specimens. */
+.pc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pc-stat__value {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+.pc-stat__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.pc-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+}
+
+/* A dashed placeholder card for planned / not-yet-backend features. */
+.pc-placeholder {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.pc-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-1);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Inline form row (filter selects). */
+.pc-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-3);
+}
+.pc-inline-form .pc-field {
+  margin: 0;
+}
+
 @media print {
+  .pc-sidebar,
   .pc-appbar,
   .pc-tabbar,
   .pc-skip-link,
@@ -1586,5 +1950,8 @@ body.pc-body--auth {
   }
   body.pc-body {
     padding: 0;
+  }
+  .pc-layout__main {
+    margin-left: 0;
   }
 }

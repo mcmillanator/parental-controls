@@ -1,10 +1,10 @@
 {# ==========================================================================
-   base.html — shared shell for the redesigned panel (UI_UX_PLAN.md §7.1 Phase 1)
+   base.html — shared shell for the redesigned panel (UI_UX_PLAN.md §7.1) plus
+   the 5-section IA shell (design-exports/SPEC.md "Shared shell").
 
-   No page uses this yet: the conversion of index/user/admin_audit to
-   `{% extends "base.html" %}` is the next phase, after the multi-device merge.
-   Nothing about the current pages (ids, classes, inline CSS) is moved by
-   adding this file.
+   Layout: a desktop sidebar (>=960px) with brand, the "Selected machine" card
+   and the vertical nav; a top header with the user chip, theme toggle and
+   Help; a phone bottom tab bar; then the page content.
 
    Assets are linked with url_for('static', ...) — locally vendored Bootstrap
    plus app.css, in that order so our tokens win. A Bazzite panel on an offline
@@ -25,20 +25,37 @@
        static/css/app.css. No CDN, no webfont, no external JS. #}
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    {# No-flash theme: apply the stored light/dark choice before first paint. #}
+    <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('pc-theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* localStorage unavailable: keep the OS default */ }
+    })();
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body class="pc-body{% block body_class %}{% endblock %}">
     {% include '_partials/icons.html' %}
     <a class="pc-skip-link" href="#pc-main">Skip to content</a>
     {% include '_partials/insecure_banner.html' %}
-    {% include '_partials/appbar.html' %}
 
-    <main class="pc-main" id="pc-main" tabindex="-1">
-        <div class="pc-shell{% block shell_class %} pc-shell--narrow{% endblock %}">
-            {% include '_partials/flash.html' %}
-            {% block content %}{% endblock %}
+    <div class="pc-layout">
+        {% include '_partials/sidebar.html' %}
+        <div class="pc-layout__main">
+            {% include '_partials/appbar.html' %}
+
+            <main class="pc-main" id="pc-main" tabindex="-1">
+                <div class="pc-shell{% block shell_class %} pc-shell--narrow{% endblock %}">
+                    {% include '_partials/flash.html' %}
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
         </div>
-    </main>
+    </div>
 
     {% include '_partials/tabbar.html' %}
     {% include '_partials/toast.html' %}

@@ -65,6 +65,46 @@ def _multidevice_gate():
         enabled = False
     return {'devices_enabled': enabled}
 
+# ---------------------------------------------------------------------------
+# 5-section IA shell context (design-exports/SPEC.md "Shared shell").
+# One place maps a request endpoint onto the active nav section and supplies
+# the sidebar's machine card + user chip, so no route has to pass them.
+# ---------------------------------------------------------------------------
+NAV_SECTIONS = {
+    'index': 'overview',
+    'time_rules': 'time',
+    'user_detail': 'time',
+    'budgets': 'time',
+    'processes': 'activity',
+    'admin_audit': 'admin',
+    'settings': 'settings',
+}
+
+
+@app.context_processor
+def _shell_context():
+    """Active section + sidebar/app-bar context for every rendered page."""
+    device = (request.args.get('device', '') or '').strip()
+    try:
+        host = request.host
+    except Exception:  # pragma: no cover - only outside a request
+        host = 'localhost'
+    ctx = {
+        'active_nav': NAV_SECTIONS.get(request.endpoint or '', ''),
+        'app_title': 'Parental Controls',
+        'app_subtitle': 'Manage this Bazzite system',
+        # Scheme-less on purpose: rendered pages must never carry an http://
+        # literal (offline promise asserted by the UI tests).
+        'machine_name': device or 'This box',
+        'machine_url': host,
+    }
+    admin = getattr(g, 'admin', '')
+    if admin:
+        ctx['current_user'] = admin
+        ctx['current_tier'] = getattr(g, 'tier', '') or ''
+    return ctx
+
+
 MIN_UID = 1000
 MAX_UID = 60000
 
@@ -2443,6 +2483,119 @@ def admin_audit():
                            chain_ok=chain_ok, bad_seq=bad_seq,
                            limit=limit, has_more=has_more,
                            admins=admins)
+
+
+@app.route('/time-rules')
+@require_admin
+def time_rules():
+    """Time rules section home: pick a child, then edit their rules.
+
+    Overview of every human account with its live lock/bedtime state; each
+    card links into the per-child Time rules screen (``/user/<username>``).
+    """
+    users = get_human_users()
+    bedtime = load_bedtime()
+    children = []
+    for u in users:
+        locked, detail = get_lock_status(u['username'])
+        entry = bedtime.get(u['username'], {})
+        children.append({
+            'username': u['username'],
+            'uid': u['uid'],
+            'locked': locked,
+            'status_detail': detail,
+            'bedtime': entry,
+            'in_bedtime': is_in_bedtime(entry),
+            'bonus': bonus_state(entry),
+        })
+    return render_template('time_rules.html', children=children,
+                           day_labels=DAY_LABELS)
+
+
+def _pick_child(requested):
+    """(username, live_data|None) — the requested child, else the first one.
+
+    ``live_data`` is None when there is no human account to show.
+    """
+    users = get_human_users()
+    names = [u['username'] for u in users]
+    if requested and requested in names:
+        return requested, get_user_live(requested)
+    if names:
+        return names[0], get_user_live(names[0])
+    return '', None
+
+
+@app.route('/budgets', endpoint='budgets')
+@require_admin
+def time_budgets():
+    """Time budgets section (design-exports/SPEC.md Screen 3).
+
+    The same live budget data the per-child page renders, presented as the
+    standalone budgets screen with a user picker. Read-only here: every edit
+    posts to the existing /api/budgets* endpoints.
+    """
+    users = get_human_users()
+    requested = (request.args.get('user', '') or '').strip()
+    username, data = _pick_child(requested)
+    if data is None:
+        return render_template(
+            'budgets.html', username=username, users=users,
+            budget_state={}, overrides=None, app_names=[],
+            categories=budgets.CATEGORIES,
+            category_labels=budgets.CATEGORY_LABELS, day_labels=DAY_LABELS)
+    return render_template(
+        'budgets.html', username=username, users=users,
+        budget_state=data['budget_state'], overrides=data.get('overrides'),
+        app_names=data.get('app_names') or [],
+        categories=budgets.CATEGORIES,
+        category_labels=budgets.CATEGORY_LABELS, day_labels=DAY_LABELS)
+
+
+@app.route('/processes')
+@require_admin
+def processes():
+    """Processes section (design-exports/SPEC.md Screen 4).
+
+    Grouped, per-PID expandable rows for one child, with the Visible/Hidden/All
+    tabs and the shared override dialog. Read-only server render; hide/show,
+    freeze and overrides post to the existing endpoints.
+    """
+    users = get_human_users()
+    requested = (request.args.get('user', '') or '').strip()
+    username, data = _pick_child(requested)
+    if data is None:
+        return render_template(
+            'processes.html', username=username, users=users,
+            groups={}, visible=[], hidden=[], budget_state={}, overrides=None,
+            app_names=[], categories=budgets.CATEGORIES,
+            category_labels=budgets.CATEGORY_LABELS, day_labels=DAY_LABELS)
+    return render_template(
+        'processes.html', username=username, users=users,
+        groups=data['groups'], visible=data['visible'], hidden=data['hidden'],
+        budget_state=data['budget_state'], overrides=data.get('overrides'),
+        app_names=data.get('app_names') or [],
+        categories=budgets.CATEGORIES,
+        category_labels=budgets.CATEGORY_LABELS, day_labels=DAY_LABELS)
+
+
+@app.route('/settings')
+@require_admin
+def settings():
+    """Settings section (design-exports/SPEC.md Screen 6).
+
+    Renders the notification / local-access / devices panels. Features the
+    backend does not own yet (notification lead-time persistence, multi-device)
+    render as clearly-labelled disabled placeholders, never invented state.
+    """
+    devices = []
+    devices_error = None
+    try:
+        devices = _device_entries()
+    except Exception as e:  # pragma: no cover - corrupt store is reported
+        devices_error = str(e)
+    return render_template('settings.html', devices=devices,
+                           devices_error=devices_error)
 
 
 AUDIT_DETAIL_SUMMARY_LEN = 120
