@@ -1,17 +1,17 @@
 {# ==========================================================================
-   Desktop sidebar (>=960px) for the 5-section shell
-   (design-exports/SPEC.md "Shared shell").
+   Sidebar (>=768px tablet and desktop) for the 5-section shell
+   (design-exports/SPEC.md "Shared shell"; canvas S3/S4 tablet, S5/S6 desktop).
 
-   Brand + a "Selected machine" card + the primary vertical nav. On phones the
-   whole aside is display:none from app.css and navigation moves to the bottom
-   tab bar (templates/_partials/tabbar.html). Context (all optional, with
-   defaults so any page can render the shell):
+   Brand + a "Selected machine" card (with its visible uppercase eyebrow, as
+   the canvas labels it) + the primary vertical nav. Below 768px the whole
+   aside is display:none from app.css and navigation moves to the bottom tab
+   bar (templates/_partials/tabbar.html). The canvas has no sidebar footer, so
+   the signed-in identity lives only in the app-bar account chip. Context (all
+   optional, with defaults so any page can render the shell):
      active_nav   : 'overview'|'time'|'activity'|'admin'|'settings'|''
      machine_name : the selected box ("This box" for the local install)
      machine_url  : host shown in the card (scheme-less: the offline promise
                     forbids an http:// literal in rendered pages)
-     current_user : signed-in actor
-     current_tier : 'wheel' | 'app-only' (adds the wheel mark)
    ========================================================================== #}
 {% from '_partials/macros.html' import pc_nav_link %}
 {% set _active = active_nav|default('') %}
@@ -22,6 +22,7 @@
   </div>
 
   <div class="pc-machine" aria-label="Selected machine">
+    <p class="pc-machine__label">Selected machine</p>
     <span class="pc-machine__row">
       <svg class="pc-machine__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor"/></svg>
       <strong class="pc-machine__name">{{ machine_name|default('This box') }}</strong>
@@ -48,8 +49,4 @@
     {{ pc_nav_link(key, icon, label, href, _active, 'navlink') }}
     {% endfor %}
   </nav>
-
-  <div class="pc-sidebar__foot">
-    <p class="pc-meta">Signed in as <strong>{{ current_user|default('Admin') }}</strong>{% if current_tier %} ({{ current_tier }}){% endif %}</p>
-  </div>
 </aside>

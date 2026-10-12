@@ -1702,12 +1702,6 @@ body.pc-body--auth {
   height: 20px;
   flex: 0 0 auto;
 }
-.pc-sidebar__foot {
-  margin-top: auto;
-  padding: var(--sp-3);
-  border-top: 1px solid var(--border);
-}
-
 /* "Selected machine" card. The URL is deliberately scheme-less: rendered
    pages must never contain an http:// literal (offline promise, test_ui_*). */
 .pc-machine {
@@ -1779,7 +1773,13 @@ body.pc-body--auth {
   padding: var(--sp-1) var(--sp-3);
 }
 
-@media (min-width: 960px) {
+/* ---- Tablet and up: the sidebar shell --------------------------------
+   Canvas S3/S4 are *tablet* screens and already show the 236px sidebar with
+   the brand, the "Selected machine" card and the 5-section nav; S5/S6 widen
+   it to 280px for desktop. The top bar therefore keeps only the account /
+   theme / Help cluster (right-aligned, plain, no pill chrome) and the product
+   brand moves into the sidebar so it is never duplicated. */
+@media (min-width: 768px) {
   .pc-sidebar {
     display: flex;
     flex-direction: column;
@@ -1787,16 +1787,46 @@ body.pc-body--auth {
     top: var(--nav-h);
     bottom: 0;
     left: 0;
-    width: 280px;
+    width: 236px;
     overflow-y: auto;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--border);
   }
   .pc-layout__main {
-    margin-left: 280px;
+    margin-left: 236px;
   }
   .pc-appbar__nav {
-    display: none;
+    display: none; /* the sidebar owns the 5-section nav from tablet up */
+  }
+  .pc-appbar__brand {
+    display: none; /* the brand lives in the sidebar from tablet up */
+  }
+  .pc-appbar__actions {
+    margin-left: auto;
+    gap: var(--sp-4);
+  }
+  .pc-appbar .pc-menu > summary,
+  .pc-appbar .pc-btn--ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+  }
+  .pc-appbar .pc-menu > summary:hover,
+  .pc-appbar .pc-btn--ghost:hover {
+    color: var(--text);
+  }
+  .pc-appbar .pc-menu[open] > summary {
+    border-color: transparent;
+    color: var(--text);
+  }
+}
+
+@media (min-width: 960px) {
+  .pc-sidebar {
+    width: 280px;
+  }
+  .pc-layout__main {
+    margin-left: 280px;
   }
 }
 .pc-body--auth .pc-sidebar {

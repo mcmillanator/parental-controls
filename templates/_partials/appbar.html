@@ -1,7 +1,8 @@
-{# Top header (all widths) — design-exports/SPEC.md "Shared shell".
-   Left: product brand. Middle: the 5-section nav for the 768-959px tablet range
-   (the >=960px sidebar owns it; the phone tab bar owns it below 768px). Right:
-   user chip (+ wheel mark), theme toggle and Help.
+{# Top header — design-exports/SPEC.md "Shared shell"; canvas S5/S6 header.
+   Left: product brand (<768px only — from tablet up the brand lives in the
+   sidebar, so it is not duplicated). Right: the account chip, the theme toggle
+   and Help, in the canvas order. The 5-section nav lives in the sidebar from
+   tablet up and in the phone tab bar below 768px.
 
    Context (all optional, with defaults so any page can render the shell):
      active_nav   : 'overview'|'time'|'activity'|'admin'|'settings'|''
@@ -30,24 +31,7 @@
   </nav>
 
   <div class="pc-appbar__actions">
-    <button type="button" id="pc-theme-toggle" class="pc-btn pc-btn--ghost pc-btn--icon pc-theme-toggle" onclick="pcToggleTheme()" aria-label="Toggle light or dark theme" title="Toggle theme">
-      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-sun"/></svg>
-      <span class="pc-visually-hidden">Toggle theme</span>
-    </button>
-    <details class="pc-menu">
-      <summary aria-label="Help">
-        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-help"/></svg>
-        <span class="pc-visually-hidden">Help</span>
-      </summary>
-      <div class="pc-menu__panel">
-        <span class="pc-menu__item pc-menu__item--label">Sections</span>
-        {% for key, icon, label, href in _nav %}
-        <a class="pc-menu__item" href="{{ href }}">{{ label }}</a>
-        {% endfor %}
-        <span class="pc-menu__item pc-menu__item--label">Tips</span>
-        <span class="pc-menu__item pc-meta">Tab moves, Esc closes dialogs. Every control keeps a text label.</span>
-      </div>
-    </details>
+    {# Canvas S5/S6 order: account chip, theme toggle, Help. #}
     <details class="pc-menu">
       <summary aria-label="Account menu">
         <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>
@@ -59,6 +43,24 @@
         <form method="post" action="{{ url_for('logout') }}">
           <button type="submit" class="pc-menu__item pc-menu__item--button">Log out</button>
         </form>
+      </div>
+    </details>
+    <button type="button" id="pc-theme-toggle" class="pc-btn pc-btn--ghost pc-btn--icon pc-theme-toggle" onclick="pcToggleTheme()" aria-label="Toggle light or dark theme" title="Toggle theme">
+      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-sun"/></svg>
+      <span class="pc-visually-hidden">Toggle theme</span>
+    </button>
+    <details class="pc-menu">
+      <summary aria-label="Help">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-help"/></svg>
+        <span>Help</span>
+      </summary>
+      <div class="pc-menu__panel">
+        <span class="pc-menu__item pc-menu__item--label">Sections</span>
+        {% for key, icon, label, href in _nav %}
+        <a class="pc-menu__item" href="{{ href }}">{{ label }}</a>
+        {% endfor %}
+        <span class="pc-menu__item pc-menu__item--label">Tips</span>
+        <span class="pc-menu__item pc-meta">Tab moves, Esc closes dialogs. Every control keeps a text label.</span>
       </div>
     </details>
   </div>
