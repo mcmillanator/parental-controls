@@ -1952,7 +1952,16 @@ body.pc-body--auth {
 }
 
 /* Inline form row (filter selects). */
-.pc-inline-form {  display: flex;
+/* User-toggled reduced motion (Processes switch): mirrors the OS setting. */
+body.pc-reduced-motion *,
+body.pc-reduced-motion *::before,
+body.pc-reduced-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+.pc-inline-form {
+  display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: var(--sp-3);

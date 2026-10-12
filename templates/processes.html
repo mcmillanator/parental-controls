@@ -1,10 +1,343 @@
 {% extends "base.html" %}
-{# Processes section (/processes) — Screen 4. Built out in the Screen 4 commit. #}
-{% from '_partials/flash.html' import pc_empty %}
+{# =========================================================================
+   Processes (/processes) — design-exports/SPEC.md Screen 4.
+
+   Grouped, per-PID expandable rows for one child: App | Category | Time used
+   today | State | Override, with Visible/Hidden/All tabs, a reduced-motion
+   switch and the shared per-app override dialog. Every action posts to an
+   existing endpoint (hide/show via /api/process-prefs, overrides via
+   /api/budgets/overrides, freeze/unfreeze via /api/budgets/*).
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty, pc_skeleton %}
+
 {% block title %}Parental Controls — Processes{% endblock %}
+{% block shell_class %}{% endblock %}
+
 {% block content %}
 <p class="pc-eyebrow">Activity</p>
-<h1 class="pc-page-title">Processes</h1>
-<p class="pc-subtitle">Grouped apps and their usage today.</p>
-<div class="pc-card">{{ pc_empty('Processes', 'This screen is being translated.') }}</div>
+<div class="pc-toolbar">
+    <h1 class="pc-page-title">Processes</h1>
+    <div class="pc-toolbar__actions">
+        <label class="pc-field__label" for="proc-machine">Machine</label>
+        <select id="proc-machine" class="pc-input" disabled title="Multi-device is planned">
+            <option selected>{{ machine_name }}</option>
+        </select>
+        <label class="pc-field__label" for="proc-user">User</label>
+        <select id="proc-user" class="pc-input" onchange="switchProcUser(this.value)">
+            {% for u in users %}
+            <option value="{{ u.username }}"{% if u.username == username %} selected{% endif %}>{{ u.username }}</option>
+            {% else %}
+            <option selected>{{ username or 'No accounts' }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="pc-btn pc-btn--primary" onclick="window.location.reload()">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>Refresh now
+        </button>
+    </div>
+</div>
+
+<div class="pc-banner pc-banner--info" role="status">
+    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock3"/></svg>
+    Last updated just now
+    <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" onclick="window.location.reload()">Refresh</button>
+</div>
+
+<div class="pc-toolbar">
+    <div class="pc-tabs" role="group" aria-label="Show">
+        <span class="pc-field__label">Show:</span>
+        <button type="button" class="pc-tabbtn" data-show="visible" aria-pressed="true" onclick="setProcTab('visible')">Visible</button>
+        <button type="button" class="pc-tabbtn" data-show="hidden" aria-pressed="false" onclick="setProcTab('hidden')">Hidden</button>
+        <button type="button" class="pc-tabbtn" data-show="all" aria-pressed="false" onclick="setProcTab('all')">All</button>
+    </div>
+    <label class="pc-switch">
+        <input type="checkbox" id="reduced-motion" onchange="setReducedMotion(this)">
+        <span>Reduced motion</span>
+    </label>
+</div>
+
+{% if username and (visible or hidden) %}
+<section class="pc-card" aria-labelledby="proc-groups-heading">
+    <div class="pc-card__header">
+        <h2 class="pc-card__title" id="proc-groups-heading">Process groups</h2>
+        <span class="pc-meta">Duplicate processes are grouped by app.</span>
+    </div>
+    <p class="pc-hint">TIME USED is accumulated foreground usage today.</p>
+    <div class="table-responsive">
+    <table class="pc-table pc-table--stack" id="processes-table">
+        <thead>
+            <tr>
+                <th scope="col"></th>
+                <th scope="col">App</th>
+                <th scope="col">Category</th>
+                <th scope="col">Time used today</th>
+                <th scope="col">State</th>
+                <th scope="col">Override</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cat in categories %}
+            {% for group in groups[cat] %}
+            {% set gid = 'detail-' ~ (cat|slugify_id) ~ '-' ~ (group.comm|slugify_id) %}
+            {% set b = budget_state[cat] if budget_state else {} %}
+            {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
+            <tr class="group-row" data-group-cat="{{ cat }}" data-group-comm="{{ group.comm }}" data-visibility="visible">
+                <td data-label="">
+                    <button type="button" class="btn-group-toggle pc-btn pc-btn--sm pc-btn--ghost" aria-expanded="false" aria-controls="{{ gid }}" data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %} onclick="toggleGroup(this)">
+                        <span class="group-chevron">▶</span>
+                    </button>
+                </td>
+                <td data-label="App"><span class="process-name">{{ group.display_name or group.comm }}</span>
+                    {% if group.count > 1 %}<span class="badge-count pc-chip pc-chip--neutral">× {{ group.count }}</span>{% endif %}
+                    <span class="process-pid">({{ group.count }} {{ 'process' if group.count == 1 else 'processes' }})</span>
+                </td>
+                <td data-label="Category">{{ category_labels[cat] }}</td>
+                <td data-label="Time used today">{{ group.used or '—' }}</td>
+                <td data-label="State">
+                    {% if b.frozen %}<span class="badge-frozen pc-chip pc-chip--info">Frozen</span>
+                    {% elif b.paused or b.exhausted %}<span class="badge-paused pc-chip pc-chip--danger">Paused</span>
+                    {% else %}<span class="pc-chip pc-chip--ok">Active</span>{% endif %}
+                </td>
+                <td data-label="Override" class="actions pc-row">
+                    <span class="app-override">
+                        {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override pc-chip pc-chip--override">Unlimited</span>{% else %}<span class="badge-count pc-chip pc-chip--neutral">{{ ov.minutes|hm }}</span>{% endif %}{% else %}<span class="pc-meta">None</span>{% endif %}
+                        <button type="button" class="btn-override pc-btn pc-btn--sm pc-btn--primary" data-comm="{{ group.comm }}" data-mode="{{ ov.mode if ov else 'none' }}" data-minutes="{{ ov.minutes if ov and ov.minutes else '' }}" onclick="openOverride(this)">Override</button>
+                    </span>
+                    {% if b.frozen %}<button type="button" class="btn-unlock pc-btn pc-btn--sm pc-btn--primary" onclick="freezeProc('{{ cat }}', 'unfreeze')">Unfreeze</button>
+                    {% elif b.minutes %}<button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn" onclick="freezeProc('{{ cat }}', 'freeze')">Freeze</button>{% endif %}
+                </td>
+            </tr>
+            <tr class="group-detail" id="{{ gid }}" hidden>
+                <td colspan="6" data-label="">
+                    <div class="table-responsive">
+                        <table class="pc-table pc-table--stack">
+                            <thead><tr><th scope="col">PID</th><th scope="col">Command</th><th scope="col">Time used today</th></tr></thead>
+                            <tbody>
+                                {% for m in group.members %}
+                                <tr><td data-label="PID" class="pc-num">{{ m.pid }}</td><td data-label="Command"><span class="process-name">{{ m.display_name or m.comm }}</span></td><td data-label="Time used today">{{ group.used or '—' }}</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+
+            {% for group in hidden %}
+            {% set gid = 'detail-hidden-' ~ (group.comm|slugify_id) %}
+            <tr class="group-row" data-group-cat="hidden" data-group-comm="{{ group.comm }}" data-visibility="hidden">
+                <td data-label="">
+                    <button type="button" class="btn-group-toggle pc-btn pc-btn--sm pc-btn--ghost" aria-expanded="false" aria-controls="{{ gid }}" data-comm="{{ group.comm }}"{% if group.count == 1 %} disabled{% endif %} onclick="toggleGroup(this)">
+                        <span class="group-chevron">▶</span>
+                    </button>
+                </td>
+                <td data-label="App"><span class="process-name">{{ group.display_name or group.comm }}</span>
+                    {% if group.count > 1 %}<span class="badge-count pc-chip pc-chip--neutral">× {{ group.count }}</span>{% endif %}
+                    <span class="process-pid">({{ group.count }} {{ 'process' if group.count == 1 else 'processes' }})</span>
+                </td>
+                <td data-label="Category">{% if group.uniform_category and group.categories %}{{ category_labels[group.categories[0]] }}{% else %}Mixed{% endif %}</td>
+                <td data-label="Time used today">{{ group.used or '—' }}</td>
+                <td data-label="State"><span class="pc-meta">—</span></td>
+                <td data-label="Override" class="actions pc-row">
+                    <button type="button" class="btn-show-hidden pc-btn pc-btn--sm pc-btn--ghost" data-comm="{{ group.comm }}" onclick="showProc(this)">Show app</button>
+                </td>
+            </tr>
+            <tr class="group-detail" id="{{ gid }}" hidden>
+                <td colspan="6" data-label="">
+                    <div class="table-responsive">
+                        <table class="pc-table pc-table--stack">
+                            <thead><tr><th scope="col">PID</th><th scope="col">Command</th><th scope="col">Time used today</th></tr></thead>
+                            <tbody>
+                                {% for m in group.members %}
+                                <tr><td data-label="PID" class="pc-num">{{ m.pid }}</td><td data-label="Command"><span class="process-name">{{ m.display_name or m.comm }}</span></td><td data-label="Time used today">{{ group.used or '—' }}</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+
+{# Override editor card (design Screen 4) — the same POST as the dialog. #}
+<section class="pc-card" aria-labelledby="override-card-heading">
+    <h2 class="pc-card__title" id="override-card-heading">Override</h2>
+    <div class="pc-field">
+        <label class="pc-field__label" for="proc-override-comm">App</label>
+        <input id="proc-override-comm" class="pc-input" list="installed-apps" placeholder="App command (e.g. steam)">
+    </div>
+    <fieldset class="pc-fieldset">
+        <legend class="pc-fieldset__legend">Override type</legend>
+        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="default" checked onchange="procOverrideModeChanged()"> Default category budget</label>
+        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="exempt" onchange="procOverrideModeChanged()"> Unlimited</label>
+        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="limit" onchange="procOverrideModeChanged()"> Custom allowance</label>
+        <div class="pc-row" id="proc-override-allowance" hidden>
+            <span class="pc-duration__unit">h</span>
+            <input type="number" id="proc-override-hours" class="pc-input" style="width: 4rem;" min="0" max="99" placeholder="00" aria-label="Override hours">
+            <span class="pc-duration__unit">m</span>
+            <input type="number" id="proc-override-minutes" class="pc-input" style="width: 4rem;" min="0" max="59" placeholder="45" aria-label="Override minutes">
+        </div>
+    </fieldset>
+    <button type="button" class="pc-btn pc-btn--primary pc-btn--block" onclick="saveProcOverride()">Save override</button>
+</section>
+
+{# App visibility card (design Screen 4): hide/show, never kill. #}
+<section class="pc-card" aria-labelledby="visibility-card-heading">
+    <h2 class="pc-card__title" id="visibility-card-heading">App visibility</h2>
+    <p class="pc-hint">Hiding an app removes it from the visible list; it is never killed.</p>
+    <div class="pc-field">
+        <label class="pc-field__label" for="proc-visibility-comm">App</label>
+        <input id="proc-visibility-comm" class="pc-input" list="installed-apps" placeholder="App command">
+    </div>
+    <div class="pc-row">
+        <button type="button" class="pc-btn pc-btn--neutral" onclick="setVisibility('hide')">Hide app</button>
+        <button type="button" class="pc-btn pc-btn--ghost" onclick="setVisibility('show')">Show app</button>
+    </div>
+</section>
+
+{# State cards (design Screen 4). #}
+<section class="pc-card" aria-labelledby="proc-states-heading">
+    <h2 class="pc-card__title" id="proc-states-heading">States</h2>
+    <div class="pc-grid pc-grid--2">
+        <div class="pc-card">{{ pc_skeleton(3, 'Loading processes…') }}</div>
+        <div class="pc-card pc-card--error">
+            <h3 class="pc-card__title">Error</h3>
+            <p>Cannot reach machine</p>
+            <button type="button" class="pc-btn pc-btn--ghost" onclick="window.location.reload()">Retry</button>
+        </div>
+        <div class="pc-card">{{ pc_empty('No visible apps', 'Nothing is running right now.') }}</div>
+        <div class="pc-card pc-card--muted"><h3 class="pc-card__title">Offline</h3><p>Offline mode hides live controls.</p></div>
+    </div>
+</section>
+
+<p class="pc-hint">Out-of-time apps are paused, not terminated.</p>
+{% else %}
+<section class="pc-card">{{ pc_empty('No visible apps', 'No human accounts were found on this system.') }}</section>
+<p class="pc-hint">Out-of-time apps are paused, not terminated.</p>
+{% endif %}
+
+<datalist id="installed-apps">{% for comm in app_names %}<option value="{{ comm }}">{% endfor %}</datalist>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    const PROC_USER = {{ username|tojson }};
+
+    function showToast(msg, isError) {
+        if (window.pcToast) { window.pcToast(msg, isError ? 'error' : 'success'); }
+    }
+
+    function switchProcUser(name) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('user', name);
+        window.location.href = u.toString();
+    }
+
+    function toggleGroup(button) {
+        const id = button.getAttribute('aria-controls');
+        const row = document.getElementById(id);
+        if (!row) { return; }
+        const open = row.hidden;
+        row.hidden = !open;
+        button.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chevron = button.querySelector('.group-chevron');
+        if (chevron) { chevron.textContent = open ? '▼' : '▶'; }
+    }
+
+    function setProcTab(which) {
+        document.querySelectorAll('.pc-tabbtn[data-show]').forEach(function (b) {
+            b.setAttribute('aria-pressed', b.getAttribute('data-show') === which ? 'true' : 'false');
+        });
+        document.querySelectorAll('tr.group-row').forEach(function (row) {
+            const vis = row.getAttribute('data-visibility');
+            const show = which === 'all' || vis === which;
+            row.hidden = !show;
+            const detail = document.getElementById(row.querySelector('.btn-group-toggle').getAttribute('aria-controls'));
+            if (detail && !show) { detail.hidden = true; }
+        });
+    }
+
+    function setReducedMotion(el) {
+        document.body.classList.toggle('pc-reduced-motion', el.checked);
+    }
+
+    async function post(path, body) {
+        const resp = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+            body: body,
+        });
+        return resp.json();
+    }
+
+    async function freezeProc(cat, action) {
+        try {
+            const data = await post('/api/budgets/' + action, `username=${encodeURIComponent(PROC_USER)}&category=${encodeURIComponent(cat)}`);
+            if (data.success) { showToast('Category ' + cat + ' ' + action + 'd', false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    function openOverride(button) {
+        const comm = button.getAttribute('data-comm');
+        const mode = button.getAttribute('data-mode') || 'none';
+        const minutes = button.getAttribute('data-minutes') || '';
+        window.pcOverrideDialog({ comm: comm, mode: mode === 'none' ? 'none' : mode, minutes: minutes })
+            .then(function (choice) {
+                if (!choice) { return; }
+                postOverride(comm, choice.mode, choice.minutes);
+            });
+    }
+
+    async function postOverride(comm, mode, minutes) {
+        const mapped = mode === 'limit' ? 'limit' : (mode === 'exempt' ? 'exempt' : 'none');
+        try {
+            const data = await post('/api/budgets/overrides', `username=${encodeURIComponent(PROC_USER)}&comm=${encodeURIComponent(comm)}&mode=${encodeURIComponent(mapped)}&minutes=${encodeURIComponent(minutes)}`);
+            if (data.success) { showToast('Override saved for ' + comm, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    function procOverrideModeChanged() {
+        const mode = document.querySelector('input[name="proc-override-mode"]:checked').value;
+        document.getElementById('proc-override-allowance').hidden = mode !== 'limit';
+    }
+
+    function saveProcOverride() {
+        const comm = document.getElementById('proc-override-comm').value.trim();
+        if (!comm) { showToast('Pick an app first', true); return; }
+        const mode = document.querySelector('input[name="proc-override-mode"]:checked').value;
+        let minutes = '';
+        if (mode === 'limit') {
+            const h = parseInt(document.getElementById('proc-override-hours').value || '0', 10);
+            const m = parseInt(document.getElementById('proc-override-minutes').value || '0', 10);
+            if (isNaN(h) || isNaN(m) || h < 0 || m < 0 || m > 59) { showToast('Enter a valid allowance', true); return; }
+            minutes = h * 60 + m;
+        }
+        postOverride(comm, mode === 'default' ? 'none' : mode, minutes);
+    }
+
+    async function setVisibility(action) {
+        const comm = document.getElementById('proc-visibility-comm').value.trim();
+        if (!comm) { showToast('Pick an app first', true); return; }
+        try {
+            const data = await post('/api/process-prefs', `username=${encodeURIComponent(PROC_USER)}&comm=${encodeURIComponent(comm)}&action=${encodeURIComponent(action)}`);
+            if (data.success) { showToast('App ' + action + 'n', false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+
+    async function showProc(button) {
+        const comm = button.getAttribute('data-comm');
+        try {
+            const data = await post('/api/process-prefs', `username=${encodeURIComponent(PROC_USER)}&comm=${encodeURIComponent(comm)}&action=show`);
+            if (data.success) { showToast('Showing ' + comm, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
+    }
+</script>
 {% endblock %}
