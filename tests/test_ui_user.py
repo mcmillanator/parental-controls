@@ -107,19 +107,19 @@ def live_dict(with_extras=True):
     }
     live['groups']['browsers'] = [
         {'comm': 'firefox', 'display_name': 'Firefox Web Browser',
-         'count': 2, 'elapsed': '12m', 'max_elapsed': '12m',
+         'count': 2, 'used': '12m', 'used_minutes': 12,
          'members': [
              {'pid': 9001, 'comm': 'firefox',
-              'display_name': 'Firefox Web Browser', 'elapsed': '12m'},
+              'display_name': 'Firefox Web Browser'},
              {'pid': 9002, 'comm': 'firefox',
-              'display_name': 'Firefox Web Browser', 'elapsed': '9m'},
+              'display_name': 'Firefox Web Browser'},
          ]},
     ]
     live['hidden'] = [
         {'comm': 'mydaemon', 'display_name': 'mydaemon', 'count': 1,
          'uniform_category': True, 'categories': ['other'],
          'members': [{'pid': 8000, 'comm': 'mydaemon',
-                      'display_name': 'mydaemon', 'elapsed': '3m',
+                      'display_name': 'mydaemon',
                       'category': 'other'}]},
     ]
     if with_extras:
@@ -199,7 +199,7 @@ class UserPageRenderTest(_UserPageRender):
         html = self.render()
         self.assertIn('pc-table--stack', html)
         for label in ('Category', 'Limit (per day)', 'Used', 'Left', 'Status',
-                      'Usage', 'Command', 'Elapsed', 'Actions', 'Allowance'):
+                      'Usage', 'Command', 'Actions', 'Allowance'):
             with self.subTest(label=label):
                 self.assertIn('data-label="%s"' % label, html,
                               'stacked card needs a "%s" label' % label)

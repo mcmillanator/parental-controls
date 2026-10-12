@@ -85,12 +85,14 @@ def grouped_live():
     groups = {c: [] for c in budgets.CATEGORIES}
     groups['games'] = [
         {'comm': 'steam', 'count': 1, 'max_minutes': 62,
-         'max_elapsed': '1h 2m', 'categories': ['games'],
+         'max_elapsed': '1h 2m', 'used_minutes': 62, 'used': '1h 2m',
+         'categories': ['games'],
          'uniform_category': True,
          'members': [{'pid': 9001, 'comm': 'steam', 'category': 'games',
                       'elapsed': '1h 2m', 'etime': '01:02:00'}]},
         {'comm': 'steamwebhelper', 'count': 3, 'max_minutes': 1563,
-         'max_elapsed': '1d 2h 3m', 'categories': ['games'],
+         'max_elapsed': '1d 2h 3m', 'used_minutes': 45, 'used': '45m',
+         'categories': ['games'],
          'uniform_category': True,
          'members': [
              {'pid': 9002, 'comm': 'steamwebhelper', 'category': 'games',
@@ -102,18 +104,20 @@ def grouped_live():
     ]
     hidden = [
         {'comm': 'vlc', 'count': 1, 'max_minutes': 0, 'max_elapsed': '0m',
+         'used_minutes': None, 'used': '',
          'categories': ['media'], 'uniform_category': True,
          'members': [{'pid': 9006, 'comm': 'vlc', 'category': 'media',
                       'elapsed': '0m', 'etime': '00:00:05'}]},
     ]
+    state = budgets.budget_status('kid', {'kid': blank_entry()})
+    state['games'] = dict(state['games'], used_minutes=62)
     return {
         'user': user,
         'processes': full_procs(),
         'visible': full_procs()[:4],  # flat gate list (mirrors get_user_live)
         'hidden': hidden,
         'groups': groups,
-        'budget_state': budgets.budget_status('kid',
-                                              {'kid': blank_entry()}),
+        'budget_state': state,
     }
 
 
@@ -266,6 +270,9 @@ class TestGroupingShapes(unittest.TestCase):
         self.assertEqual([m['pid'] for m in groups['steamwebhelper']['members']],
                          [9002, 9003, 9005])
         self.assertEqual(groups['steamwebhelper']['max_minutes'], 1563)
+        # Usage is budget-derived (category used_minutes), not ps ETIME;
+        # with an all-zero mocked budget every group shows '0m'.
+        self.assertEqual(groups['steamwebhelper']['used'], '0m')
         self.assertEqual(data['hidden'], [])
 
     def test_get_user_live_groups_hidden(self):
@@ -314,7 +321,7 @@ class TestGroupingShapes(unittest.TestCase):
         by_comm = {g['comm']: g for g in games}
         swh = by_comm['steamwebhelper']
         self.assertEqual(swh['count'], 3)
-        self.assertEqual(swh['elapsed'], '1d 2h 3m')  # max member elapsed
+        self.assertEqual(swh['used'], '45m')  # billable usage, not ps ETIME
         self.assertEqual([m['pid'] for m in swh['members']],
                          [9002, 9003, 9005])
         # Every visible PID is preserved inside members — no flat per-PID

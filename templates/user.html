@@ -416,7 +416,7 @@
                 <tr>
                     <th scope="col"></th>
                     <th scope="col">Command</th>
-                    <th scope="col">Elapsed</th>
+                    <th scope="col">Used</th>
                     <th scope="col"></th>
                 </tr>
             </thead>
@@ -434,7 +434,7 @@
                         {% if group.count > 1 %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">× {{ group.count }}</span>{% endif %}
                         <span class="process-pid">({{ group.count }} {{ 'instance' if group.count == 1 else 'instances' }})</span>
                     </td>
-                    <td data-label="Elapsed">{{ group.max_elapsed or '—' }}</td>
+                    <td data-label="Used">{{ group.used or '—' }}</td>
                     {# Visible groups are always single-category by construction
                        (get_user_live buckets by category BEFORE group_by_comm),
                        so the row's section category is the freeze target.
@@ -577,6 +577,11 @@
     }
 
     function groupDetailHtml(cat, group) {
+        // Usage is tracked per app/category, never per PID, so every
+        // member row shows the GROUP's used time (or '—' when there is
+        // no single usage value, e.g. a mixed-category hidden group).
+        // ps ETIME is never shown in the Processes UI.
+        const used = esc(group.used || '—');
         let rows = '';
         for (const m of group.members || []) {
             let label;
@@ -587,12 +592,12 @@
             }
             rows += '<tr><td data-label="PID">' + esc(m.pid) + '</td>' +
                 '<td data-label="Command"><span class="process-name">' + esc(m.display_name || m.comm) + '</span></td>' +
-                '<td data-label="Elapsed">' + esc(m.elapsed || '—') + '</td>' +
+                '<td data-label="Used">' + used + '</td>' +
                 '<td data-label="Category">' + esc(label) + '</td></tr>';
         }
         return '<td colspan="4" data-label=""><div class="table-responsive">' +
             '<table class="pc-table pc-table--stack">' +
-            '<thead><tr><th scope="col">PID</th><th scope="col">Command</th><th scope="col">Elapsed</th><th scope="col">Category</th></tr></thead>' +
+            '<thead><tr><th scope="col">PID</th><th scope="col">Command</th><th scope="col">Used</th><th scope="col">Category</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table></div></td>';
     }
 
@@ -680,7 +685,7 @@
                 '<td data-label="Category">' + (uniform ? esc(CATEGORY_LABELS[group.categories[0]]) : 'Mixed') + '</td>';
         } else {
             middle = '<td data-label="Command"><span class="process-name">' + name + '</span>' + badge + countNote + '</td>' +
-                '<td data-label="Elapsed">' + esc(group.elapsed || '—') + '</td>';
+                '<td data-label="Used">' + esc(group.used || '—') + '</td>';
         }
         return '<tr class="group-row" data-group-cat="' + esc(cat) + '" data-group-comm="' + esc(group.comm) + '">' +
             '<td data-label="">' + toggle + '</td>' + middle + '<td data-label="Actions">' + action + '</td></tr>';
@@ -903,7 +908,7 @@
                 const groups = data.groups[cat];
                 html += `<h3>${esc(CATEGORY_LABELS[cat])} (${groups.length})</h3>` +
                     '<div class="table-responsive"><table class="pc-table pc-table--stack">' +
-                    '<thead><tr><th scope="col"></th><th scope="col">Command</th><th scope="col">Elapsed</th><th scope="col"></th></tr></thead><tbody>';
+                    '<thead><tr><th scope="col"></th><th scope="col">Command</th><th scope="col">Used</th><th scope="col"></th></tr></thead><tbody>';
                 for (const g of groups) {
                     html += groupRowsHtml(cat, g);
                     renderedKeys.push(groupKey(cat, g.comm));

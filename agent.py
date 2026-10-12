@@ -599,14 +599,23 @@ def read_user_live(username):
     overrides_data = budgets.load_overrides()
     user_overrides = overrides_data.get(username)
     budget_state = budgets.budget_status(username, overrides=user_overrides)
+    # Processes show billable USAGE since the last reset (the same counter
+    # the budget rows show), never the process's ps ETIME wall-clock age.
+    for cat, cat_groups in groups.items():
+        for g in cat_groups:
+            mins = budgets.group_usage_minutes(cat, g['comm'], budget_state)
+            g['used_minutes'] = mins
+            g['used'] = budgets.format_hm(mins) if mins is not None else ''
+    for g in hidden:
+        g['used_minutes'] = None
+        g['used'] = ''
     groups_slim = {
         cat: [{'comm': g['comm'], 'display_name': g.get('display_name')
                or g['comm'], 'count': g['count'],
-               'elapsed': g.get('max_elapsed') or '',
+               'used': g.get('used') or '',
                'members': [{'pid': m['pid'], 'comm': m['comm'],
                             'display_name': m.get('display_name')
-                            or m.get('comm', ''),
-                            'elapsed': m.get('elapsed') or m.get('etime', '')}
+                            or m.get('comm', '')}
                            for m in g['members']]}
               for g in procs]
         for cat, procs in groups.items()
@@ -617,8 +626,7 @@ def read_user_live(username):
          'uniform_category': g.get('uniform_category', True),
          'members': [{'pid': m.get('pid'), 'comm': m.get('comm'),
                       'display_name': m.get('display_name') or m.get('comm', ''),
-                      'category': m.get('category'),
-                      'elapsed': m.get('elapsed') or m.get('etime', '')}
+                      'category': m.get('category')}
                      for m in g['members']]}
         for g in hidden if 'error' not in g
     ]
