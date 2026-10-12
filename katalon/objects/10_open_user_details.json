@@ -69,7 +69,7 @@
     },
     {
       "type": "verifyElementVisible",
-      "selector": "#budget-${TEST_CATEGORY}",
+      "selector": "#budget-${TEST_CATEGORY}-hours",
       "parentSelectors": [],
       "value": ""
     },

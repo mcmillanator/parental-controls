@@ -29,7 +29,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",
@@ -59,7 +59,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",
@@ -89,7 +89,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",
@@ -119,7 +119,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",
@@ -149,7 +149,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",

@@ -5,7 +5,7 @@
       "type": "verifyText",
       "selector": "thead",
       "parentSelectors": [],
-      "value": "glob:*Limit (min/day)*"
+      "value": "glob:*Limit (per day)*"
     },
     {
       "type": "verifyText",
@@ -15,7 +15,13 @@
     },
     {
       "type": "verifyElementVisible",
-      "selector": "#budget-games",
+      "selector": "#budget-games-hours",
+      "parentSelectors": [],
+      "value": ""
+    },
+    {
+      "type": "verifyElementVisible",
+      "selector": "#budget-games-minutes",
       "parentSelectors": [],
       "value": ""
     },

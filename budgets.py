@@ -693,6 +693,33 @@ def format_minutes(total_minutes):
     return ' '.join(parts)
 
 
+def format_hm(minutes):
+    """Format a whole-minute duration as '1h 30m' / '45m' / '2h' / '0m'.
+
+    The canonical user-facing duration formatter (budgets, allowances,
+    bonus time): parents set and read these in hours+minutes, never
+    converting units themselves. Unlike ``format_minutes`` above — which
+    renders elapsed process age and adds a ``d`` component for runs past
+    a day — budget-scale durations carry no days part.
+
+    Pure and stdlib-only. ``None``, a non-number, or a negative value
+    returns ``''`` so each call site decides its own empty placeholder
+    (``'—'`` where a missing limit means "none set").
+    """
+    try:
+        total = int(minutes)
+    except (TypeError, ValueError):
+        return ''
+    if total < 0:
+        return ''
+    hours, mins = divmod(total, 60)
+    if hours and mins:
+        return f'{hours}h {mins}m'
+    if hours:
+        return f'{hours}h'
+    return f'{mins}m'
+
+
 def group_by_comm(procs):
     """Group proc dicts by comm into group dicts.
 

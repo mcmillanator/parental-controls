@@ -96,7 +96,8 @@ are written `${NAME}`; in the Recorder's UI they are just `NAME`.
 | `NEW_ADMIN_PASSWORD` | The new password the change-password test sets (min 12 characters) | something you are willing to replace |
 | `TEST_USER` | The account whose page these tests inspect | a spare/test account |
 | `TEST_CATEGORY` | Which app category the budget tests touch | `games` (or `browsers`, `media`, `chat`, `other`) |
-| `BUDGET_MINUTES` | The daily limit the budget test sets, then clears | `60` |
+| `BUDGET_HOURS` | Hours part of the daily limit the budget test sets, then clears | `1` |
+| `BUDGET_MINUTES` | Minutes part (0–59) of that daily limit | `0` |
 | `BONUS_HOURS` | Hours for the custom bonus grant | `1` |
 | `BONUS_MINUTES` | Minutes for the custom bonus grant (0–59) | `5` |
 
@@ -173,9 +174,9 @@ ends by logging out, and never chains into another case's state changes.
 | 2 | `02_change_password_first_login` | On first login the app forces a change: the "You must change your password before continuing" banner, a wrong "current" password is rejected, then the new password is accepted and the index page loads. | **One-shot per admin.** Run it once on a freshly created admin (`sudo parental-controls reset-password <admin>` or a new admin row). Afterwards it takes the "already changed" branch and just verifies you are logged in. If it fails at the minimum-length check, `NEW_ADMIN_PASSWORD` must be ≥ 12 characters and identical in both boxes. |
 | 3 | `03_user_details_page_smoke` | Read-only pass of the per-user page: account status text matches the Lock/Unlock button that is offered, the process section renders grouped rows (or the honest "No processes found" message), all five budget rows exist, and the 10-second live refresh completes **without a red error toast**. | Fails if the target has no processes *and* you expected groups — that is the honest message, and it still passes. The 11-second wait is the auto-refresh actually firing. |
 | 4 | `04_process_groups_expand_hide_show` | A multi-instance process group expands to a PID detail row and collapses again (`aria-expanded` flips); Hide moves a group to *Show hidden*, Show brings it back. | Needs a test account with **two windows of the same app** open (otherwise the expand step aborts with a clear message — single-instance rows are deliberately not expandable). |
-| 5 | `05_bonus_time_shortcut_buttons` | Each shortcut (+15m, +30m, +1h, +1h30, +2h) actually grants bonus time: the status line shows *Bonus active … min left* and the badge appears next to the account status. Then Revoke clears it. | Ends with no bonus active. If a bonus was already running before the case, revoke it by hand first — the case starts by requiring a clean slate. |
+| 5 | `05_bonus_time_shortcut_buttons` | Each shortcut (+15m, +30m, +1h, +1h30, +2h) actually grants bonus time: the status line shows *Bonus active … left* (in hours + minutes) and the badge appears next to the account status. Then Revoke clears it. | Ends with no bonus active. If a bonus was already running before the case, revoke it by hand first — the case starts by requiring a clean slate. |
 | 6 | `06_bonus_time_custom_grant_and_revoke` | The custom hours + minutes entry confirms, grants, and the badge/status update; Revoke clears it. | The confirm dialog is accepted automatically by the case (`closeAlert`). `BONUS_HOURS`/`BONUS_MINUTES` must total at least 5 minutes or the app refuses. |
-| 7 | `07_time_budget_limit_freeze_toggle` | Setting a limit adds a **Freeze** button; Freeze shows a *Frozen* badge and an **Unfreeze** button; Unfreeze returns to *OK*; then the limit is cleared so the row goes back to a bare *OK*. | Set `BUDGET_MINUTES` **above** what the account has already used today, otherwise the row says *Exhausted* instead of *OK* and the last check fails. Ends with the limit cleared. |
+| 7 | `07_time_budget_limit_freeze_toggle` | Setting a limit (hours + minutes) adds a **Freeze** button; Freeze shows a *Frozen* badge and an **Unfreeze** button; Unfreeze returns to *OK*; then the limit is cleared so the row goes back to a bare *OK*. | Enter `BUDGET_HOURS`/`BUDGET_MINUTES` **above** what the account has already used today, otherwise the row says *Exhausted* instead of *OK* and the last check fails. Ends with the limit cleared. |
 | 8 | `08_manual_unlock_round_trip` | The manual **Lock** button on the details page really locks (status flips to `Locked`, Unlock appears), and **Unlock** really unlocks. This is the automated twin of QA_LOCK_UNLOCK items 2–4. | This locks a real account for a few seconds. Point it at `TEST_USER` only. |
 
 ### How this maps to the manual list in `QA_LOCK_UNLOCK.md`
@@ -198,7 +199,7 @@ name order.
 | Object | What it does |
 |--------|--------------|
 | `00_setup_reset_session` | Deletes cookies, opens `BASE_URL`, asserts we land on the login page. The safety net: if setup fails, nothing else runs. |
-| `01_set_test_config` | Sets the non-secret per-run context (`TEST_USER`, `TEST_CATEGORY`, `BUDGET_MINUTES`, `BONUS_HOURS`, `BONUS_MINUTES`, `WRONG_PASSWORD`). |
+| `01_set_test_config` | Sets the non-secret per-run context (`TEST_USER`, `TEST_CATEGORY`, `BUDGET_HOURS`, `BUDGET_MINUTES`, `BONUS_HOURS`, `BONUS_MINUTES`, `WRONG_PASSWORD`). |
 | `01b_set_admin_credentials` | Optional helper that sets `ADMIN_USER`/`ADMIN_PASSWORD` from placeholders. Not used by any case — edit it locally if you prefer to store them here. |
 | `02_open_login_page` | Opens `/login`; checks username, password and the *Log in* button. |
 | `03_login_wrong_password` | Types the deliberately wrong password; expects the error banner. |
@@ -214,10 +215,10 @@ name order.
 | `12_verify_process_groups` | Grouped process rows render (or the honest "no processes" message). |
 | `13_expand_group_detail` | Expands a multi-instance group to its PID detail row, then collapses it. |
 | `14_hide_and_show_process` | Hide → *Show hidden* section → Show again (round trip, prefs restored). |
-| `15_verify_budget_rows` | All five categories: limit input, used, left and status cells. |
-| `16_budget_set_limit` | Sets the daily limit and checks the Freeze button appears. |
+| `15_verify_budget_rows` | All five categories: limit hours + minutes inputs, used, left and status cells. |
+| `16_budget_set_limit` | Sets the daily limit (hours + minutes) and checks the Freeze button appears. |
 | `17_budget_freeze_toggle` | Freeze → *Frozen* badge + Unfreeze → Unfreeze → *OK*. |
-| `18_budget_clear_limit` | Sets the limit back to 0 and asserts the Freeze button is gone. |
+| `18_budget_clear_limit` | Clears the limit (empty/zero minutes) and asserts the Freeze button is gone. |
 | `19_bonus_verify_status` | Checks the five shortcut buttons and either the active bonus (badge + Revoke) or the "no bonus" line. |
 | `20_bonus_grant_shortcuts` | Clicks each of the five shortcuts, verifying the bonus goes active after each. |
 | `21_bonus_grant_custom` | Fills hours + minutes, accepts the confirm, verifies the grant. |
@@ -255,7 +256,7 @@ Rules of thumb for the JSON:
 - Every step carries `type`, and the fields the Recorder exports:
   `selector` + `parentSelectors` (empty list when not nested) + `value`.
 - Text checks use `glob:` when the exact string has a variable part, e.g.
-  `glob:*min left*`.
+  `glob:*left*`.
 - Use `${VARIABLE}` for anything that differs per machine, and a `${BASE_URL}`
   prefix on every `navigate`/`goToUrl` — the CI check enforces both.
 - Never write a real password, a real account name or an absolute path.
@@ -277,7 +278,7 @@ A stdlib-only unit test keeps the suite honest without running any of it:
 - a step type is unknown or is missing one of its fields;
 - **a selector no longer matches the page** — every `#id`, `.class`, tag and
   attribute, plus XPath text literals, is looked up in `templates/*.html`
-  (Jinja-templated ids like `#budget-games` resolve against `id="budget-{{ cat }}"`);
+  (Jinja-templated ids like `#budget-games-hours` resolve against `id="budget-{{ cat }}-hours"`);
 - **an expected string no longer exists** — login/change-password error text,
   button labels, toast messages, the 10-second refresh note, status words — in
   `templates/*.html` + `app.py`;
@@ -305,6 +306,6 @@ fails immediately, instead of the run failing on the parent's desktop.
 | Login case fails with *Too many failed attempts* | Backoff after repeated failures. Wait a few minutes before re-running. |
 | Change-password case does nothing | That admin already changed its password (the flag is one-shot). Create a fresh admin row to re-test. |
 | Expand step aborts | The test account has no app running twice. Open two windows of the same app. |
-| Budget case ends at *Exhausted* | `BUDGET_MINUTES` is below what the account already used today. |
+| Budget case ends at *Exhausted* | `BUDGET_HOURS`/`BUDGET_MINUTES` is below what the account already used today. |
 | Recorder version has different field names | Recorder renamed some step fields between major versions. Export one of your own objects, compare, and rename in your imported copy (or export the suite back to JSON and commit that). |
 | A check on toast text passes when it should not | Toasts keep their last text for a few seconds after hiding. The cases check toasts right after the click, but a red toast from an earlier step could linger — look at the actual page if a toast check surprises you. |

@@ -35,7 +35,7 @@
       "type": "verifyText",
       "selector": "#toast",
       "parentSelectors": [],
-      "value": "glob:*min bonus to*"
+      "value": "glob:*bonus to*"
     },
     {
       "type": "verifyText",
@@ -47,7 +47,7 @@
       "type": "verifyText",
       "selector": "#bonus-status",
       "parentSelectors": [],
-      "value": "glob:*min left*"
+      "value": "glob:*left*"
     },
     {
       "type": "verifyElementVisible",

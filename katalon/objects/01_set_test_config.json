@@ -13,8 +13,13 @@
     },
     {
       "type": "setContext",
+      "key": "BUDGET_HOURS",
+      "value": "1"
+    },
+    {
+      "type": "setContext",
       "key": "BUDGET_MINUTES",
-      "value": "60"
+      "value": "0"
     },
     {
       "type": "setContext",

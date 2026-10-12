@@ -3,13 +3,19 @@
   "steps": [
     {
       "type": "input",
-      "selector": "#budget-${TEST_CATEGORY}",
+      "selector": "#budget-${TEST_CATEGORY}-hours",
+      "parentSelectors": [],
+      "value": "${BUDGET_HOURS}"
+    },
+    {
+      "type": "input",
+      "selector": "#budget-${TEST_CATEGORY}-minutes",
       "parentSelectors": [],
       "value": "${BUDGET_MINUTES}"
     },
     {
       "type": "click",
-      "selector": "#budget-${TEST_CATEGORY} + button",
+      "selector": "#budget-${TEST_CATEGORY}-minutes + button",
       "parentSelectors": [],
       "value": ""
     },

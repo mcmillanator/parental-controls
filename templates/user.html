@@ -227,7 +227,7 @@
             <p id="bonus-status" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
                 {% if user.bonus and user.bonus.active %}
                 <span class="badge-bonus">Bonus active</span>
-                {{ user.bonus.remaining_minutes }} min left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
+                {{ user.bonus.remaining_minutes|hm }} left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
                 <button type="button" class="btn-lock" onclick="revokeBonus('{{ username }}')">Revoke</button>
                 {% else %}
                 No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
@@ -285,7 +285,7 @@
         <p>Home: {{ user.home }}</p>
         <p id="account-status" class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
             Status: <span id="account-status-text">{{ user.status_detail }}</span>
-            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus">Bonus ({{ user.bonus.remaining_minutes }}m)</span>{% endif %}</span>
+            <span id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus">Bonus ({{ user.bonus.remaining_minutes|hm }})</span>{% endif %}</span>
         </p>
         
         <div class="actions" id="account-actions" style="margin-top: 1rem;">
@@ -302,13 +302,13 @@
     <!-- Time Budgets -->
     <div style="background: #16213e; border-radius: 8; padding: 1rem; margin: 1rem 0;">
         <h2>Time Budgets</h2>
-        <p style="color:#888; font-size:0.85rem;">Daily minutes per category — counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
+        <p style="color:#888; font-size:0.85rem;">Daily limit per category — enter hours and minutes, and it counts whole minutes the app is actually in use (idle apps don't burn budget). Day resets at bedtime end, or midnight when no bedtime is set.</p>
         <div class="table-responsive">
         <table class="table table-dark table-striped table-hover align-middle mb-0">
             <thead>
                 <tr>
                     <th>Category</th>
-                    <th>Limit (min/day)</th>
+                    <th>Limit (per day)</th>
                     <th>Used</th>
                     <th>Left</th>
                     <th>Status</th>
@@ -320,11 +320,13 @@
                 <tr>
                     <td>{{ category_labels[cat] }}</td>
                     <td>
-                        <input type="number" min="0" step="1" id="budget-{{ cat }}" value="{{ b.minutes or '' }}" placeholder="—" style="width: 5rem;">
+                        {% set limit_min = b.minutes|int if b.minutes else 0 %}
+                        <input type="number" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours" style="width: 3.5rem;"> h
+                        <input type="number" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes" style="width: 3.5rem;"> m
                         <button type="button" class="btn-bedtime-save" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
                     </td>
-                    <td id="budget-used-{{ cat }}">{{ b.used_minutes }} min</td>
-                    <td id="budget-left-{{ cat }}">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes }} min{% else %}—{% endif %}</td>
+                    <td id="budget-used-{{ cat }}">{{ b.used_minutes|hm }}</td>
+                    <td id="budget-left-{{ cat }}">{% if b.remaining_minutes is not none %}{{ b.remaining_minutes|hm }}{% else %}—{% endif %}</td>
                     <td id="budget-status-{{ cat }}">
                         {% if b.frozen %}{% if b.paused and b.manual_frozen %}<span class="badge-paused">Frozen — out of time + manual</span>{% elif b.paused %}<span class="badge-paused">Paused — out of time</span>{% else %}<span class="badge-frozen">Frozen — by parent</span>{% endif %}
                         <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
@@ -356,7 +358,7 @@
                     <td>{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
                     <td>{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
                     <td>{{ w.start }}–{{ w.end }}</td>
-                    <td>{{ w.allowance_minutes }} min{% if w.window_active %} <span class="badge-window">Window active</span>{% endif %}</td>
+                    <td>{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window">Window active</span>{% endif %}</td>
                     <td><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
                     <td><button type="button" class="btn-unfreeze" data-window-id="{{ w.id }}" onclick="clearWindow(this)">Delete</button></td>
                 </tr>
@@ -392,7 +394,7 @@
             {% for comm, ov in overrides.app_overrides.items() %}
             <li data-override-row="{{ comm }}">
                 <strong>{{ comm }}</strong>:
-                {% if ov.mode == 'exempt' %}Unlimited{% else %}{{ ov.minutes }} min/day{% endif %}
+                {% if ov.mode == 'exempt' %}Unlimited{% else %}{{ ov.minutes|hm }}/day{% endif %}
                 <span class="override-live"></span>
                 <button type="button" class="btn-unfreeze" data-comm="{{ comm }}" onclick="clearOverride(this)">Clear</button>
             </li>
@@ -455,7 +457,7 @@
                     <td><button type="button" class="btn-hide" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}
                         {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
                         <span class="app-override">
-                            {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override">Unlimited</span>{% else %}<span class="badge-count">{{ ov.minutes }} min/day</span>{% endif %}{% endif %}
+                            {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override">Unlimited</span>{% else %}<span class="badge-count">{{ ov.minutes|hm }}/day</span>{% endif %}{% endif %}
                             <select class="override-mode" data-comm="{{ group.comm }}">
                                 <option value="">Override…</option>
                                 <option value="limit">Limit</option>
@@ -606,7 +608,7 @@
             let badge = '';
             if (ov) {
                 if (ov.mode === 'exempt') badge = '<span class="badge-override">Unlimited</span>';
-                else badge = '<span class="badge-count">' + esc(ov.minutes) + ' min/day</span>';
+                else badge = '<span class="badge-count">' + esc(fmtHM(ov.minutes)) + '/day</span>';
             }
             return '<span class="app-override">' + badge +
                 ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
@@ -727,6 +729,19 @@
             return `${h % 12 || 12}:${m} ${suffix}`;
         }
 
+        // Minutes -> '1h 30m' / '45m' / '2h' / '0m'. Display-only mirror of
+        // the server's budgets.format_hm(); API payloads stay whole minutes.
+        function fmtHM(min) {
+            if (min === null || min === undefined || min === '') return '';
+            const n = Math.floor(Number(min));
+            if (isNaN(n) || n < 0) return '';
+            const h = Math.floor(n / 60);
+            const m = n % 60;
+            if (h && m) return `${h}h ${m}m`;
+            if (h) return `${h}h`;
+            return `${m}m`;
+        }
+
         // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
         // composes the bedtime selects back to 24h 'HH:MM' for the
         // unchanged /api/bedtime contract. Edges: 12 AM -> 00, 12 PM ->
@@ -752,7 +767,7 @@
             let badges = '';
             if (data.in_bedtime) badges += '<span class="badge-bedtime">In Bedtime</span>';
             if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override">Override</span>';
-            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus">Bonus (${data.bonus.remaining_minutes}m)</span>`;
+            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus">Bonus (${fmtHM(data.bonus.remaining_minutes)})</span>`;
             document.getElementById('account-badges').innerHTML = badges;
             let actions = '';
             if (data.locked !== true) {
@@ -850,8 +865,8 @@
                 const usedEl = document.getElementById('budget-used-' + cat);
                 const leftEl = document.getElementById('budget-left-' + cat);
                 const statusEl = document.getElementById('budget-status-' + cat);
-                if (usedEl) usedEl.textContent = `${b.used_minutes} min`;
-                if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? `${b.remaining_minutes} min` : '—';
+                if (usedEl) usedEl.textContent = fmtHM(b.used_minutes);
+                if (leftEl) leftEl.textContent = b.remaining_minutes !== null && b.remaining_minutes !== undefined ? fmtHM(b.remaining_minutes) : '—';
                 if (statusEl) {
                     if (b.frozen) {
                         let badge;
@@ -916,7 +931,7 @@
                 if (span && info) {
                     span.textContent = info.exempt
                         ? ' — unlimited'
-                        : ' — ' + info.used_minutes + '/' + info.minutes + ' min' +
+                        : ' — ' + fmtHM(info.used_minutes) + '/' + fmtHM(info.minutes) +
                           (info.window_active ? ' (window)' : '');
                 }
             });
@@ -928,7 +943,7 @@
             const b = data.bonus;
             if (b && b.active) {
                 let html = '<span class="badge-bonus">Bonus active</span> ' +
-                    esc(b.remaining_minutes) + ' min left' +
+                    esc(fmtHM(b.remaining_minutes)) + ' left' +
                     (b.until ? ' (until ' + esc(fmt12(b.until.slice(11, 16))) + ')' : '') +
                     (b.granted_by ? ', granted by ' + esc(b.granted_by) : '') +
                     `<button type="button" class="btn-lock" onclick="revokeBonus('${PAGE_USERNAME}')">Revoke</button>`;
@@ -1088,7 +1103,7 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    showToast(`Granted ${minutes} min bonus to ${username}`, false);
+                    showToast(`Granted ${fmtHM(minutes)} bonus to ${username}`, false);
                     refreshUserLive();
                 } else {
                     showToast('Error: ' + (data.message || data.error || 'unknown'), true);
@@ -1187,12 +1202,30 @@
         }
 
         async function saveBudget(username, category) {
-            const input = document.getElementById('budget-' + category);
+            // The UI edits hours + minutes; compose total MINUTES here so
+            // the /api/budgets contract (a single minutes field) is
+            // unchanged. A blank pair clears the limit, as before.
+            const hoursEl = document.getElementById('budget-' + category + '-hours');
+            const minsEl = document.getElementById('budget-' + category + '-minutes');
+            const hoursStr = (hoursEl && hoursEl.value || '').trim();
+            const minsStr = (minsEl && minsEl.value || '').trim();
+            let total;
+            if (hoursStr === '' && minsStr === '') {
+                total = '';
+            } else {
+                const hours = parseInt(hoursStr || '0', 10);
+                const mins = parseInt(minsStr || '0', 10);
+                if (isNaN(hours) || isNaN(mins) || hours < 0 || mins < 0 || mins > 59) {
+                    showToast('Enter hours (0+) and minutes (0-59)', true);
+                    return;
+                }
+                total = hours * 60 + mins;
+            }
             try {
                 const resp = await fetch('/api/budgets', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category) + '&minutes=' + encodeURIComponent(input.value)
+                    body: 'username=' + encodeURIComponent(username) + '&category=' + encodeURIComponent(category) + '&minutes=' + encodeURIComponent(total)
                 });
                 const data = await resp.json();
                 if (data.success) {

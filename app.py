@@ -597,6 +597,8 @@ def _twelve_parts(value):
 
 app.jinja_env.filters['twelve'] = format_12h
 app.jinja_env.filters['twelve_parts'] = _twelve_parts
+# Canonical duration display: minutes -> '1h 30m' (budgets/bonus/allowances).
+app.jinja_env.filters['hm'] = budgets.format_hm
 
 
 def format_etime(etime):
