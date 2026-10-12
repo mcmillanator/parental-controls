@@ -674,6 +674,7 @@ body.pc-body--auth {
 }
 
 .pc-btn--primary {
+  --pc-btn-bg: var(--primary-bg);
   background: var(--primary-bg);
   color: var(--primary-fg);
 }
@@ -681,14 +682,17 @@ body.pc-body--auth {
   background: var(--primary-hover);
 }
 .pc-btn--danger {
+  --pc-btn-bg: var(--danger-bg);
   background: var(--danger-bg);
   color: var(--danger-fg);
 }
 .pc-btn--warn {
+  --pc-btn-bg: var(--warn-bg);
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
 .pc-btn--neutral {
+  --pc-btn-bg: var(--surface-3);
   background: var(--surface-3);
   color: var(--text);
   border-color: var(--border);
@@ -818,7 +822,8 @@ body.pc-body--auth {
 }
 /* Preserve the legacy text-colour status classes until pages are converted.
    They use the text-safe tokens so they pass AA on the page surface in both
-   themes (the raw fill colours like #4ecca3 fail on a white surface). */
+   themes (the raw status *fill* colours are only guaranteed legible behind
+   text, not as text on a white card). */
 .status-locked {
   color: var(--danger-text);
   font-weight: 600;

@@ -116,6 +116,8 @@ Practice surveyed and applied (named, well-established sources):
    `#4a90d9` ≈ 3.4:1 (both below 4.5 for normal text); `.refresh-info` `#666`
    on `#16213e` ≈ **2.8:1 (fails)**. Color is used alone to convey state in
    places (status text color).
+   *(Historical audit against the pre-translation palette; the shipped values
+   were re-sampled from the canvas in §11.6 — see §3.1 for the current tokens.)*
 9. **Status is mixed-language and mixed-color.** "Locked / Unlocked / Unknown"
    text color is the only signal in some cells; `Freeze`/`Unfreeze`,
    `Paused`/`Exhausted`/`Frozen`, `Window active`, `In Bedtime`, `Override`,
