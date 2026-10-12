@@ -599,7 +599,7 @@
                 Implementation
             </h3>
             <p>Flask + Jinja server-rendered, vanilla JavaScript only, with Bootstrap 5 vendored locally under <code>static/vendor/bootstrap/</code>. Product tokens/theme load from <code>static/css/app.css</code> after Bootstrap (the mockup's <code>static/css/tokens.css</code>).</p>
-            <p>Save, grant, revoke and clear are plain Flask POST forms; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
+            <p>Save, grant, revoke and clear POST form-encoded data to the existing Flask endpoints; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
             <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, <code>aria-live</code> countdown and status, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
         </aside>
     </div>

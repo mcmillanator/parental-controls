@@ -272,7 +272,7 @@
         <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
         Implementation
     </h2>
-    <p>Flask + Jinja + vanilla JavaScript + Bootstrap 5, no React/framework and no build step: every budget row, window and override is server-rendered from the live data and every save is a plain POST form.</p>
+    <p>Flask + Jinja + vanilla JavaScript + Bootstrap 5, no React/framework and no build step: every budget row, window and override is server-rendered from the live data, and every save POSTs form-encoded data to the existing Flask endpoints (progressive enhancement keeps it async).</p>
     <p>Bootstrap 5 is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>). <code>static/js/app.js</code> is progressive enhancement only.</p>
     <p>The Bootstrap grid lays category rows out as labelled cards below the mobile breakpoint; the row order, labels and actions are preserved. Accessibility: labelled inputs, <code>aria-live</code> on the refresh status, text + icon (never colour alone), 44px targets, reduced motion honoured. No CDN or external assets.</p>
 </aside>
