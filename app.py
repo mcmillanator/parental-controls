@@ -569,7 +569,34 @@ def format_12h(value):
     return f'{h % 12 or 12}:{m:02d} {suffix}'
 
 
+def hhmm_12h_parts(value):
+    """'13:05' -> (1, 5, 'PM') — 12-hour <select> prefill for stored HH:MM.
+
+    Inverse of the JS compose in templates/user.html: the bedtime form
+    edits hour (1-12) / minute (00-59) / meridiem (AM/PM) selects and
+    composes HH:MM back for the unchanged /api/bedtime contract. Edges:
+    00:xx -> 12 AM, 12:xx -> 12 PM. Empty/unparseable input returns a
+    safe default (12:00 AM) so the selects always render a value.
+    """
+    if not value:
+        return (12, 0, 'AM')
+    try:
+        h, m = [int(x) for x in str(value).strip().split(':')[:2]]
+    except (ValueError, TypeError):
+        return (12, 0, 'AM')
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return (12, 0, 'AM')
+    return (h % 12 or 12, m, 'AM' if h < 12 else 'PM')
+
+
+def _twelve_parts(value):
+    """Jinja-filter form of hhmm_12h_parts for the bedtime selects."""
+    hour, minute, meridiem = hhmm_12h_parts(value)
+    return {'hour': hour, 'minute': minute, 'meridiem': meridiem}
+
+
 app.jinja_env.filters['twelve'] = format_12h
+app.jinja_env.filters['twelve_parts'] = _twelve_parts
 
 
 def format_etime(etime):

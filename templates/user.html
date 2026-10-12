@@ -129,7 +129,12 @@
         .table thead th { background: #0f3460; color: #e0e0e0; }
         .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
         .page-wrap { max-width: 1100px; margin: 0 auto; }
-        input[type="time"], input[type="number"] { max-width: 100%; }
+        .bedtime-select, input[type="number"] { max-width: 100%; }
+        .bedtime-select {
+            background: #1a1a2e; color: #e0e0e0;
+            border: 1px solid #2a3a5e; border-radius: 4px; padding: 0.3rem;
+        }
+        .time-colon { color: #888; margin: 0 0.2rem; }
         @media (max-width: 576px) { body { padding: 1rem; } }
     </style>
 </head>
@@ -141,6 +146,29 @@
     <h1>User: {{ username }}</h1>
     <p class="subtitle">Account management and process details</p>
     {% include '_insecure_banner.html' %}
+
+    {% macro time_select(prefix, label, part) -%}
+    {# 12-hour edit control: hour (1-12) + minute (00-59) + AM/PM selects.
+       saveBedtime() composes HH:MM from them so /api/bedtime and
+       bedtime.json stay 24-hour. `part` is the twelve_parts dict when a
+       stored HH:MM exists (its values render `selected`); None renders a
+       required placeholder so a missing selection blocks the save. #}
+    {% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
+    <select name="{{ prefix }}_hour" class="bedtime-select" required aria-label="{{ label }} hour">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+{% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
+    </select>
+    <span class="time-colon">:</span>
+    <select name="{{ prefix }}_minute" class="bedtime-select" required aria-label="{{ label }} minute">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+{% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
+    </select>
+    <select name="{{ prefix }}_meridiem" class="bedtime-select" required aria-label="{{ label }} AM/PM">
+{% if not part %}<option value="" selected disabled>--</option>{% endif %}
+<option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
+<option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
+    </select>
+    {%- endmacro %}
 
     {% if user %}
     {% set bedtime = user.bedtime %}
@@ -156,8 +184,10 @@
         <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
             <input type="hidden" name="username" value="{{ username }}">
             <p>
-                <strong>Start time:</strong> <input type="time" name="start" value="{{ bedtime.start }}" required style="margin-right: 0.5rem;">
-                <strong>End time:</strong> <input type="time" name="end" value="{{ bedtime.end }}" required style="margin-left: 0.5rem;">
+                <strong>Start time:</strong>
+                {{ time_select('start', 'Start', bedtime.start|twelve_parts) }}
+                <strong style="margin-left: 0.75rem;">End time:</strong>
+                {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
             </p>
             <p>
                 <strong>Apply to all days:</strong> <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox" style="margin-right: 0.5rem;">
@@ -208,8 +238,10 @@
         <form action="/api/bedtime" method="POST" style="margin-top: 0.5rem;" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
             <input type="hidden" name="username" value="{{ username }}">
             <p>
-                <strong>Start time:</strong> <input type="time" name="start" required>
-                <strong>End time:</strong> <input type="time" name="end" required>
+                <strong>Start time:</strong>
+                {{ time_select('start', 'Start', None) }}
+                <strong style="margin-left: 0.75rem;">End time:</strong>
+                {{ time_select('end', 'End', None) }}
             </p>
             <p>
                 <strong>Apply to all days:</strong> <input type="checkbox" name="all_days" id="all_days_checkbox" style="margin-right: 0.5rem;">
@@ -570,6 +602,23 @@
             return `${h % 12 || 12}:${m} ${suffix}`;
         }
 
+        // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
+        // composes the bedtime selects back to 24h 'HH:MM' for the
+        // unchanged /api/bedtime contract. Edges: 12 AM -> 00, 12 PM ->
+        // 12. Any missing/out-of-range part -> null so a partial
+        // selection blocks the save (the selects are also `required`).
+        function toHHMM(hour, minute, meridiem) {
+            if (hour === '' || minute === '' || meridiem === '') return null;
+            const h = parseInt(hour, 10);
+            if (isNaN(h) || h < 1 || h > 12) return null;
+            if (!/^\d{2}$/.test(String(minute))) return null;
+            const suffix = String(meridiem).toUpperCase();
+            if (suffix !== 'AM' && suffix !== 'PM') return null;
+            let h24 = h % 12;
+            if (suffix === 'PM') h24 += 12;
+            return `${String(h24).padStart(2, '0')}:${minute}`;
+        }
+
         function renderAccount(data) {
             const p = document.getElementById('account-status');
             if (!p) return;
@@ -739,7 +788,26 @@
         async function saveBedtime(username) {
             const form = document.querySelector('form[action="/api/bedtime"]');
             if (!form) return;
+            // The form carries 12-hour selects; compose them back to
+            // 24h HH:MM so the /api/bedtime contract is unchanged.
+            const start = toHHMM(form.elements['start_hour'].value,
+                                 form.elements['start_minute'].value,
+                                 form.elements['start_meridiem'].value);
+            const end = toHHMM(form.elements['end_hour'].value,
+                               form.elements['end_minute'].value,
+                               form.elements['end_meridiem'].value);
+            if (start === null || end === null) {
+                showToast('Select a start and end time (hour, minute, AM/PM)', true);
+                return;
+            }
             const formData = new FormData(form);
+            formData.set('start', start);
+            formData.set('end', end);
+            // The raw select fields are not part of the API contract.
+            for (const name of ['start_hour', 'start_minute', 'start_meridiem',
+                                'end_hour', 'end_minute', 'end_meridiem']) {
+                formData.delete(name);
+            }
             try {
                 const resp = await fetch('/api/bedtime', {
                     method: 'POST',
