@@ -845,7 +845,12 @@ body.pc-body--auth {
 /* ----------------------------------------------------------------- tables */
 .pc-table {
   width: 100%;
-  border-collapse: collapse;
+  /* `separate` + zero spacing (not `collapse`): a sticky `thead th` under
+     `border-collapse: collapse` is a known browser artifact that paints the
+     header one row low, leaving a blank row above it. Separate borders with
+     zero spacing renders identically here and keeps sticky headers correct. */
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--surface);
   border-radius: var(--card-radius);
   margin: 0 0 var(--sp-4);
@@ -863,13 +868,10 @@ body.pc-body--auth {
   border-bottom: 1px solid var(--border);
 }
 .pc-table thead th {
-  position: sticky;
-  top: var(--nav-h);
   background: var(--border-strong);
   font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  z-index: 1;
 }
 .pc-table tbody tr:nth-child(even) {
   background: var(--surface-2);

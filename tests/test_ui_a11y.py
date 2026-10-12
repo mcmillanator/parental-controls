@@ -427,3 +427,26 @@ class RenderedA11yTest(_RenderBase, unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TableHeaderRenderingTest(unittest.TestCase):
+    """Regression: a sticky `thead th` under `border-collapse: collapse`
+    renders the header one row low (blank first row). The table must use
+    separate borders and no sticky header positioning."""
+
+    def setUp(self):
+        import re as _re
+        css = read(APP_CSS)
+        self.css = _re.sub(r'/\*.*?\*/', '', css, flags=_re.S)
+
+    def test_table_uses_separate_borders(self):
+        block = self.css[self.css.index('.pc-table {'):]
+        block = block[:block.index('}')]
+        self.assertIn('border-collapse: separate', block)
+        self.assertIn('border-spacing: 0', block)
+        self.assertNotIn('border-collapse: collapse', block)
+
+    def test_thead_th_is_not_sticky(self):
+        block = self.css[self.css.index('.pc-table thead th {'):]
+        block = block[:block.index('}')]
+        self.assertNotIn('position: sticky', block)
