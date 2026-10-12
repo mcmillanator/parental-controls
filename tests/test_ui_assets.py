@@ -100,6 +100,8 @@ COMPONENT_CLASSES = (
     # Phase 5 additions: auth body, light-theme chips, legacy hooks, states.
     '.pc-body--auth', '.pc-chip--stale', '.pc-chip--bonus', '.pc-skeleton-rows',
     '.pc-unit', '.override-mode', '.group-detail', '.actions',
+    # Searchable app picker (combobox) for #override-comm / #window-app-target.
+    '.pc-combobox', '.pc-combobox__list', '.pc-combobox__option',
 )
 
 PARTIALS = (
@@ -343,7 +345,8 @@ class UserPageConversionTest(unittest.TestCase):
         self.assertIn('class="pc-disclosure"', self.html)
         self.assertIn('<details', self.html)
         for section_id in ('bedtime-section', 'bonus-section',
-                           'budgets-section', 'weekly-windows'):
+                           'budgets-section', 'weekly-windows',
+                           'app-overrides'):
             with self.subTest(section=section_id):
                 self.assertIn('id="%s"' % section_id, self.html)
 

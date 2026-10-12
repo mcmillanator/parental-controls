@@ -1025,6 +1025,56 @@ body.pc-body--auth {
   cursor: not-allowed;
 }
 
+/* Searchable app picker (combobox). The wrapper anchors the absolutely
+   positioned listbox panel under the input; the panel reuses the same
+   surface/border/elevation tokens as the rest of the design system. */
+.pc-combobox {
+  position: relative;
+  display: block;
+}
+.pc-combobox > .pc-input {
+  width: 100%;
+}
+.pc-combobox__list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 30;
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--sp-1);
+  list-style: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--el-2);
+}
+.pc-combobox__list[hidden] {
+  display: none;
+}
+.pc-combobox__option {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+.pc-combobox__option:hover {
+  background: var(--surface-3);
+}
+.pc-combobox__option.is-active,
+.pc-combobox__option[aria-selected='true'] {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.pc-combobox__empty {
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
 /* Duration input: hours + minutes + unit labels, numeric keypad. */
 .pc-duration {
   display: inline-flex;

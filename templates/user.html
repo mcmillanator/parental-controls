@@ -7,7 +7,7 @@
 
    Layout: a status-first hero (who + live lock state + the one safe action),
    then progressive-disclosure sections for Bedtime / Bonus time / Time budgets
-   / Weekly windows & app overrides / Processes. Tables use `.pc-table--stack`
+   / Weekly windows / App overrides / Processes. Tables use `.pc-table--stack`
    + `data-label` so a 360px phone gets labelled cards while the semantic
    `<table>` (thead/th scope) stays in the DOM for screen readers.
 
@@ -270,10 +270,10 @@
     </div>
 </details>
 
-<!-- Weekly windows + per-app overrides (power features, collapsed by default) -->
+<!-- Weekly windows (power feature, collapsed by default) -->
 <details class="pc-disclosure" id="weekly-windows">
     <summary>
-        <span>Weekly windows &amp; app overrides</span>
+        <span>Weekly windows</span>
     </summary>
     <div class="pc-disclosure__body">
     <p class="pc-hint">A weekly window is a recurring day/time range whose allowance <em>replaces</em> the daily limit while it is active (so usage can carry across midnight). An app override sets a per-app allowance, or marks an app Unlimited (never billed, never frozen).</p>
@@ -318,8 +318,14 @@
             </select>
         </div>
         <div class="pc-field">
-            <label class="pc-field__label" for="window-app-target">App comm:</label>
-            <input id="window-app-target" class="pc-input" list="installed-apps" placeholder="comm" style="display:none;">
+            <label class="pc-field__label" for="window-app-target">App</label>
+            <span class="pc-combobox">
+                <input id="window-app-target" class="pc-input" list="installed-apps" data-app-picker style="display:none;"
+                       role="combobox" aria-expanded="false" aria-controls="window-app-target-listbox"
+                       aria-autocomplete="list" aria-haspopup="listbox" autocomplete="off"
+                       placeholder="Search installed apps…">
+                <div id="window-app-target-listbox" class="pc-combobox__list" role="listbox" aria-label="Installed apps" hidden></div>
+            </span>
         </div>
         <div class="pc-field">
             <span class="pc-field__label">Days:</span>
@@ -351,8 +357,17 @@
             <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveWindow()">Add window</button>
         </div>
     </div>
+    </div>
+</details>
 
-    <h3>App overrides</h3>
+<!-- App overrides: per-app allowance / Unlimited (its own disclosure so it
+     can be collapsed independently of the weekly windows). -->
+<details class="pc-disclosure" id="app-overrides">
+    <summary>
+        <span>App overrides</span>
+        <span class="pc-disclosure__summary-value">{% if overrides and overrides.app_overrides %}{{ overrides.app_overrides|length }} configured{% else %}None configured{% endif %}</span>
+    </summary>
+    <div class="pc-disclosure__body">
     {% if overrides and overrides.app_overrides and overrides.app_overrides|length > 0 %}
     <ul id="app-override-list" class="pc-list">
         {% for comm, ov in overrides.app_overrides.items() %}
@@ -369,8 +384,14 @@
     {% endif %}
     <div class="override-add pc-card">
         <div class="pc-field">
-            <label class="pc-field__label" for="override-comm">App comm:</label>
-            <input id="override-comm" class="pc-input" list="installed-apps" placeholder="app comm">
+            <label class="pc-field__label" for="override-comm">App</label>
+            <span class="pc-combobox">
+                <input id="override-comm" class="pc-input" list="installed-apps" data-app-picker
+                       role="combobox" aria-expanded="false" aria-controls="override-comm-listbox"
+                       aria-autocomplete="list" aria-haspopup="listbox" autocomplete="off"
+                       placeholder="Search installed apps…">
+                <div id="override-comm-listbox" class="pc-combobox__list" role="listbox" aria-label="Installed apps" hidden></div>
+            </span>
         </div>
         <div class="pc-field">
             <label class="pc-field__label" for="override-add-mode">Mode:</label>
@@ -1555,6 +1576,146 @@
         if (appInput) appInput.style.display = isApp ? '' : 'none';
     }
 
+    // ---- Searchable app picker (combobox) --------------------------------
+    // One reusable implementation for every `input[data-app-picker]`
+    // (#override-comm and #window-app-target). Options come from the shared
+    // <datalist id="installed-apps">, which the server renders from
+    // `app_names`, so the no-JS fallback and the styled dropdown share one
+    // source. The input keeps its id, and `.value` is the raw comm, so the
+    // existing /api/budgets POSTs are unchanged.
+    function pcAppOptions() {
+        const list = document.getElementById('installed-apps');
+        if (!list) return [];
+        return Array.from(list.options)
+            .map(o => (o.value || o.textContent || '').trim())
+            .filter(Boolean);
+    }
+
+    function pcEnhanceAppPicker(input) {
+        if (!input || input.dataset.pcAppPicker === 'ready') return;
+        const panel = document.getElementById(input.getAttribute('aria-controls'));
+        if (!panel) return;
+        input.dataset.pcAppPicker = 'ready';
+        // The native datalist dropdown would fight the styled panel. The
+        // <datalist> stays in the DOM: it is the data source above and the
+        // no-JS fallback when this script never runs.
+        input.removeAttribute('list');
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('aria-haspopup', 'listbox');
+        input.setAttribute('aria-expanded', 'false');
+        const all = pcAppOptions();
+        const panelId = panel.id;
+        let active = -1;
+
+        function panelOptions() {
+            return Array.from(panel.querySelectorAll('[role="option"]'));
+        }
+
+        function close() {
+            panel.hidden = true;
+            panel.textContent = '';
+            active = -1;
+            input.setAttribute('aria-expanded', 'false');
+            input.removeAttribute('aria-activedescendant');
+        }
+
+        function open(matches) {
+            panel.textContent = '';
+            if (!matches.length) {
+                const none = document.createElement('div');
+                none.className = 'pc-combobox__empty';
+                none.textContent = 'No matching apps';
+                panel.appendChild(none);
+            } else {
+                matches.forEach(function (name, i) {
+                    const opt = document.createElement('div');
+                    opt.className = 'pc-combobox__option';
+                    opt.id = panelId + '-opt-' + i;
+                    opt.setAttribute('role', 'option');
+                    opt.setAttribute('aria-selected', 'false');
+                    opt.dataset.value = name;
+                    opt.textContent = name;
+                    // mousedown (not click): preventDefault keeps focus on the
+                    // input, so the panel never blurs before the pick lands.
+                    opt.addEventListener('mousedown', function (e) {
+                        e.preventDefault();
+                        select(name);
+                    });
+                    panel.appendChild(opt);
+                });
+            }
+            panel.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            active = -1;
+            input.removeAttribute('aria-activedescendant');
+        }
+
+        function filter(query) {
+            const needle = (query || '').trim().toLowerCase();
+            const matches = needle
+                ? all.filter(n => n.toLowerCase().includes(needle))
+                : all.slice();
+            return matches.slice(0, 50);
+        }
+
+        function highlight(index) {
+            const opts = panelOptions();
+            if (!opts.length) return;
+            active = index < 0 ? opts.length - 1
+                : index >= opts.length ? 0 : index;
+            opts.forEach(function (opt, i) {
+                const on = i === active;
+                opt.classList.toggle('is-active', on);
+                opt.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            input.setAttribute('aria-activedescendant', opts[active].id);
+            if (opts[active].scrollIntoView) {
+                opts[active].scrollIntoView({block: 'nearest'});
+            }
+        }
+
+        function select(name) {
+            // The committed value is the raw comm, so the POST is unchanged.
+            input.value = name;
+            close();
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+
+        input.addEventListener('input', function () {
+            open(filter(input.value));
+        });
+        input.addEventListener('focus', function () {
+            open(filter(input.value));
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (panel.hidden) open(filter(input.value));
+                highlight(active + (e.key === 'ArrowDown' ? 1 : -1));
+            } else if (e.key === 'Enter') {
+                const opts = panelOptions();
+                if (!panel.hidden && active >= 0 && opts[active]) {
+                    e.preventDefault();
+                    select(opts[active].dataset.value);
+                }
+            } else if (e.key === 'Escape') {
+                if (!panel.hidden) { e.preventDefault(); close(); }
+            } else if (e.key === 'Tab') {
+                close();
+            }
+        });
+        input.addEventListener('blur', function () {
+            // Defer so an option's mousedown can land first.
+            window.setTimeout(close, 0);
+        });
+    }
+
+    function pcInitAppPickers() {
+        document.querySelectorAll('input[data-app-picker]')
+            .forEach(pcEnhanceAppPicker);
+    }
+
     function selectedWindowDays() {
         const days = [];
         document.querySelectorAll('.window-day').forEach(cb => {
@@ -1652,6 +1813,9 @@
             showToast('Error: ' + e.message, true);
         }
     }
+
+    // Progressive enhancement: turn the app fields into searchable pickers.
+    pcInitAppPickers();
 
     // Targeted refresh: only status, processes, and budget cells update.
     // Bedtime and budget-limit inputs are never touched. Every 10s.

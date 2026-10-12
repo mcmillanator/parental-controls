@@ -211,7 +211,8 @@ class UserPageRenderTest(_UserPageRender):
         html = self.render()
         self.assertIn('pc-disclosure', html)
         for section_id in ('bedtime-section', 'bonus-section',
-                           'budgets-section', 'weekly-windows'):
+                           'budgets-section', 'weekly-windows',
+                           'app-overrides'):
             with self.subTest(section=section_id):
                 self.assertIn('id="%s"' % section_id, html)
         # Native <details>, not a JS-only accordion.
