@@ -563,12 +563,15 @@ echo "Installed into $INSTALL_DIR (listening on ${BIND_HOST}:${BIND_PORT}). Next
 echo "  1. Get the one-time admin credential: journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'"
 case "$BIND_HOST" in
     127.0.0.1|localhost|::1)
-        echo "  2. From your machine: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>, open http://localhost:${BIND_PORT}" ;;
+        echo "  2. Open your panel at: http://localhost:${BIND_PORT}"
+        echo "     (from another machine, tunnel first: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>)" ;;
     *)
         if [ "$MODE" = "tls" ]; then
-            echo "  2. Open https://${TLS_URL_NAME}:${BIND_PORT} from a machine on the LAN (verify the printed fingerprint at the browser warning)"
+            echo "  2. Open your panel at: https://${TLS_URL_NAME}:${BIND_PORT}"
+            echo "     (verify the printed SHA-256 fingerprint at the browser's certificate warning)"
         else
-            echo "  2. Open http://${BIND_HOST}:${BIND_PORT} from a machine on the LAN"
+            echo "  2. Open your panel at: http://${BIND_HOST}:${BIND_PORT}"
+            echo "     (warning: plain HTTP — session cookies travel unencrypted)"
         fi ;;
 esac
 echo "  3. Log in and change the password immediately (forced on first login)."

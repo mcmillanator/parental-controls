@@ -911,6 +911,95 @@ class TestBindOptions(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(ROOT, 'tls_lib.sh')))
 
 
+class TestNextStepsOutput(unittest.TestCase):
+    """The install.sh 'Next steps' block must present a direct, clickable URL
+    as step 2 in every bind mode, with mode-specific context as a hint line
+    below it (regression: loopback step 2 used to be a bare ssh -L command,
+    and the LAN variants printed prose instead of a plain link)."""
+
+    def _block(self):
+        """The final 'Next steps' block: from the 'Next steps:' line through
+        the '3. Log in' line (step 2 and its hint sit between them)."""
+        lines = read('install.sh').splitlines()
+        start = next(i for i, l in enumerate(lines) if 'Next steps:' in l)
+        end = next(i for i, l in enumerate(lines)
+                   if "3. Log in and change the password" in l)
+        return lines[start:end + 1]
+
+    def _step2_line(self, block, url):
+        """The step-2 source line whose URL matches `url`. All three mode
+        variants coexist in the source inside the case statement; the shell
+        renders only one at install time, so each mode is pinned by its URL."""
+        step2 = [l for l in block
+                 if '"  2. Open your panel at:' in l and url in l]
+        self.assertEqual(
+            len(step2), 1,
+            'expected exactly one step-2 line for %r, got %r' % (url, step2))
+        return step2[0]
+
+    def _block_text(self, block):
+        return '\n'.join(block)
+
+    def test_loopback_direct_url_with_tunnel_hint(self):
+        block = self._block()
+        text = self._block_text(block)
+        self.assertIn(
+            '  2. Open your panel at: http://localhost:${BIND_PORT}',
+            self._step2_line(block, 'http://localhost:${BIND_PORT}'))
+        self.assertIn(
+            '(from another machine, tunnel first: '
+            'ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>)',
+            text)
+
+    def test_tls_direct_url_with_fingerprint_hint(self):
+        block = self._block()
+        text = self._block_text(block)
+        self.assertIn(
+            '  2. Open your panel at: https://${TLS_URL_NAME}:${BIND_PORT}',
+            self._step2_line(block, 'https://${TLS_URL_NAME}:${BIND_PORT}'))
+        self.assertIn(
+            "(verify the printed SHA-256 fingerprint at the "
+            "browser's certificate warning)",
+            text)
+
+    def test_insecure_direct_url_with_plain_http_hint(self):
+        block = self._block()
+        text = self._block_text(block)
+        self.assertIn(
+            '  2. Open your panel at: http://${BIND_HOST}:${BIND_PORT}',
+            self._step2_line(block, 'http://${BIND_HOST}:${BIND_PORT}'))
+        self.assertIn(
+            '(warning: plain HTTP — session cookies travel unencrypted)',
+            text)
+
+    def test_step2_is_never_a_bare_ssh_tunnel(self):
+        """Every '  2. ' source line is the URL line; the tunnel is only the
+        loopback hint, so step 2 always shows the clickable URL."""
+        for line in read('install.sh').splitlines():
+            if '"  2. ' in line:
+                self.assertTrue(
+                    '"  2. Open your panel at:' in line,
+                    'non-URL step-2 line: %r' % (line,))
+                self.assertNotIn('ssh -L', line)
+
+    def test_old_step2_phrasings_removed(self):
+        script = read('install.sh')
+        self.assertNotIn('From your machine: ssh -L', script)
+        self.assertNotIn('2. Open http://', script)
+        self.assertNotIn('2. Open https://', script)
+        self.assertNotIn(' from a machine on the LAN (verify the printed',
+                         script)
+
+    def test_step1_and_step3_unchanged(self):
+        script = read('install.sh')
+        self.assertIn(
+            "  1. Get the one-time admin credential: journalctl -u "
+            "parental-controls.service | grep 'AUTH BOOTSTRAP'", script)
+        self.assertIn(
+            '  3. Log in and change the password immediately (forced on '
+            'first login).', script)
+
+
 class TestSudoersTemplates(unittest.TestCase):
     def test_templates_use_placeholder_not_a_real_user(self):
         for rel in ('sudoers-parental-controls',
