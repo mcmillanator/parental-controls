@@ -8,8 +8,9 @@ Three focused UI fixes on the user detail page:
   composes the same whole-minute value for the unchanged ``/api/budgets/windows``
   contract (the server still takes ``allowance_minutes``),
 * the app-override "Allowance" entry is the same h/m pair for the unchanged
-  ``/api/budgets/overrides`` contract (still whole ``minutes``), and edits
-  prefill from the stored allowance,
+  ``/api/budgets/overrides`` contract (still whole ``minutes``) — the
+  add-row form here, and the per-row editor in the shared #pc-override
+  dialog (see ``test_ui_override_dialog.py``),
 * the bedtime "Apply to all days:" label and checkbox share one row.
 
 Renders go through the mocked admin session harness (temp auth store, mocked
@@ -36,6 +37,15 @@ TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
 def read(path):
     with open(path, encoding='utf-8') as f:
         return f.read()
+
+
+def group_row(html, comm):
+    """Slice the visible process-group <tr> for ``comm`` out of the page."""
+    marker = 'data-group-comm="%s"' % comm
+    i = html.index(marker)
+    start = html.rindex('<tr class="group-row"', 0, i)
+    end = html.index('</tr>', i)
+    return html[start:end]
 
 
 def live_dict():
@@ -113,12 +123,13 @@ class SourceTest(unittest.TestCase):
                       self.src)
         self.assertIn('minutes: mode === \'limit\' ? minutes : \'\'', self.src)
 
-    def test_apply_override_composes_hours_and_minutes(self):
-        self.assertIn("wrap.querySelector('.override-hours')", self.src)
-        self.assertIn("wrap.querySelector('.override-minutes')", self.src)
-        # overrideControlHtml emits the h/m pair too (live re-render).
-        self.assertIn('class="override-hours pc-input"', self.src)
-        self.assertIn('class="override-minutes pc-input"', self.src)
+    def test_apply_override_opens_the_shared_dialog(self):
+        # The per-row editor is gone: the row button opens the one shared
+        # #pc-override dialog (which composes the minutes itself).
+        self.assertIn('window.pcOverrideDialog(', self.src)
+        self.assertNotIn("wrap.querySelector('.override-hours')", self.src)
+        self.assertNotIn("wrap.querySelector('.override-minutes')", self.src)
+        self.assertNotIn('override-mode', self.src)
 
     def test_no_type_time_input(self):
         self.assertNotIn('type="time"', self.src)
@@ -162,7 +173,9 @@ class OverrideAllowanceTest(_Render):
             self.assertIsNotNone(m, field)
             self.assertIn('type="number"', m.group(0))
 
-    def test_per_app_controls_are_an_hours_and_minutes_pair(self):
+    def test_shared_dialog_has_an_hours_and_minutes_pair(self):
+        # The h/m pair now lives in the one shared #pc-override dialog
+        # (rendered from the shell partial), not in every process row.
         html = self.render()
         self.assertIn('class="override-hours pc-input"', html)
         # The pinned `.override-minutes` token is preserved on the minutes input.
@@ -170,24 +183,28 @@ class OverrideAllowanceTest(_Render):
             html,
             r'<input[^>]*class="override-minutes pc-input"[^>]*max="59"')
 
-    def test_editing_prefills_from_the_stored_allowance(self):
-        # 90 minutes -> 1 h + 30 min in the server-rendered process row.
-        html = self.render()
-        self.assertRegex(
-            html,
-            r'class="override-hours pc-input"[^>]*value="1"')
-        self.assertRegex(
-            html,
-            r'class="override-minutes pc-input"[^>]*value="30"')
+    def test_row_shows_the_state_chip_without_inputs(self):
+        # 90 minutes -> a "1h 30m/day" chip in the row, and no inline editor.
+        row = group_row(self.render(), 'firefox')
+        self.assertIn('1h 30m/day', row)
+        self.assertNotIn('override-mode', row)
+        self.assertNotIn('override-hours', row)
+        self.assertNotIn('override-minutes', row)
+        self.assertNotIn('<select', row)
+        self.assertNotIn('<input', row)
 
-    def test_exempt_override_does_not_prefill_minutes(self):
+    def test_exempt_override_shows_unlimited_chip(self):
         live = live_dict()
         live['overrides']['app_overrides'] = {
             'firefox': {'mode': 'exempt', 'minutes': None}}
         html = self.render(live)
-        self.assertRegex(
-            html,
-            r'class="override-hours pc-input"[^>]*value=""')
+        row = group_row(html, 'firefox')
+        self.assertIn('Unlimited', row)
+        self.assertNotIn('override-mode', row)
+        # The dialog's allowance inputs render blank; they are populated
+        # from the stored override when the row button opens the dialog.
+        self.assertIn('id="pc-override-hours"', html)
+        self.assertNotIn('id="pc-override-hours" value=', html)
 
     def test_pinned_override_minutes_id_preserved(self):
         self.assertIn('id="override-add-minutes"', self.render())

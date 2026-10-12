@@ -107,6 +107,7 @@ PARTIALS = (
     'tabbar.html',
     'toast.html',
     'dialog.html',
+    'override_dialog.html',
     'icons.html',
     'flash.html',
     'insecure_banner.html',
@@ -282,8 +283,8 @@ class BaseTemplateTest(unittest.TestCase):
                           'base.html must not reference a CDN')
 
     def test_includes_every_partial(self):
-        for name in ('appbar', 'tabbar', 'toast', 'dialog', 'icons', 'flash',
-                     'insecure_banner'):
+        for name in ('appbar', 'tabbar', 'toast', 'dialog', 'override_dialog',
+                     'icons', 'flash', 'insecure_banner'):
             self.assertIn("_partials/%s.html" % name, self.html,
                           'base.html must include the %s partial' % name)
 
@@ -370,7 +371,7 @@ class UserPageConversionTest(unittest.TestCase):
             'back-link', 'subtitle', 'badge-bonus', 'btn-lock', 'btn-unlock',
             'btn-logout', 'btn-group-toggle', 'btn-hide', 'btn-show-hidden',
             'group-chevron', 'process-name', 'group-row', 'group-detail',
-            'refresh-info', 'override-mode', 'window-row', 'day-checkbox',
+            'refresh-info', 'btn-override', 'window-row', 'day-checkbox',
         )
         for token in pinned_ids:
             with self.subTest(kind='id', token=token):

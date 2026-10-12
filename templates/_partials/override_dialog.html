@@ -1,0 +1,144 @@
+{# Shared per-app override editor — one native <dialog> for the whole page.
+   The per-process rows in templates/user.html used to carry the mode
+   <select> + h/m inputs + Set button inline; that whole editor now lives
+   here, behind a compact "Override" button per row.
+
+   It deliberately sits in the shell (``_partials``), OUTSIDE the
+   10s-refreshed ``#process-section``: a live poll can never wipe a
+   half-typed allowance, and there is no per-row open state to preserve.
+
+   `window.pcOverrideDialog({ comm, mode, minutes })`
+     -> Promise<{ mode, minutes } | null>
+     * `mode` is 'limit' | 'exempt' | 'none'; `minutes` is the stored
+       whole-minute allowance for a Limit override (ignored otherwise).
+     * Resolves with the chosen override on Set — `minutes` is composed
+       client-side from the hours/minutes pair ('' for exempt/none) so the
+       unchanged ``/api/budgets/overrides`` contract still takes whole
+       minutes.
+     * Resolves null on Cancel / Esc / backdrop: no change, nothing posted.
+
+   Class names (`.override-mode`, `.override-hours`, `.override-minutes`)
+   mirror the ones the selector contract already pins. #}
+<dialog id="pc-override" class="pc-dialog" aria-labelledby="pc-override-title">
+  <div class="pc-dialog__header" id="pc-override-title">App override</div>
+  <div class="pc-dialog__body">
+    <p>App: <strong id="pc-override-comm"></strong></p>
+    <label class="pc-field__label" for="pc-override-mode">Mode</label>
+    <select id="pc-override-mode" class="override-mode">
+      <option value="limit">Limit</option>
+      <option value="exempt">Unlimited</option>
+      <option value="none">Clear</option>
+    </select>
+    <div class="pc-row" id="pc-override-allowance">
+      <label class="pc-duration__unit" for="pc-override-hours">h</label>
+      <input type="number" id="pc-override-hours" class="override-hours pc-input" min="0" max="99" step="1" placeholder="h" aria-label="Override hours">
+      <label class="pc-duration__unit" for="pc-override-minutes">m</label>
+      <input type="number" id="pc-override-minutes" class="override-minutes pc-input" min="0" max="59" step="1" placeholder="m" aria-label="Override minutes">
+    </div>
+    <p class="pc-field__error" id="pc-override-error" role="alert" hidden></p>
+  </div>
+  <div class="pc-dialog__footer">
+    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>Cancel</button>
+    <button type="button" class="pc-btn pc-btn--primary" data-pc-dialog-confirm>Set</button>
+  </div>
+</dialog>
+
+<script>
+/* window.pcOverrideDialog(opts) -> Promise<{mode, minutes}|null>. One shared
+   editor: it carries no per-row state, it is populated fresh on every open.
+   Set composes the h/m pair into whole minutes for the unchanged POST; the
+   server still takes `minutes`. Cancel/Esc/backdrop resolves null. */
+(function () {
+  'use strict';
+  // hours + minutes pair -> whole minutes; both blank -> '' (clear),
+  // out-of-range part -> null so the caller refuses the save. Mirrors the
+  // page's composeDuration() for the whole-minutes API contract.
+  function composeMinutes(hoursEl, minsEl) {
+    var hStr = ((hoursEl && hoursEl.value) || '').trim();
+    var mStr = ((minsEl && minsEl.value) || '').trim();
+    if (hStr === '' && mStr === '') { return ''; }
+    var h = parseInt(hStr || '0', 10);
+    var m = parseInt(mStr || '0', 10);
+    if (isNaN(h) || isNaN(m) || h < 0 || h > 99 || m < 0 || m > 59) {
+      return null;
+    }
+    return h * 60 + m;
+  }
+
+  function pcOverrideDialog(opts) {
+    opts = opts || {};
+    var dialog = document.getElementById('pc-override');
+    if (!dialog || typeof dialog.showModal !== 'function') {
+      // No native <dialog>: fail closed, make no change.
+      return Promise.resolve(null);
+    }
+    var commEl = document.getElementById('pc-override-comm');
+    var modeEl = document.getElementById('pc-override-mode');
+    var hoursEl = document.getElementById('pc-override-hours');
+    var minsEl = document.getElementById('pc-override-minutes');
+    var errorEl = document.getElementById('pc-override-error');
+    var confirmBtn = dialog.querySelector('[data-pc-dialog-confirm]');
+    var cancelBtn = dialog.querySelector('[data-pc-dialog-cancel]');
+
+    // Populate from the row's CURRENT override (limit/exempt/none). A Limit
+    // override prefills the h/m pair from its stored whole minutes; the
+    // allowance pair is only editable in Limit mode.
+    commEl.textContent = opts.comm || '';
+    modeEl.value = (opts.mode === 'exempt' || opts.mode === 'none')
+      ? opts.mode : 'limit';
+    var stored = Math.floor(Number(opts.minutes));
+    if (modeEl.value === 'limit' && !isNaN(stored) && stored > 0) {
+      hoursEl.value = String(Math.floor(stored / 60));
+      minsEl.value = String(stored % 60);
+    } else {
+      hoursEl.value = '';
+      minsEl.value = '';
+    }
+    errorEl.hidden = true;
+    errorEl.textContent = '';
+    syncAllowance();
+
+    function syncAllowance() {
+      var editable = modeEl.value === 'limit';
+      hoursEl.disabled = !editable;
+      minsEl.disabled = !editable;
+    }
+
+    return new Promise(function (resolve) {
+      var settled = false;
+      function finish(value) {
+        if (settled) { return; }
+        settled = true;
+        modeEl.removeEventListener('change', syncAllowance);
+        confirmBtn.removeEventListener('click', onConfirm);
+        cancelBtn.removeEventListener('click', onCancel);
+        dialog.removeEventListener('close', onClose);
+        if (dialog.open) { dialog.close(); }
+        resolve(value);
+      }
+      function onConfirm() {
+        var mode = modeEl.value;
+        var minutes = '';
+        if (mode === 'limit') {
+          minutes = composeMinutes(hoursEl, minsEl);
+          if (minutes === null || minutes < 1) {
+            errorEl.textContent = 'Enter an allowance for a Limit override';
+            errorEl.hidden = false;
+            return;
+          }
+        }
+        finish({ mode: mode, minutes: minutes });
+      }
+      function onCancel() { finish(null); }
+      function onClose() { finish(null); }
+      modeEl.addEventListener('change', syncAllowance);
+      confirmBtn.addEventListener('click', onConfirm);
+      cancelBtn.addEventListener('click', onCancel);
+      dialog.addEventListener('close', onClose);
+      dialog.showModal();
+      modeEl.focus();
+    });
+  }
+  window.pcOverrideDialog = pcOverrideDialog;
+})();
+</script>
