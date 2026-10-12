@@ -1470,6 +1470,25 @@ body.pc-body--auth {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* Per-process override control sits inline in the Processes table action
+   cell. It must NOT use .pc-field (that is a column stack) — keep it a
+   wrapping inline row so the badge, mode select, h/m inputs and Set button
+   sit side by side and only wrap when the cell is genuinely narrow. */
+.app-override {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.app-override > .pc-row {
+  display: inline-flex;
+  gap: var(--sp-1);
+}
+.app-override .override-hours,
+.app-override .override-minutes {
+  width: 3.25rem;
+  min-width: 0;
+}
 
 /* A card nested directly inside a disclosure body would double the border and
    padding; flatten the inner one so a disclosure reads as a single panel. */

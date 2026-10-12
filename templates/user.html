@@ -442,7 +442,7 @@
                        button — those categories freeze from the Budgets table. #}
                     <td data-label="Actions"><button type="button" class="btn-hide{{ ' pc-btn pc-btn--sm pc-btn--neutral' }}" data-comm="{{ group.comm }}" onclick="hideGroup(this)">Hide</button>{% if budget_state[cat].frozen %} <button type="button" class="btn-unlock{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>{% elif budget_state[cat].minutes %} <button type="button" class="btn-freeze{{ ' pc-btn pc-btn--sm pc-btn--warn' }}" onclick="freezeCategory('{{ username }}', '{{ cat }}')" title="Freeze this category now">Freeze</button>{% endif %}
                         {% set ov = (overrides.app_overrides.get(group.comm) if overrides and overrides.app_overrides else None) %}
-                        <span class="app-override pc-field">
+                        <span class="app-override">
                             {% if ov %}{% if ov.mode == 'exempt' %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Unlimited</span>{% else %}<span class="badge-count{{ ' pc-chip pc-chip--neutral' }}">{{ ov.minutes|hm }}/day</span>{% endif %}{% endif %}
                             <select class="override-mode" data-comm="{{ group.comm }}">
                                 <option value="">Override…</option>
@@ -638,7 +638,7 @@
                 }
             }
         }
-        return '<span class="app-override pc-field">' + badge +
+        return '<span class="app-override">' + badge +
             ' <select class="override-mode" data-comm="' + esc(comm) + '">' +
             '<option value="">Override…</option>' +
             '<option value="limit">Limit</option>' +
