@@ -41,3 +41,11 @@
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^show-session [A-Za-z0-9_.-]+ -p Class -p Type$, /usr/bin/loginctl ^show-session [A-Za-z0-9_.-]+ -p Class -p Type$
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/passwd ^-S [A-Za-z0-9_.-]+$, /usr/bin/passwd ^-S [A-Za-z0-9_.-]+$
 @SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$, /usr/bin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send -u critical .* .*$
+# Session-agent feed drain (SESSION_AGENT_PLAN.md §8.1): the panel pulls one
+# child's focus feed on the budget tick. sudo's runas is root because the
+# systemd machine transport needs it (see the notify note above), but the
+# payload runs inside the CHILD's own user manager, so the grant gives the
+# service user nothing the child could not already read. The argv is pinned:
+# exact flags, `cat`, and an exact /run/user/<uid>/parental-controls/focus.jsonl
+# path shape — no other command, path or machine is authorized.
+@SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user --wait --collect cat /run/user/[0-9]+/parental-controls/focus[.]jsonl$, /usr/bin/systemd-run ^--machine=[A-Za-z0-9_.-]+@[.]host --user --wait --collect cat /run/user/[0-9]+/parental-controls/focus[.]jsonl$

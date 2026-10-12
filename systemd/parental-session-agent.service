@@ -1,0 +1,32 @@
+# Parental Controls — per-user focus session agent (systemd USER unit).
+#
+# Rendered by install.sh into the managed child's own
+# ~/.config/systemd/user/parental-session-agent.service and started as the
+# child (not the panel service user). The agent authenticates nowhere, holds
+# no secrets and never invokes sudo; it only records window-focus intervals
+# into $XDG_RUNTIME_DIR/parental-controls/focus.jsonl, which the panel pulls
+# read-only. @APP_DIR@ is resolved by install.sh from the install dir at
+# render time — never a checkout path.
+[Unit]
+Description=Parental Controls per-user focus session agent
+Documentation=man:systemd.exec(5)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 @APP_DIR@/session_agent.py --source poll
+Restart=on-failure
+RestartSec=5
+# The feed lives under $XDG_RUNTIME_DIR/parental-controls (tmpfs, 0700).
+RuntimeDirectory=parental-controls
+RuntimeDirectoryMode=0700
+# Defense-in-depth only: the agent is unprivileged anyway.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=default.target
