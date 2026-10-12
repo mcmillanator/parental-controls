@@ -65,7 +65,7 @@
     <!-- ------------------------------------------------------------------ -->
     <section id="audit-section" aria-label="Audit log">
         <h2>Audit Log</h2>
-        <p class="hint">Tamper-evident, append-only. Newest first. Read-only — the log cannot be modified from here.</p>
+        <p class="hint">Tamper-evident, append-only. Newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
         <div id="chain-status" style="margin: 0.75rem 0;">
             {% if chain_ok %}
             <span class="chain-intact">Audit chain intact</span>
@@ -82,7 +82,7 @@
             <thead>
                 <tr>
                     <th>Seq</th>
-                    <th>Time (UTC)</th>
+                    <th>Time (local)</th>
                     <th>Actor</th>
                     <th>Action</th>
                     <th>Target</th>
@@ -93,7 +93,7 @@
                 {% for e in entries %}
                 <tr class="audit-row" data-seq="{{ e.seq }}">
                     <td>{{ e.seq }}</td>
-                    <td class="audit-time">{{ e.at or '' }}</td>
+                    <td class="audit-time" data-at="{{ e.at or '' }}">{{ e.at or '' }}</td>
                     <td>{{ e.actor or '' }}</td>
                     <td>{{ e.action or '' }}</td>
                     <td>{{ e.target or '' }}</td>
@@ -196,6 +196,26 @@
             }[c]));
         }
 
+        // Raw UTC ISO ('2026-10-11T02:50:43+00:00') -> local 12-hour
+        // ('Oct 11, 2026 10:50 PM'). Display-only: the API/store keep the
+        // raw `at`. Deterministic text (fixed month names, no
+        // locale-sensitive toLocale*), so every browser renders the same
+        // punctuation. Unparseable input passes through unchanged.
+        const AUDIT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul',
+                              'Aug','Sep','Oct','Nov','Dec'];
+
+        function formatAuditAt(at) {
+            if (!at) return '';
+            const d = new Date(at);
+            if (isNaN(d.getTime())) return String(at);
+            let h = d.getHours();
+            const suffix = h < 12 ? 'AM' : 'PM';
+            h = h % 12 || 12;
+            const m = String(d.getMinutes()).padStart(2, '0');
+            return AUDIT_MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
+                d.getFullYear() + ' ' + h + ':' + m + ' ' + suffix;
+        }
+
         function detailSummary(detail) {
             if (detail === null || detail === undefined) return '';
             let text = typeof detail === 'string' ? detail : '';
@@ -208,7 +228,7 @@
         function auditRowHtml(e) {
             return '<tr class="audit-row" data-seq="' + esc(e.seq) + '">' +
                 '<td>' + esc(e.seq) + '</td>' +
-                '<td class="audit-time">' + esc(e.at || '') + '</td>' +
+                '<td class="audit-time">' + esc(formatAuditAt(e.at || '')) + '</td>' +
                 '<td>' + esc(e.actor || '') + '</td>' +
                 '<td>' + esc(e.action || '') + '</td>' +
                 '<td>' + esc(e.target || '') + '</td>' +
@@ -345,6 +365,15 @@
                 showToast('Error: ' + e.message, true);
             }
         }
+
+        // Server-rendered rows carry the raw UTC ISO in data-at; upgrade
+        // each cell in place to local 12-hour (same formatter the JS
+        // loadMore rows use via auditRowHtml). No server-side locale
+        // string is ever shipped.
+        document.querySelectorAll('#audit-table td.audit-time[data-at]')
+            .forEach(cell => {
+                cell.textContent = formatAuditAt(cell.getAttribute('data-at'));
+            });
 
         refreshAdmins();
     </script>
