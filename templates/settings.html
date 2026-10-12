@@ -123,36 +123,33 @@
 </section>
 
 {# Annotation sections (design Screen 6) — the exact stack the mockup
-   prescribes, kept visible rather than only in docs. #}
-<details class="pc-disclosure" id="settings-annotations">
-    <summary>Implementation notes</summary>
-    <div class="pc-disclosure__body">
-        <div class="pc-grid pc-grid--2">
-            <article class="pc-card pc-annotation">
-                <h3 class="pc-annotation__title">
-                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
-                    Flask + Jinja + vanilla JavaScript + Bootstrap 5
-                </h3>
-                <p>No build step and no framework: server-rendered templates and POST forms. Jinja macros cover alerts, toggles, device cards, status chips and buttons.</p>
-                <p>Bootstrap is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>, loaded after Bootstrap). <code>static/js/app.js</code> is used only for progressive enhancement (retry/toast, confirmation, reduced-motion).</p>
-            </article>
-            <article class="pc-card pc-annotation">
-                <h3 class="pc-annotation__title">
-                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor"/></svg>
-                    Responsive Bootstrap pattern
-                </h3>
-                <p>A <code>container-fluid</code> with a responsive row: Notifications and Local access are <code>col-12 col-xl-6</code> panels that collapse to one column below the breakpoint. Status alerts stay first and the device cards stack on small screens.</p>
-            </article>
-            <article class="pc-card pc-annotation">
-                <h3 class="pc-annotation__title">
-                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-check"/></svg>
-                    Accessibility implementation
-                </h3>
-                <p>Semantic fieldsets and legends; visible labels (never placeholder-only); keyboard focus order follows the visual order; <code>aria-live</code> connection status; text + icon status (never colour alone); 44px controls; reduced motion honoured; lock controls disabled while offline.</p>
-            </article>
-        </div>
+   prescribes, shown inline (the canvas renders them visible, not collapsed). #}
+<section id="settings-annotations" aria-label="Implementation notes">
+    <div class="pc-grid pc-grid--2">
+        <article class="pc-card pc-annotation">
+            <h3 class="pc-annotation__title">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
+                Flask + Jinja + vanilla JavaScript + Bootstrap 5
+            </h3>
+            <p>No build step and no framework: server-rendered templates and POST forms. Jinja macros cover alerts, toggles, device cards, status chips and buttons.</p>
+            <p>Bootstrap is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>, loaded after Bootstrap). <code>static/js/app.js</code> is used only for progressive enhancement (retry/toast, confirmation, reduced-motion).</p>
+        </article>
+        <article class="pc-card pc-annotation">
+            <h3 class="pc-annotation__title">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor"/></svg>
+                Responsive Bootstrap pattern
+            </h3>
+            <p>A <code>container-fluid</code> with a responsive row: Notifications and Local access are <code>col-12 col-xl-6</code> panels that collapse to one column below the breakpoint. Status alerts stay first and the device cards stack on small screens.</p>
+        </article>
+        <article class="pc-card pc-annotation">
+            <h3 class="pc-annotation__title">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-check"/></svg>
+                Accessibility implementation
+            </h3>
+            <p>Semantic fieldsets and legends; visible labels (never placeholder-only); keyboard focus order follows the visual order; <code>aria-live</code> connection status; text + icon status (never colour alone); 44px controls; reduced motion honoured; lock controls disabled while offline.</p>
+        </article>
     </div>
-</details>
+</section>
 {% endblock %}
 
 {% block scripts %}

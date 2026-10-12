@@ -45,8 +45,13 @@
 <!-- Audit log viewer (read-only)                                        -->
 <!-- ------------------------------------------------------------------ -->
 <section id="audit-section" aria-labelledby="audit-heading">
-    <h2 id="audit-heading">Audit Log</h2>
-    <p class="pc-hint">Recent administrative changes. Tamper-evident, append-only, newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
+    <div class="pc-card__header">
+        <div>
+            <h2 id="audit-heading">Audit Log</h2>
+            <p class="pc-hint">Recent administrative changes. Tamper-evident, append-only, newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
+        </div>
+        <svg class="pc-chip__icon pc-header-icon" aria-hidden="true" focusable="false"><use href="#pc-i-file-clock"/></svg>
+    </div>
 
     {# Chain status: a status banner (role=status when intact, role=alert when
        broken). The legacy `.chain-intact`/`.chain-broken` classes ride along so
@@ -132,8 +137,13 @@
 <!-- Admin management (add/remove app-only, wheel-actor only)            -->
 <!-- ------------------------------------------------------------------ -->
 <section id="admin-section" aria-labelledby="admin-heading">
-    <h2 id="admin-heading">Admin Accounts</h2>
-    <p class="pc-meta">Access to this machine.</p>
+    <div class="pc-card__header">
+        <div>
+            <h2 id="admin-heading">Admin Accounts</h2>
+            <p class="pc-meta">Access to this machine.</p>
+        </div>
+        <svg class="pc-chip__icon pc-header-icon" aria-hidden="true" focusable="false"><use href="#pc-i-users"/></svg>
+    </div>
     <p class="pc-hint">Wheel admins are system-protected and can never be removed (or added) from the console. App-only admins manage app logins only.</p>
     <button type="button" class="pc-btn pc-btn--primary pc-btn--block" onclick="openAddAdmin()">
         <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user-plus"/></svg>Add app-only admin
@@ -206,36 +216,34 @@
 </section>
 </div>
 
-{# Specimen cards (design Screen 5). #}
-<details class="pc-disclosure" id="admin-specimens">
-    <summary>Design notes</summary>
-    <div class="pc-disclosure__body">
-        <div class="pc-grid pc-grid--2">
-            <article class="pc-card">
-                <h3 class="pc-card__title">Irreversible actions</h3>
-                <p>Never rely on colour, require explicit confirmation, and log actor + timestamp.</p>
-            </article>
-            <article class="pc-card">
-                <h3 class="pc-card__title">Theme specimen</h3>
-                <div class="pc-segmented">
-                    <span class="pc-tabbtn" aria-pressed="true">Dark</span>
-                    <span class="pc-tabbtn" aria-pressed="false">Light</span>
-                </div>
-                <p class="pc-hint">Dark is selected; Light is available (use the theme toggle).</p>
-            </article>
-            <article class="pc-card">
-                <h3 class="pc-card__title">Component callouts</h3>
-                <p class="pc-row">
-                    <button type="button" class="pc-btn pc-btn--primary pc-btn--sm" disabled>Primary button</button>
-                    <span class="pc-chip pc-chip--ok">Status chip</span>
-                    <span class="pc-chip pc-chip--info">Toast: Audit exported</span>
-                    <span class="pc-kbd">Esc</span>
-                </p>
-                <p class="pc-hint">Dialog: focus trapped, Escape closes. Focus ring: a 2px outline.</p>
-            </article>
-        </div>
+{# Specimen cards (design Screen 5). The canvas shows these inline in the main
+   column (not behind a collapsed disclosure), so they are plain cards here. #}
+<section id="admin-specimens" aria-label="Design notes">
+    <div class="pc-grid pc-grid--2">
+        <article class="pc-card">
+            <h3 class="pc-card__title">Irreversible actions</h3>
+            <p>Never rely on colour, require explicit confirmation, and log actor + timestamp.</p>
+        </article>
+        <article class="pc-card">
+            <h3 class="pc-card__title">Theme specimen</h3>
+            <div class="pc-segmented">
+                <span class="pc-tabbtn" aria-pressed="true">Dark</span>
+                <span class="pc-tabbtn" aria-pressed="false">Light</span>
+            </div>
+            <p class="pc-hint">Dark is selected; Light is available (use the theme toggle).</p>
+        </article>
+        <article class="pc-card">
+            <h3 class="pc-card__title">Component callouts</h3>
+            <p class="pc-row">
+                <button type="button" class="pc-btn pc-btn--primary pc-btn--sm" disabled>Primary button</button>
+                <span class="pc-chip pc-chip--ok">Status chip</span>
+                <span class="pc-chip pc-chip--info">Toast: Audit exported</span>
+                <span class="pc-dialog-callout">Dialog</span>
+                <span class="pc-focus-callout">Focus ring</span>            </p>
+            <p class="pc-hint">Dialog: focus trapped, Escape closes.</p>
+        </article>
     </div>
-</details>
+</section>
 {% endblock %}
 
 {% block scripts %}
