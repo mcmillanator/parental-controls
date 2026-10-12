@@ -51,6 +51,24 @@ def read(path):
         return fh.read()
 
 
+def _element_close(html, open_index, tag='div'):
+    """Return the index of the close tag matching ``open_index``.
+
+    Walks nested ``<tag ...>`` / ``</tag>`` pairs so a caller can prove an
+    element sits *inside* a container rather than beside it. Used to pin the
+    Overview tab bar to the phone-layout container.
+    """
+    depth = 0
+    for match in re.finditer(r'<%s\b|</%s>' % (tag, tag), html[open_index:]):
+        if match.group(0).startswith('</'):
+            depth -= 1
+            if depth == 0:
+                return open_index + match.start()
+        else:
+            depth += 1
+    raise AssertionError('unbalanced <%s> from index %d' % (tag, open_index))
+
+
 def _live(username):
     return {
         'user': {'username': username, 'uid': 1001, 'home': '/home/' + username,
@@ -141,6 +159,37 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
             r'<svg[^>]*>.*?</svg>\s*<span>([^<]+)</span>', tabbar, re.S)
         self.assertEqual(['Home'], current)
 
+    def test_overview_tabbar_is_inside_the_phone_layout(self):
+        # Regression: Overview has no desktop sidebar, so the 4-tab bar is its
+        # ONLY navigation and must survive at every width. It is re-shown at
+        # >=768px by the descendant selector `.pc-layout--phone .pc-tabbar`,
+        # which only matches when the bar is rendered *inside* the element
+        # carrying `pc-layout--phone`. It used to be a sibling of `.pc-layout`
+        # (base.html), so on Overview at >=768px the sidebar was absent AND the
+        # tab bar was hidden by the phone-only rule — no navigation at all.
+        html = self._render('/')
+        layout_open = html.index('<div class="pc-layout')
+        layout_close = _element_close(html, layout_open)
+        tabbar = html.index('class="pc-tabbar"')
+        self.assertIn('pc-layout pc-layout--phone', html)
+        self.assertLess(layout_open, tabbar)
+        self.assertLess(tabbar, layout_close,
+                        'the Overview tab bar must be inside .pc-layout--phone '
+                        'so `.pc-layout--phone .pc-tabbar` can re-show it')
+
+    def test_sidebar_screens_use_the_sidebar_and_hide_the_tabbar(self):
+        # Sidebar-driven screens do NOT carry `pc-layout--phone`, so the
+        # descendant re-show selector cannot match and the >=768px
+        # `.pc-tabbar { display: none }` hide applies: they navigate via the
+        # sidebar (and the tab bar only below 768px).
+        for path in ('/time-rules', '/budgets', '/processes', '/admin/audit',
+                     '/settings'):
+            with self.subTest(path=path):
+                html = self._render(path)
+                self.assertIn('class="pc-sidebar"', html)
+                self.assertNotIn('pc-layout--phone', html)
+                self.assertIn('class="pc-tabbar"', html)
+
     def test_machine_card_is_scheme_less_and_online(self):
         html = self._render('/processes')
         self.assertIn('Selected machine', html)
@@ -224,6 +273,29 @@ class ShellSourceTest(unittest.TestCase):
         self.assertIn('#pc-i-help', self.appbar)
         self.assertIn('pc_nav_link(', self.appbar)
         self.assertIn('pcToggleTheme', self.appbar)
+
+    def test_tabbar_is_inside_the_layout_container_in_the_source(self):
+        # Regression guard on base.html itself: the tab-bar block must sit
+        # inside `.pc-layout` (after `.pc-layout__main`), never beside it, or
+        # the `.pc-layout--phone .pc-tabbar` descendant selector silently stops
+        # matching and Overview loses all navigation at >=768px.
+        layout_open = self.base.index('<div class="pc-layout')
+        layout_close = _element_close(self.base, layout_open)
+        tabbar = self.base.index('_partials/tabbar.html')
+        self.assertLess(layout_open, tabbar)
+        self.assertLess(tabbar, layout_close)
+        self.assertLess(self.base.index('pc-layout__main'), tabbar)
+
+    def test_css_hides_then_reveals_the_tabbar_for_the_phone_layout(self):
+        # >=768px: hidden for the sidebar-driven screens ...
+        self.assertRegex(self.css, r'\.pc-tabbar\s*\{\s*display:\s*none')
+        # ... and re-shown for the phone-first Overview via the descendant
+        # selector that requires the bar to live inside `.pc-layout--phone`.
+        self.assertRegex(
+            self.css,
+            r'\.pc-layout--phone\s+\.pc-tabbar\s*\{\s*display:\s*flex')
+        # the print hide stays intact.
+        self.assertRegex(self.css, r'@media print\s*\{[^}]*\.pc-tabbar')
 
     def test_css_defines_the_shell(self):
         for sel in ('.pc-layout', '.pc-sidebar', '.pc-navlink', '.pc-machine',

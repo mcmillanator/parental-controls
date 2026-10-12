@@ -58,9 +58,15 @@
                 </div>
             </main>
         </div>
+
+        {# The tab bar lives INSIDE .pc-layout (after .pc-layout__main): the
+           Overview keeps its 4-tab bar at every width via the descendant
+           selector `.pc-layout--phone .pc-tabbar`, which only matches when the
+           bar is a child of the phone-layout container. It stays
+           `position: fixed`, so DOM order does not change where it renders. #}
+        {% block tabbar %}{% include '_partials/tabbar.html' %}{% endblock %}
     </div>
 
-    {% block tabbar %}{% include '_partials/tabbar.html' %}{% endblock %}
     {% include '_partials/toast.html' %}
     {% include '_partials/dialog.html' %}
     {% include '_partials/override_dialog.html' %}
