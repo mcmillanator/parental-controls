@@ -113,13 +113,27 @@ def attr_candidates(kind):
 
     A jinja-templated attribute (``id="budget-{{ cat }}"``) yields its static
     prefix, so a concrete selector (``#budget-games``) still resolves.
+
+    A ``class`` attribute holds space-separated tokens, and a selector pins a
+    *token* (``.btn-lock``), not the whole value — so a button decorated with
+    the design system (``class="pc-btn pc-btn--danger btn-lock"``) still
+    resolves ``.btn-lock``. A jinja expression inside a token contributes its
+    static prefix (``class="status-{{ … }}"`` -> ``status-``). Non-class
+    attributes stay whole values.
     """
     out = set()
     for text in TEMPLATES.values():
         for name, value in ATTR.findall(text):
             if name != kind:
                 continue
-            if JINJA.search(value):
+            if kind == 'class':
+                # Blank out jinja (which may contain spaces) before splitting,
+                # then keep the literal prefix of each token.
+                for part in JINJA.sub('\x00', value).split():
+                    prefix = part.split('\x00', 1)[0]
+                    if prefix:
+                        out.add(prefix)
+            elif JINJA.search(value):
                 out.add(value[:JINJA.search(value).start()])
             else:
                 out.add(value)

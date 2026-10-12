@@ -491,11 +491,20 @@ class TestInsecureBannerOnlyInInsecureLan(TlsClientBase):
             self.assertNotIn(self.BANNER, resp.data)
 
     def test_all_templates_include_the_banner_partial(self):
+        """Converted pages inherit the token banner from base.html, which
+        includes the `_partials/insecure_banner.html` partial; un-converted
+        pages still include the legacy `_insecure_banner.html` directly."""
+        base = read('templates/base.html')
+        self.assertIn("_partials/insecure_banner.html", base)
         for template in ('login.html', 'index.html', 'user.html',
                          'change_password.html'):
             with self.subTest(template=template):
-                self.assertIn("_insecure_banner.html",
-                              read('templates/%s' % template))
+                body = read('templates/%s' % template)
+                self.assertTrue(
+                    '{% extends "base.html" %}' in body or
+                    "_insecure_banner.html" in body,
+                    '%s must extend base.html or include the banner partial'
+                    % template)
 
 
 @unittest.skipUnless(HAS_OPENSSL, 'openssl CLI not available')

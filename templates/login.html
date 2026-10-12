@@ -1,72 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parental Controls — Login</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            padding: 2rem;
-            display: flex;
-            justify-content: center;
-        }
-        .card {
-            background: #16213e;
-            border-radius: 8px;
-            padding: 2rem;
-            width: 100%;
-            max-width: 24rem;
-            margin-top: 4rem;
-        }
-        h1 { margin-bottom: 1rem; font-size: 1.5rem; }
-        label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.9rem; }
-        input {
-            width: 100%;
-            padding: 0.5rem;
-            border-radius: 4px;
-            border: 1px solid #0f3460;
-            background: #1a1a3e;
-            color: #e0e0e0;
-        }
-        button {
-            margin-top: 1rem;
-            padding: 0.5rem 1.5rem;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-            background: #4ecca3;
-            color: #1a1a2e;
-        }
-        .error {
-            background: #7a1f2b;
-            color: #fff;
-            border-radius: 4px;
-            padding: 0.75rem;
-            margin-bottom: 1rem;
-            font-size: 0.9rem;
-        }
-        .note { color: #888; font-size: 0.8rem; margin-top: 1rem; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Parental Controls</h1>
-        {% include '_insecure_banner.html' %}
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST" action="/login" autocomplete="off">
-            <input type="hidden" name="next" value="{{ next }}">
-            <label for="username">Admin username</label>
-            <input type="text" id="username" name="username" required autofocus autocomplete="username">
-            <label for="password">App password</label>
-            <input type="password" id="password" name="password" required autocomplete="current-password">
-            <button type="submit">Log in</button>
-        </form>
-        <p class="note">Admins only. Child accounts cannot log in here. App password only — never your Linux password.</p>
-    </div>
-</body>
-</html>
+{% extends "base.html" %}
+{# =========================================================================
+   Login — `.pc-auth` shell (UI_UX_PLAN.md §5.1, Phase 1b).
+
+   Extends base.html for the shared offline assets, banner and toast; the
+   centered auth card has **no navigation** (the app/tab bars are hidden for
+   the `.pc-body--auth` variant — base.html has no nav-suppression block yet,
+   so the two rules below are scoped to this page). All ids/names the auth
+   tests and the Katalon contract pin (#username, #password, the "Log in"
+   button, "Parental Controls") are unchanged.
+   ========================================================================= #}
+
+{% block title %}Parental Controls — Login{% endblock %}
+{% block body_class %} pc-body--auth{% endblock %}
+{% block head %}
+<style>
+    .pc-body--auth .pc-appbar,
+    .pc-body--auth .pc-tabbar { display: none; }
+    .pc-body--auth .pc-shell { padding-top: var(--sp-4); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pc-auth">
+    <h1 class="pc-auth__title">Parental Controls</h1>
+    {% if error %}<div class="pc-field__error error" role="alert">{{ error }}</div>{% endif %}
+    <form method="POST" action="/login">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="pc-field">
+            <label class="pc-field__label" for="username">Admin username</label>
+            <input class="pc-input" type="text" id="username" name="username" required autofocus autocomplete="username">
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="password">App password</label>
+            <input class="pc-input" type="password" id="password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="pc-btn pc-btn--primary pc-btn--block">Log in</button>
+    </form>
+    <p class="pc-auth__note pc-hint">Admins only. Child accounts cannot log in here. App password only — never your Linux password.</p>
+</div>
+{% endblock %}

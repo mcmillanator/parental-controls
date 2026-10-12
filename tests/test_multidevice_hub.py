@@ -509,17 +509,23 @@ class TestFeatureGate(BaseHubTest):
         with app.app.test_request_context():
             self.assertTrue(app._multidevice_gate()['devices_enabled'])
 
-    def test_index_single_box_is_byte_identical(self):
+    def test_index_single_box_has_no_device_selector(self):
+        # Was a byte-identical comparison against the pre-multidevice fixture.
+        # index.html now extends the shared shell (UI_UX_PLAN.md Phase 2), so
+        # byte identity is intentionally retired; keep the single-box
+        # guarantee: every user renders and no device wiring leaks in.
         app, g, users = self._base_ctx()
         env = app.app.jinja_env
         ctx = dict(g=g, users=users, day_labels=app.DAY_LABELS,
                    devices_enabled=False, insecure_lan=False,
                    devices=[], selected_device='', device_error=None)
-        original = open(os.path.join(HERE, 'fixtures',
-                                     'index_pre_multidevice.html')).read()
-        current = open(os.path.join(ROOT, 'templates', 'index.html')).read()
-        self.assertEqual(env.from_string(current).render(**ctx),
-                         env.from_string(original).render(**ctx))
+        with app.app.test_request_context('/'):
+            html = env.from_string(
+                open(os.path.join(ROOT, 'templates', 'index.html')).read()
+            ).render(**ctx)
+        self.assertIn('id="row-kid"', html)
+        self.assertNotIn('device-selector', html)
+        self.assertNotIn('switchDevice', html)
 
     def test_user_page_single_box_is_byte_identical(self):
         app, g, users = self._base_ctx()

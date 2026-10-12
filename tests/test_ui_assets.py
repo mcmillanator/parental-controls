@@ -6,15 +6,15 @@ the foundation commit adds and nothing else:
 * the vendored Bootstrap 5.3.3 CSS (offline promise — §6.3),
 * the design-system stylesheet ``static/css/app.css`` (§3),
 * the shared shell ``templates/base.html`` and its ``_partials/`` (§7.1),
+* the converted pages (``index.html``, ``login.html``,
+  ``change_password.html``) extend ``base.html``, carry no external
+  ``http(s)://`` asset and keep the §7.4 pinned selectors,
 * the Katalon selector contract is still intact, reusing the real validator in
   ``tests/test_katalon_objects.py`` rather than a weaker copy (§7.4).
 
-Deliberately **not** asserted here: the existing pages (``index.html``,
-``user.html``, ``admin_audit.html``, ``login.html``, ``change_password.html``)
-still link the pinned CDN and carry inline CSS until the page-conversion phase,
-which lands after the multi-device merge. The next phase must extend this module
-to assert those pages carry no external ``http(s)://`` asset and that every
-pinned id/class has moved into ``base.html``/``_partials``.
+The remaining un-converted pages (``user.html``, ``admin_audit.html``) still
+carry their inline styles until their own phases land; their conversions are
+covered by their own tests once converted.
 
 Stdlib only (``hashlib`` + ``re`` + ``unittest``), no Flask, no network.
 """
@@ -298,6 +298,61 @@ class PartialTest(unittest.TestCase):
         body = read(PARTIAL_DIR / 'icons.html')
         self.assertIn('<symbol id="pc-i-', body)
         self.assertNotIn('url(', body.lower().replace('url_for', ''))
+
+
+class ConvertedPageTest(unittest.TestCase):
+    """The pages converted in the Home/auth phase extend the shell offline and
+    keep the §7.4 pinned id/class/text contract."""
+
+    # Per-page pinned selectors/text that must stay literally present.
+    PINNED = {
+        'index.html': (
+            '{% extends "base.html" %}', 'id="row-', 'class="pc-btn pc-btn--ghost btn-details"',
+            'btn-lock', 'btn-unlock', 'id="admin-panel"', 'id="admin-list"',
+            'id="new-admin-username"', 'class="refresh-info"',
+            'Status updates automatically every 10 seconds',
+            'id="device-selector"', 'switchDevice',
+            'pc-summary', 'pc-table--stack', 'data-label="Username"',
+            'Parental Controls', 'Logged in as',
+        ),
+        'login.html': (
+            '{% extends "base.html" %}', 'class="pc-auth"', 'id="username"',
+            'name="username"', 'id="password"', 'name="password"',
+            '>Log in<', 'Parental Controls',
+        ),
+        'change_password.html': (
+            '{% extends "base.html" %}', 'class="pc-auth"', 'id="current"',
+            'name="current"', 'id="new"', 'name="new"', 'id="confirm"',
+            'name="confirm"', '>Change password<', 'pc-banner--info info',
+            'pc-field__error error',
+        ),
+    }
+
+    def test_converted_pages_extend_base_and_are_offline(self):
+        for name in self.PINNED:
+            body = read(TEMPLATE_DIR / name)
+            with self.subTest(page=name):
+                self.assertIn('{% extends "base.html" %}', body)
+                self.assertIsNone(EXTERNAL_ASSET.search(body),
+                                  '%s references an external asset' % name)
+                self.assertNotIn('cdn.jsdelivr.net', body)
+                self.assertNotIn('http://', body)
+                self.assertNotIn('https://', body)
+
+    def test_converted_pages_keep_their_pinned_selectors(self):
+        for name, needles in self.PINNED.items():
+            body = read(TEMPLATE_DIR / name)
+            for needle in needles:
+                with self.subTest(page=name, needle=needle):
+                    self.assertIn(needle, body,
+                                  '%s lost pinned literal %r' % (name, needle))
+
+    def test_converted_scripts_drop_window_confirm(self):
+        for name in self.PINNED:
+            body = read(TEMPLATE_DIR / name)
+            with self.subTest(page=name):
+                self.assertNotIn('window.confirm', body)
+                self.assertNotIn('confirm(', body)
 
 
 class KatalonContractTest(unittest.TestCase):
