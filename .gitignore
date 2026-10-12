@@ -33,3 +33,6 @@ audit.jsonl
 # atomic-write temp files)
 state.db*
 *.json.tmp.*
+
+# Agent/test scratch (in-project)
+.scratch/
