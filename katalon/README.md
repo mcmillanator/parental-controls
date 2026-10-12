@@ -76,6 +76,26 @@ Never use a `0.0.0.0` or LAN address for daily testing: the MVP has no TLS, so
 the session cookie would travel in the clear. The tunnel keeps it on
 localhost.
 
+### Navigating the redesigned panel
+
+The panel is mobile-first since the UI redesign (`UI_UX_PLAN.md`), so where you
+click has changed. The ids and classes the objects target are unchanged; use this
+map to find the controls by hand:
+
+| What | Where it is now |
+|------|-----------------|
+| **Home** (user list) | Sticky **app bar** link on tablet/desktop; **Home** tab in the bottom bar on a phone. This is the `/` index page. |
+| **Admin console** | The **Admin** link (app bar) / **Admin** tab (bottom bar) → `/admin/audit`. |
+| **Change password**, **Log out** | Inside the **Account** menu (top-right of the app bar, or the **Account** tab on a phone): open it first, then click. They are a link and a form button — not the old top-right text links. |
+| **A child's page** | Click **Details** on the child's row (or their username). The page keeps a **← Back to Parental Controls** link. |
+| Tables | On a phone the wide tables (budgets, processes, audit) render as one labeled card per row; the same ids/classes are still in the page, and a real `<thead>` stays in the DOM. |
+
+The 10-second status refresh and the toast messages behave as before. The
+destructive actions (Lock/Unlock, Remove admin, Clear schedule, custom bonus)
+now confirm in a **native `<dialog>`** element rather than a browser
+`confirm()` popup — a dialog with a visible **Confirm** button rather than a
+system alert.
+
 ---
 
 ## 3. Fill in the Variables
@@ -309,3 +329,4 @@ fails immediately, instead of the run failing on the parent's desktop.
 | Budget case ends at *Exhausted* | `BUDGET_HOURS`/`BUDGET_MINUTES` is below what the account already used today. |
 | Recorder version has different field names | Recorder renamed some step fields between major versions. Export one of your own objects, compare, and rename in your imported copy (or export the suite back to JSON and commit that). |
 | A check on toast text passes when it should not | Toasts keep their last text for a few seconds after hiding. The cases check toasts right after the click, but a red toast from an earlier step could linger — look at the actual page if a toast check surprises you. |
+| A step stops right after a Lock / Unlock / bonus / log-out click | Since the UI redesign the destructive actions confirm in a native `<dialog>` (a visible **Confirm** button, no browser alert), and **Log out** moved into the **Account** menu. Update the recorded step (open the menu / click **Confirm**) and re-export it (§8). |

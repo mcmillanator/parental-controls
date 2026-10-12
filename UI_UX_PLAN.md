@@ -1,7 +1,10 @@
 # UI/UX Redesign Plan — Bazzite Parental Controls (mobile-first)
 
-Status: **PLAN ONLY** — no code/template/test/installer edits in this worktree
-(`feature/ui-ux-plan` @ `34cf537`). Implementation is a follow-up, phased task.
+Status: **IMPLEMENTED** — the design below landed on `master` in the
+mobile-first UI redesign (foundation → Home/User → Admin/a11y, all merged).
+Phases P0–P5 are done; **P6** (QA-suite + documentation reconciliation) is
+closed by `feature/ui-docs` — docs and QA assets only, no code change. The
+design content below is unchanged; see §7.1 for the per-phase status.
 Audience for this document: the implementing agents and the project owner.
 
 ---
@@ -611,14 +614,17 @@ that no template contains `http://`/`https://` asset URLs.
 
 ### 7.1 Phasing (each phase = its own commit, tests green at every step)
 
-**Phase 0 — Guardrails (no visual change).**
+**Phase status (2026-10-12): P0–P5 merged to `master`; P6 closed by
+`feature/ui-docs`.** Zero Katalon selector changes were needed (§7.4).
+
+**Phase 0 — Guardrails (no visual change). — ✅ merged**
 Add `tests/test_ui_assets.py`: (a) no template references `cdn.jsdelivr.net` or
 any absolute `http(s)://` asset; (b) `static/vendor/bootstrap/bootstrap.min.css`
 and `static/css/app.css` exist and are non-empty; (c) every app template
 contains `<meta name="viewport">`. This test fails on the *current* tree and
 passes from Phase 1 — it is the objective "offline promise" check.
 
-**Phase 1 — Assets + shared shell (no behaviour change).**
+**Phase 1 — Assets + shared shell (no behaviour change). — ✅ merged**
 - Add `static/vendor/bootstrap/bootstrap.min.css` (vendored 5.3.3).
 - Add `static/css/app.css` (tokens + component CSS from §3).
 - Add `templates/base.html` (head, viewport, `app.css`, banner, toast container,
@@ -632,29 +638,39 @@ passes from Phase 1 — it is the objective "offline promise" check.
   head/nav/toast/banner. Confirm the render is byte-comparable for the tested
   fragments.
 
-**Phase 2 — Home card layout.** `.pc-summary`, user cards with `.pc-table--stack`,
+**Phase 2 — Home card layout. — ✅ merged**
+
+`.pc-summary`, user cards with `.pc-table--stack`,
 move admin list inside the container, dialog confirmations for Lock/Unlock.
 Preserve `#row-…`, `.btn-details`, `.btn-lock/.btn-unlock`, `#admin-panel`,
 `#admin-list`, `#new-admin-username`, `.refresh-info`, `#toast`.
 
-**Phase 3 — User details.** Reorder to hero (status/actions) → disclosures;
+**Phase 3 — User details. — ✅ merged**
+
+Reorder to hero (status/actions) → disclosures;
 budget `.pc-table--stack` + `.pc-meter`; process `.pc-table--stack` +
 per-group `<details>`; windows/overrides disclosures. JS renderers
 (`rowHtml`/`processHtml`/`groupDetailHtml`, `renderBudgets`) updated to emit
 `data-label`s and the same ids.
 
-**Phase 4 — Admin console.** Audit table→cards + day grouping, dialog Remove,
+**Phase 4 — Admin console. — ✅ merged**
+
+Audit table→cards + day grouping, dialog Remove,
 `<dialog>` OTP, Load-more busy state.
 
-**Phase 5 — A11y + light theme + docs.** Focus rings, `aria-live` refresh,
+**Phase 5 — A11y + light theme + docs. — ✅ merged** (the README/PLAN
+documentation half is completed as part of P6 below)
+
+Focus rings, `aria-live` refresh,
 stale/last-updated, reduced-motion, light-theme tokens, update `README.md`
 (assets note) and add a row for `UI_UX_PLAN.md` to `PLAN.md`'s Files table.
 
-**Phase 6 — QA suite reconciliation.** Run `tests/test_katalon_objects.py`; if
-any pinned selector changed (target: none), either restore it or update
-`katalon/objects` + `katalon/README.md` and the affected `tests/test_*.py`
-markup assertions (see §7.4). Update `katalon/README.md` with the new nav
-instructions.
+**Phase 6 — QA suite reconciliation. — ✅ done (`feature/ui-docs`, docs + QA
+assets only).** Ran `tests/test_katalon_objects.py` after the full redesign:
+**green, zero selector changes** (the validator corpus now also covers
+`templates/_partials/`, so a selector that moved into the shell — e.g. `#toast`
+— still resolves). No `katalon/objects` selector needed updating;
+`katalon/README.md` gained the new navigation instructions.
 
 ### 7.2 File-level change list
 
@@ -789,18 +805,23 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
 
 ## 9. Acceptance checklist (for the implementing agents)
 
-- [ ] No template references an external `http(s)://` asset; Bootstrap + CSS are local.
-- [ ] Every existing control from §2.1 is reachable; no id/class in §7.4 is missing.
-- [ ] Phone layout at 360 px: no horizontal table scroll; every target ≥44 px (≥24 px absolute floor).
-- [ ] All layout-critical CSS lives in `app.css`; pages render acceptably with Bootstrap CSS alone (defensive).
-- [ ] Status uses icon + text + color; four contrast failures fixed.
-- [ ] Destructive actions confirmed via `<dialog>`; locked/danger paths unchanged in behaviour.
-- [ ] Empty / loading (skeleton) / error / stale states exist on Home, user, audit.
-- [ ] `<html lang>`, skip link, focus-visible ring, `aria-live` toast, reduced-motion honored.
-- [ ] `tests/test_katalon_objects.py` green with **zero** selector changes.
-- [ ] Full stdlib suite green; new `test_ui_assets.py` + `test_ui_a11y.py` pass.
+> Ticked where the in-tree tests cover it (`test_ui_assets.py`,
+> `test_ui_user.py`, `test_ui_admin.py`, `test_ui_a11y.py`,
+> `test_katalon_objects.py`). The unchecked items are the **manual** device /
+> browser passes the owner runs on the live box (§7.6).
+
+- [x] No template references an external `http(s)://` asset; Bootstrap + CSS are local.
+- [x] Every existing control from §2.1 is reachable; no id/class in §7.4 is missing.
+- [x] Phone layout at 360 px: no horizontal table scroll; every target ≥44 px (≥24 px absolute floor).
+- [x] All layout-critical CSS lives in `app.css`; pages render acceptably with Bootstrap CSS alone (defensive).
+- [x] Status uses icon + text + color; four contrast failures fixed.
+- [x] Destructive actions confirmed via `<dialog>`; locked/danger paths unchanged in behaviour.
+- [x] Empty / loading (skeleton) / error / stale states exist on Home, user, audit.
+- [x] `<html lang>`, skip link, focus-visible ring, `aria-live` toast, reduced-motion honored.
+- [x] `tests/test_katalon_objects.py` green with **zero** selector changes.
+- [x] Full stdlib suite green; new `test_ui_assets.py` + `test_ui_a11y.py` pass.
 - [ ] Keyboard-only, 200 % zoom, light/dark, and network-off manual passes done.
-- [ ] `README.md` assets note + `PLAN.md` Files row updated.
+- [x] `README.md` assets note + `PLAN.md` Files row updated.
 
 ---
 

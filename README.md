@@ -40,12 +40,53 @@ Release-ready 1.1 — parent-facing summary, deploy steps and rollback guide:
   forms are never touched); errors display as toasts
 - Optional TLS for LAN binds (self-signed cert generated at install time); a
   health-check timer probes the panel every 5 minutes
+- Mobile-first, fully offline UI: a phone-first card layout that becomes tables
+  on tablets/desktops, a glanceable status summary, and a sticky app bar + bottom
+  tab bar for one-handed use; Bootstrap is vendored in `static/` (no CDN, no
+  webfont), dark theme by default with an automatic light theme, and WCAG 2.2 AA
+  accessibility (see *User interface* below and `UI_UX_PLAN.md`)
+
+## User interface
+
+The panel is first a **family status board** reached one-handed on a phone, so
+the interface is designed mobile-first and must render identically on a home LAN
+box **with no internet** (`UI_UX_PLAN.md`):
+
+- **Layout** — one column of labeled card stacks on phones; the same markup
+  restores semantic tables on tablets/desktops. The Home list, per-user detail
+  page and the admin console share the mechanism (`.pc-table--stack` +
+  `data-label`), and destructive actions are confirmed in a native `<dialog>`
+  (no blocking `window.confirm`).
+- **Offline assets** — Bootstrap 5.3.3 (`static/vendor/bootstrap/bootstrap.min.css`)
+  and the design system (`static/css/app.css`) are vendored under `static/` and
+  linked with `url_for('static', …)`; the app makes **no external request**, so
+  there is no CDN, no webfont and no build step. The Bootstrap
+  JavaScript bundle is deliberately *not* vendored — modals, menus and the icon
+  sprite use native HTML (`<dialog>`, `<details>`, inline SVG). `install.sh`
+  stages the whole app tree (including `static/` and `templates/`) into the
+  install dir, so the deployed service serves its own stylesheets.
+- **Theming** — dark is the default; a light theme follows
+  `prefers-color-scheme: light` and an explicit `[data-theme="light"]` hook. Both
+  themes are token-based (`static/css/app.css`) and hold WCAG 2.2 AA contrast for
+  every status chip.
+- **Accessibility** — skip link, `<html lang>`, visible `:focus-visible` rings,
+  44 px touch targets (32 px minimum for small buttons), `aria-live` toast and
+  background-refresh regions, `prefers-reduced-motion` support, and status shown
+  as icon **and** text **and** colour.
+- **No-JS-framework navigation** — a sticky app bar (tablet/desktop) and a bottom
+  tab bar (phone) link Home / Admin and hold the account menu (Change password,
+  Log out).
+
+The design system lives in `static/css/app.css`; the review checklist, phasing
+and every screen mapping are in `UI_UX_PLAN.md`.
 
 ## Requirements
 
 - Python 3
 - Flask, argon2-cffi, waitress (see `requirements.txt`); `cheroot` is the
   TLS-capable server used for `--tls` LAN binds (also in `requirements.txt`)
+- A modern browser — the UI needs **no internet access**; all assets are served
+  locally from `/static`
 - sudo access (the app runs `usermod`, `loginctl`, `passwd -S` and, for
   notifications, `systemd-run` through sudo — scoped rules live in
   `sudoers-parental-controls` / `sudoers-parental-controls-budgets`)
@@ -117,8 +158,11 @@ The app listens on `127.0.0.1:5000` by default.
 
 ## Usage
 
-Open `http://<host>:5000` in a browser. You'll see a table of users with their
-lock status and buttons to lock or unlock each account.
+Open `http://<host>:5000` in a browser. You'll see the users on the system with
+their live lock status and a Lock/Unlock action per user; on a phone the list
+renders as one card per child with a summary strip at the top, and the same page
+reflows to a table on a larger screen. Opening a user shows their bedtime, bonus
+time, budgets and processes.
 
 ## Security Note
 
@@ -298,9 +342,14 @@ system Python has no Flask:
 
 Notes:
 
-- Stdlib `unittest` only — no pytest. **526 tests across 22 files, 9
+- Stdlib `unittest` only — no pytest. **1076 tests across 38 files, 14
   environmental skips** (skips are for missing optional tooling/privileges),
-  about a minute for a full run.
+  under a minute for a full run.
+- The mobile-first UI has its own guardrails: `test_ui_assets.py` (vendored
+  offline assets + the design-system contract), `test_ui_home.py`,
+  `test_ui_user.py`, `test_ui_admin.py` (page conversions keep the pinned
+  selectors) and `test_ui_a11y.py` (contrast, focus/targets, theming, states).
+  They check source and the Flask-rendered HTML; none need a browser or network.
 - Most tests are mocked/integration tests using the Flask test client, but a
   few are **live**: `test_lock_usermod_real.py` creates a throwaway account,
   really runs `usermod`/`loginctl` against it, and deletes it in teardown.

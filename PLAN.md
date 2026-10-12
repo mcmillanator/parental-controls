@@ -95,6 +95,8 @@ merged and deleted; nothing in this section is in progress).
       (a stuck freeze froze an entire desktop on 2026-10-09) — runs on every
       budget tick, in both the app's 60s thread and the systemd enforce timer
 - [x] Polished UI/UX, including responsive design via Bootstrap
+      (superseded by the **mobile-first UI redesign** — see `UI_UX_PLAN.md`
+      and the entry under Post-MVP phases below)
 
 ### Post-MVP phases (open roadmap)
 Phase 3 (hardening, after MVP):
@@ -165,6 +167,16 @@ Phase 5 (scale & polish):
 - [ ] Multi-device support (multiple Bazzite devices)
 - [x] Child-facing warnings ("10 minutes left" via notify-send) — shipped as the
       pre-lock/pre-freeze warning path (bedtime, budget-low and bonus messages)
+- [x] Mobile-first UI redesign — **shipped** (`UI_UX_PLAN.md`; foundation →
+      Home/User → Admin/a11y, merged). Vendored offline Bootstrap 5.3.3 plus a
+      token-based `static/css/app.css` design system, a shared
+      `templates/base.html` shell (app bar / bottom tab bar / native `<dialog>`
+      confirmations / `aria-live` toast regions), and card-stack layouts
+      (`.pc-table--stack` + `data-label`) converting Home, user details, login /
+      change-password and the admin console. Dark by default with an automatic
+      light theme; WCAG 2.2 AA contrast, 44 px targets, skip link,
+      reduced-motion. The Katalon selector contract holds with **zero selector
+      changes** (Phase 6 reconciliation, `feature/ui-docs`)
 
 ### Open after 1.1 (deliberately not done)
 
@@ -221,6 +233,7 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 | `RELEASE.md` | Release notes, deploy/rollback guide (parent-facing) |
 | `QA_LOCK_UNLOCK.md` | QA report for the lock/unlock core mechanisms |
 | `AUTH_DESIGN.md` | Authentication/authorization design (MVP auth) |
+| `UI_UX_PLAN.md` | Mobile-first UI/UX redesign: design system, screen specs, phasing |
 | `BONUS_TIME_PLAN.md` | Bonus-time design |
 | `PROCESS_GROUPING_PLAN.md` | Process-grouping design |
 | `FREEZE_BUTTONS_PLAN.md` | Manual freeze/unfreeze buttons design |
@@ -231,10 +244,11 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 
 ## Release status
 
-**1.1 — release-ready.** Code baseline: `master` @ `108392d` (plus these
-documentation updates). First version this release was verified running on:
+**1.1 — release-ready.** Code baseline: `master` @ `108392d`, plus the
+mobile-first **UI redesign** now merged (`UI_UX_PLAN.md`) and these
+documentation updates. First version this release was verified running on:
 **Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44.20261002)"`.
-Test suite: **526 tests, 9 environmental skips** (22 test files, stdlib
+Test suite: **1076 tests, 14 environmental skips** (38 test files, stdlib
 `unittest`). Parent-facing summary, deploy steps and the rollback story live in
 `RELEASE.md`.
 
@@ -254,7 +268,11 @@ Test suite: **526 tests, 9 environmental skips** (22 test files, stdlib
       children are the enforcement path)
 - [x] Freezer watchdog: a genuinely stuck `cgroup.freeze=1` with no paused budget state
       is thawed automatically, only for `parental-<user>-<category>` groups
-- [x] Bootstrap UI (responsive) — Bootstrap 5 is loaded from a CDN
+- [x] Mobile-first UI: Bootstrap 5.3.3 **vendored** in `static/vendor/` (no CDN,
+      offline-safe) plus a token-based design system (`static/css/app.css`), a
+      shared `templates/base.html` shell, card-stack tables, native `<dialog>`
+      confirmations, dark default + light theme and WCAG 2.2 AA accessibility
+      (supersedes the earlier CDN Bootstrap skin; `UI_UX_PLAN.md`)
 - [x] Notification warnings reach the child's session via
       `sudo systemd-run --machine=<user>@.host --user notify-send`, backed by a scoped
       sudoers grant (verified working under scoped sudoers)
