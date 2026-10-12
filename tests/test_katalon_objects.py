@@ -101,7 +101,16 @@ def load_dir(path):
     return {p.stem: json.loads(read(p)) for p in sorted(path.glob('*.json'))}
 
 
+# Templates the selector/expected-text contract resolves against. `base.html`
+# composes the shared shell from `templates/_partials/*`, so the partials belong
+# to the corpus too: a selector that moves from a converted page into the shell
+# (e.g. `#toast`, now only in `_partials/toast.html`) must keep resolving
+# instead of reading as "vanished". The selector itself is unchanged.
 TEMPLATES = {p.name: read(p) for p in sorted(TEMPLATE_DIR.glob('*.html'))}
+_PARTIAL_DIR = TEMPLATE_DIR / '_partials'
+if _PARTIAL_DIR.is_dir():
+    TEMPLATES.update({'_partials/' + p.name: read(p)
+                      for p in sorted(_PARTIAL_DIR.glob('*.html'))})
 TEMPLATE_CORPUS = '\n'.join(TEMPLATES.values())
 # Server-rendered strings (login/change-password errors, status details) live
 # in app.py, so expected-text checks look there too.
