@@ -164,7 +164,10 @@ These are deliberate, current, and not defects in disguise:
   mirrors as your rollback copy. Per-field normalization is still on the roadmap.
 - **Usage is billed by CPU time, not focus time.** A background process that
   barely uses the CPU does not burn budget. Accurate focus measurement needs a
-  per-user session agent (not shipped).
+  per-user session agent (not shipped). A **locked** account does not burn
+  budget either: while usermod -L is in effect (manual Lock, Lock Screen,
+  bedtime auto-lock) ticks advance the accounting baselines without billing,
+  so the first tick after unlock bills only new activity.
 - **The UI loads Bootstrap 5 from a CDN**, so styling needs internet access on
   the machine showing the panel. Functionality is unaffected offline.
 - **Bonus time is per account, not per app.** It suppresses the bedtime lock

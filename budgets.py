@@ -16,6 +16,13 @@ An idle app therefore contributes ~0, so background-idle MUST NOT burn
 budget — while an app in actual use accrues time matching the Elapsed
 column parents see.
 
+A **locked** account (usermod -L: manual Lock, Lock Screen, bedtime
+auto-lock — all reflected by get_lock_status) likewise MUST NOT burn
+budget: if the child cannot reach the app, they are not spending time on
+it. While locked, each tick advances the accounting baselines
+(last_cpu / last_tick / was_in_bedtime) without billing a second, so the
+first tick after unlock bills only NEW activity, never the locked window.
+
 **Active threshold:** per-process deltas smaller than
 ``ACTIVE_THRESHOLD_SECONDS`` (1.0 CPU-second per 60s tick, i.e. processes
 averaging under ~1.7% CPU) are treated as background noise and ignored.
@@ -1550,9 +1557,31 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     return summary
 
 
+def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry):
+    """Advance a locked account's accounting baselines, billing nothing.
+
+    Mirrors the baseline half of account_and_enforce (was_in_bedtime
+    tracking, the compute_deltas last_cpu advance, and the last_tick
+    wall-clock base) so the first tick after unlock bills only NEW CPU
+    activity, never the locked window. No billing, no pause/notify/freeze
+    decisions — already-paused/frozen state is unchanged and simply
+    persists.
+    """
+    entry['was_in_bedtime'] = bool(
+        bedtime_entry and _in_bedtime(bedtime_entry, now))
+    if not entry.get('limits'):
+        # Mirrors account_and_enforce: no configured limits -> drop the
+        # baseline (and leave last_tick alone, exactly like that path).
+        entry['last_cpu'] = {}
+        return
+    entry['last_cpu'] = compute_deltas(
+        entry.get('last_cpu', {}), procs)[1]
+    entry['last_tick'] = now.isoformat()
+
+
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
                  index=None, act=True, notify=None, run_watchdog=True,
-                 cgroup_root=None):
+                 cgroup_root=None, account_locked=None):
     """Run one budget tick for every user in the budget store.
 
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
@@ -1567,6 +1596,15 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
       systemd timer path go through here, so both self-heal.
     cgroup_root: alternate cgroup tree for the watchdog (tests only;
       default: real /sys/fs/cgroup).
+    account_locked: optional callable ``account_locked(username) -> bool``
+      reporting whether the account is locked (usermod -L: manual Lock,
+      Lock Screen, bedtime auto-lock — everything get_lock_status sees).
+      While locked the child cannot reach the app, so that user's tick
+      bills nothing and no pause/notify/minutes-left decisions are made;
+      the accounting baselines still advance exactly as if billed, so the
+      first tick after unlock bills only NEW activity, never the locked
+      window. Default None (or absent) = every user unlocked, preserving
+      the pure-module behavior.
     Returns a list of per-user summary dicts (+ watchdog entry).
     """
     data = load_budgets()
@@ -1594,6 +1632,18 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             procs = procs_provider(username)
         else:
             procs = list_user_processes(username)
+        if account_locked is not None and account_locked(username):
+            # Locked account: the child cannot reach the app, so this tick
+            # bills nothing and makes no pause/notify decisions —
+            # already-paused/frozen state simply persists. Baselines
+            # advance exactly as if billed, so the first tick after unlock
+            # bills only NEW CPU, never the locked window.
+            _locked_tick_bookkeeping(
+                entry, procs, now, (bedtime_map or {}).get(username))
+            summaries.append({'user': username, 'reset': False, 'froze': [],
+                              'unfroze': [], 'notified': [], 'note':
+                              f'skipped {username}: account locked'})
+            continue
         summaries.append(account_and_enforce(
             username, entry, procs, (bedtime_map or {}).get(username),
             now, prefs, index, act, notify))
