@@ -262,7 +262,10 @@
     }
 
     function setReducedMotion(el) {
-        document.body.classList.toggle('pc-reduced-motion', el.checked);
+        // Persist the choice across visits (static/js/app.js re-applies it on
+        // load and honours prefers-reduced-motion when nothing is stored).
+        if (window.pcSetReducedMotion) { window.pcSetReducedMotion(el.checked); }
+        else { document.body.classList.toggle('pc-reduced-motion', el.checked); }
     }
 
     async function post(path, body) {

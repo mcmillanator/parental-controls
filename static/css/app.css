@@ -1985,3 +1985,167 @@ body.pc-reduced-motion *::after {
     margin-left: 0;
   }
 }
+
+/* =========================================================================
+   REVISED-SPEC.md additions (design translation update).
+
+   * Overview is phone-first: no desktop sidebar, a simple header over a
+     single column, and the 4-tab bottom bar kept reachable at every width.
+   * explicit pill colours for Online / Unlocked (#d7ebd7 on #003a05).
+   * account cards, budget category cards and annotation blocks.
+   ========================================================================= */
+
+/* --- Overview shell (Screen 1) ------------------------------------------- */
+.pc-layout--phone .pc-layout__main {
+  margin-left: 0;
+}
+.pc-layout--phone {
+  padding-bottom: var(--tabbar-h);
+}
+/* The 4-tab bar is the only navigation on Overview; keep it at every width
+   (the phone-only hide is for the sidebar-driven screens). */
+@media (min-width: 768px) {
+  .pc-layout--phone .pc-tabbar {
+    display: flex;
+  }
+}
+.pc-phoneheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: var(--nav-h);
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.pc-phoneheader__title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+.pc-phoneheader__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* --- Explicit status pills (mockup hexes) -------------------------------- */
+.pc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Online / Unlocked — explicit mockup colours. */
+.pc-pill--online {
+  background: #d7ebd7;
+  color: #003a05;
+}
+.pc-pill--locked {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.pc-pill--unknown {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+.pc-pill--protected {
+  background: var(--override-bg);
+  color: var(--override-fg);
+}
+/* Audit "Verified" chip: primary/10 fill, primary/40 border, 11px. */
+.pc-pill--verified {
+  background: color-mix(in srgb, var(--link) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--link) 40%, transparent);
+  color: var(--link);
+  font-size: 11px;
+}
+
+/* --- Account cards (Screen 1) -------------------------------------------- */
+.pc-accounts__heading {
+  margin-bottom: var(--sp-3);
+}
+.pc-account__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.pc-account__id {
+  min-width: 0;
+}
+.pc-account__name {
+  margin: 0;
+  font-weight: 600;
+}
+.pc-account__meta {
+  margin: var(--sp-1) 0 0;
+}
+.pc-account__actions {
+  margin-top: var(--sp-3);
+  flex-wrap: wrap;
+}
+.pc-card--secondary {
+  background: var(--surface-2);
+}
+
+/* --- Budget category cards (Screen 3) ------------------------------------ */
+.pc-catcard__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.pc-catcard__name {
+  margin: 0;
+  font-weight: 600;
+}
+.pc-catcard__dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.pc-catcard__dl dt {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-catcard__dl dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* --- Annotation / implementation blocks (Screens 2/3/6) ------------------ */
+.pc-annotation {
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+.pc-annotation__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.pc-annotation p {
+  margin: 0 0 var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-annotation p:last-child {
+  margin-bottom: 0;
+}

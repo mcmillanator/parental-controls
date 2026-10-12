@@ -24,6 +24,9 @@
     {# Local only: static/vendor/bootstrap/bootstrap.min.css (pinned 5.3.3) and
        static/css/app.css. No CDN, no webfont, no external JS. #}
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+    {# Product tokens/theme. The revised mockups name static/css/tokens.css;
+       the tokens are mapped onto the existing static/css/app.css (loaded after
+       Bootstrap so they win) instead of splitting the stylesheet. #}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     {# No-flash theme: apply the stored light/dark choice before first paint. #}
     <script>
@@ -43,10 +46,10 @@
     <a class="pc-skip-link" href="#pc-main">Skip to content</a>
     {% include '_partials/insecure_banner.html' %}
 
-    <div class="pc-layout">
-        {% include '_partials/sidebar.html' %}
+    <div class="pc-layout{% block layout_class %}{% endblock %}">
+        {% block sidebar %}{% include '_partials/sidebar.html' %}{% endblock %}
         <div class="pc-layout__main">
-            {% include '_partials/appbar.html' %}
+            {% block appbar %}{% include '_partials/appbar.html' %}{% endblock %}
 
             <main class="pc-main" id="pc-main" tabindex="-1">
                 <div class="pc-shell{% block shell_class %} pc-shell--narrow{% endblock %}">
@@ -57,10 +60,14 @@
         </div>
     </div>
 
-    {% include '_partials/tabbar.html' %}
+    {% block tabbar %}{% include '_partials/tabbar.html' %}{% endblock %}
     {% include '_partials/toast.html' %}
     {% include '_partials/dialog.html' %}
     {% include '_partials/override_dialog.html' %}
+    {# Progressive enhancement only (reduced-motion persistence + menu
+       dismissal); every save path is a plain server-rendered POST form, so the
+       page works with JS disabled. #}
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

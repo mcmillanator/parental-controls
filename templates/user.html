@@ -36,7 +36,7 @@
    The selects keep `name` as the first attribute (parsed by the test suite). #}
 {% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
 <span class="pc-time">
-<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour">
+<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour, 12-hour format">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
 </select>
@@ -45,7 +45,7 @@
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
 </select>
-<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM">
+<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM, 12-hour format">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 <option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
 <option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
@@ -162,18 +162,18 @@
             </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Custom days:</span>
+        <fieldset class="pc-field pc-fieldset">
+            <legend class="pc-field__label">Custom days:</legend>
             <span class="pc-row">
-            <label class="pc-daybtn"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} class="day-checkbox"> Mon</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} class="day-checkbox"> Tue</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} class="day-checkbox"> Wed</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} class="day-checkbox"> Thu</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} class="day-checkbox"> Fri</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sat</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 0 in bedtime.days else 'false' }}" class="day-checkbox"> Mon</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 1 in bedtime.days else 'false' }}" class="day-checkbox"> Tue</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 2 in bedtime.days else 'false' }}" class="day-checkbox"> Wed</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 3 in bedtime.days else 'false' }}" class="day-checkbox"> Thu</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 4 in bedtime.days else 'false' }}" class="day-checkbox"> Fri</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 5 in bedtime.days else 'false' }}" class="day-checkbox"> Sat</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 6 in bedtime.days else 'false' }}" class="day-checkbox"> Sun</label>
             </span>
-        </div>
+        </fieldset>
         <div class="pc-card__footer">
             <button type="button" name="save" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
             <button type="button" class="btn-bedtime-clear{{ ' pc-btn pc-btn--danger pc-btn--block' }}" onclick="clearBedtime('{{ username }}')">Clear schedule</button>
@@ -200,18 +200,18 @@
             </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Custom days:</span>
+        <fieldset class="pc-field pc-fieldset">
+            <legend class="pc-field__label">Custom days:</legend>
             <span class="pc-row">
-            <label class="pc-daybtn"><input type="checkbox" name="day_0" class="day-checkbox"> Mon</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_1" class="day-checkbox"> Tue</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_2" class="day-checkbox"> Wed</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_3" class="day-checkbox"> Thu</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_4" class="day-checkbox"> Fri</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_5" class="day-checkbox"> Sat</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_0" aria-pressed="false" class="day-checkbox"> Mon</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_1" aria-pressed="false" class="day-checkbox"> Tue</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_2" aria-pressed="false" class="day-checkbox"> Wed</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_3" aria-pressed="false" class="day-checkbox"> Thu</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_4" aria-pressed="false" class="day-checkbox"> Fri</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_5" aria-pressed="false" class="day-checkbox"> Sat</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_6" aria-pressed="false" class="day-checkbox"> Sun</label>
             </span>
-        </div>
+        </fieldset>
         <div class="pc-card__footer">
             <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
         </div>
@@ -259,7 +259,7 @@
 {# Live countdown (design Screen 2) — muted card with a big mono readout. #}
 <section class="pc-card pc-card--muted" id="countdown-card" aria-labelledby="countdown-heading">
     <h2 class="pc-card__title" id="countdown-heading">Live countdown</h2>
-    <p class="pc-timer" id="bedtime-countdown">{{ countdown_text }}</p>
+    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="polite">{{ countdown_text }}</p>
     <p class="pc-meta" id="countdown-note">{% if user.bonus and user.bonus.active %}Bonus time remaining{% else %}Until the next bedtime window{% endif %}{% if user.in_bedtime %} · Desktop warning sent{% endif %}</p>
     <p class="pc-hint">The countdown respects reduced-motion preferences.</p>
 </section>
@@ -591,6 +591,15 @@
             </div>
         </div>
         <p class="pc-hint">Keyboard order follows the visual order. Screen-reader labels are provided on time inputs.</p>
+        <aside class="pc-annotation" id="time-rules-implementation" aria-labelledby="time-rules-implementation-title">
+            <h3 class="pc-annotation__title" id="time-rules-implementation-title">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
+                Implementation
+            </h3>
+            <p>Flask + Jinja server-rendered, vanilla JavaScript only, with Bootstrap 5 vendored locally under <code>static/vendor/bootstrap/</code>. Product tokens/theme load from <code>static/css/app.css</code> after Bootstrap (the mockup's <code>static/css/tokens.css</code>).</p>
+            <p>Save, grant, revoke and clear are plain Flask POST forms; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
+            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, <code>aria-live</code> countdown and status, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
+        </aside>
     </div>
 </details>
 

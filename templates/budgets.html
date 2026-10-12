@@ -68,7 +68,7 @@
             </select>
             <span class="pc-field__hint">Historical dates are not stored yet.</span>
         </div>
-        <span class="pc-meta">
+        <span class="pc-meta" role="status" aria-live="polite">
             <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>
             Last refreshed just now
         </span>
@@ -76,45 +76,29 @@
 </div>
 
 {% if username and budget_state %}
-{# App budgets table (table -> labelled cards under 960px). #}
+{# App budgets — a single-column list of category CARDS (REVISED-SPEC.md
+   Screen 3), not a table. Each card keeps the pinned ids the Katalon contract
+   resolves (#budget-<cat>-hours/-minutes, #budget-used-<cat>,
+   #budget-status-<cat>) plus a <dl> "Used today" / "Daily limit" and a
+   full-width freeze/unfreeze action. #}
 <section class="pc-card" aria-labelledby="app-budgets-heading">
     <div class="pc-card__header">
         <h2 class="pc-card__title" id="app-budgets-heading">App budgets</h2>
         <span class="pc-meta">Daily limits and current usage for {{ username }}.</span>
     </div>
-    <div class="table-responsive">
-    <table class="pc-table pc-table--stack" id="budgets-table">
-        <thead>
-            <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Used today</th>
-                <th scope="col">Daily limit</th>
-                <th scope="col">State</th>
-                <th scope="col">Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for cat in categories %}
-            {% set b = budget_state[cat] %}
-            {% set limit_min = b.minutes|int if b.minutes else 0 %}
-            {% set used_min = b.used_minutes|int %}
-            {% set pct = [(used_min * 100 // limit_min) if limit_min else 0, 100]|min %}
-            <tr id="budget-row-{{ cat }}">
-                <td data-label="Category">
-                    <strong>{{ category_labels[cat] }}</strong>
-                    <br>
+    <div class="pc-stack" id="budget-cards">
+        {% for cat in categories %}
+        {% set b = budget_state[cat] %}
+        {% set limit_min = b.minutes|int if b.minutes else 0 %}
+        {% set used_min = b.used_minutes|int %}
+        {% set pct = [(used_min * 100 // limit_min) if limit_min else 0, 100]|min %}
+        <article class="pc-card pc-catcard" id="budget-card-{{ cat }}">
+            <div class="pc-catcard__head">
+                <div>
+                    <h3 class="pc-catcard__name">{{ category_labels[cat] }}</h3>
                     <a class="pc-hint" href="/processes?user={{ username }}" title="Set a per-app override on the Processes screen">App override</a>
-                </td>
-                <td id="budget-used-{{ cat }}" data-label="Used today">{{ b.used_minutes|hm }}</td>
-                <td data-label="Daily limit">
-                    <span class="pc-row">
-                        <span class="pc-duration__unit">h</span>
-                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours">
-                        <span class="pc-duration__unit">m</span>
-                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes">
-                    </span>
-                </td>
-                <td id="budget-status-{{ cat }}" data-label="State">
+                </div>
+                <span id="budget-status-{{ cat }}">
                     {% if b.frozen and b.paused and b.manual_frozen %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit (manual)</span>
                     {% elif b.paused %}<span class="badge-paused pc-chip pc-chip--danger">Paused at limit</span>
                     {% elif b.frozen %}<span class="badge-frozen pc-chip pc-chip--info">Frozen — by parent</span>
@@ -122,20 +106,32 @@
                     {% elif b.minutes %}<span class="badge-frozen pc-chip pc-chip--ok">Active</span>
                     {% else %}<span class="pc-chip pc-chip--neutral">Unlimited</span>{% endif %}
                     {% if b.window_active %}<span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}
-                    <div class="pc-meter{% if b.frozen or b.exhausted %} pc-meter--danger{% elif pct >= 80 %} pc-meter--warn{% endif %}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}" aria-label="{{ category_labels[cat] }} usage"><span class="pc-meter__fill" style="--pc-meter-value: {{ pct }}%"></span></div>
-                </td>
-                <td data-label="Action" class="actions pc-row">
-                    <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
-                    {% if b.frozen %}
-                    <button type="button" class="btn-unlock pc-btn pc-btn--sm pc-btn--primary" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze</button>
-                    {% elif b.minutes %}
-                    <button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze</button>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                </span>
+            </div>
+            <dl class="pc-catcard__dl">
+                <dt>Used today</dt>
+                <dd id="budget-used-{{ cat }}">{{ b.used_minutes|hm }}</dd>
+                <dt>Daily limit</dt>
+                <dd>
+                    <span class="pc-row">
+                        <span class="pc-duration__unit">h</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" id="budget-{{ cat }}-hours" value="{{ limit_min // 60 if limit_min else '' }}" placeholder="h" aria-label="{{ category_labels[cat] }} limit hours">
+                        <span class="pc-duration__unit">m</span>
+                        <input type="number" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" id="budget-{{ cat }}-minutes" value="{{ limit_min % 60 if limit_min else '' }}" placeholder="m" aria-label="{{ category_labels[cat] }} limit minutes">
+                    </span>
+                </dd>
+            </dl>
+            <div class="pc-meter{% if b.frozen or b.exhausted %} pc-meter--danger{% elif pct >= 80 %} pc-meter--warn{% endif %}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}" aria-label="{{ category_labels[cat] }} usage"><span class="pc-meter__fill" style="--pc-meter-value: {{ pct }}%"></span></div>
+            <div class="pc-card__footer">
+                <button type="button" class="btn-bedtime-save pc-btn pc-btn--sm pc-btn--primary" onclick="saveBudget('{{ username }}', '{{ cat }}')">Set</button>
+                {% if b.frozen %}
+                <button type="button" class="btn-unlock pc-btn pc-btn--sm pc-btn--primary pc-btn--block" aria-label="Unfreeze {{ category_labels[cat] }}" onclick="unfreezeCategory('{{ username }}', '{{ cat }}')">Unfreeze {{ category_labels[cat] }}</button>
+                {% elif b.minutes %}
+                <button type="button" class="btn-freeze pc-btn pc-btn--sm pc-btn--warn pc-btn--block" aria-label="Freeze {{ category_labels[cat] }}" onclick="freezeCategory('{{ username }}', '{{ cat }}')">Freeze {{ category_labels[cat] }}</button>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
     </div>
 </section>
 
@@ -271,6 +267,18 @@
         </div>
     </div>
 </section>
+
+{# Implementation aside (REVISED-SPEC.md Screen 3) — the stack the mockup
+   prescribes, kept as an honest annotation rather than hidden in docs. #}
+<aside class="pc-annotation" id="budgets-implementation" aria-labelledby="budgets-implementation-title">
+    <h2 class="pc-annotation__title" id="budgets-implementation-title">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
+        Implementation
+    </h2>
+    <p>Flask + Jinja + vanilla JavaScript + Bootstrap 5, no React/framework and no build step: every budget row, window and override is server-rendered from the live data and every save is a plain POST form.</p>
+    <p>Bootstrap 5 is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>). <code>static/js/app.js</code> is progressive enhancement only.</p>
+    <p>The Bootstrap grid lays category rows out as labelled cards below the mobile breakpoint; the row order, labels and actions are preserved. Accessibility: labelled inputs, <code>aria-live</code> on the refresh status, text + icon (never colour alone), 44px targets, reduced motion honoured. No CDN or external assets.</p>
+</aside>
 {% else %}
 <section class="pc-card">{{ pc_empty('No app budgets yet', 'No human accounts were found on this system.') }}</section>
 {% endif %}

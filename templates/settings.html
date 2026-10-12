@@ -25,22 +25,26 @@
     </div>
 </div>
 
-{# Status stack (design Screen 6). #}
-<div class="pc-banner pc-banner--info" role="status">
-    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>
-    Last sync just now
+{# Status stack (design Screen 6). The connection status is a live region so a
+   dropped local service is announced without stealing focus. #}
+<div class="pc-banner pc-banner--info" role="status" aria-live="polite">
+    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-triangle-alert"/></svg>
+    Last sync 4 min ago
 </div>
-<div class="pc-banner pc-banner--warn" role="status">
+<div class="pc-banner pc-banner--warn" role="status" aria-live="polite">
     <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-lock-keyhole"/></svg>
     Offline — lock controls require a fresh connection
     <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" disabled>Unavailable</button>
 </div>
-<div class="pc-banner pc-banner--danger" role="alert">
+<div class="pc-banner pc-banner--danger" role="alert" aria-live="assertive">
+    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-triangle-alert"/></svg>
     Could not reach local service
     <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" onclick="window.location.reload()">Retry</button>
 </div>
 
 {# Notifications #}
+<div class="row g-3">
+<div class="col-12 col-xl-6">
 <fieldset class="pc-fieldset" id="settings-notifications">
     <legend class="pc-fieldset__legend">Notifications</legend>
     <label class="pc-switch">
@@ -66,6 +70,7 @@
 </fieldset>
 
 {# Local access #}
+<div class="col-12 col-xl-6">
 <fieldset class="pc-fieldset" id="settings-local-access">
     <legend class="pc-fieldset__legend">Local access</legend>
     <div class="pc-field">
@@ -84,6 +89,8 @@
         Certificate status: <strong>not configured</strong>
     </p>
 </fieldset>
+</div>
+</div>
 
 {# Devices #}
 <section class="pc-card" id="settings-devices" aria-labelledby="devices-heading">
@@ -128,22 +135,33 @@
     </div>
 </section>
 
-{# Annotation sections (design Screen 6). #}
+{# Annotation sections (design Screen 6) — the exact stack the mockup
+   prescribes, kept visible rather than only in docs. #}
 <details class="pc-disclosure" id="settings-annotations">
     <summary>Implementation notes</summary>
     <div class="pc-disclosure__body">
         <div class="pc-grid pc-grid--2">
-            <article class="pc-card">
-                <h3 class="pc-card__title">Responsive behavior annotation</h3>
-                <p>Panels collapse to a single column at 960px; status banners stay first.</p>
+            <article class="pc-card pc-annotation">
+                <h3 class="pc-annotation__title">
+                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
+                    Flask + Jinja + vanilla JavaScript + Bootstrap 5
+                </h3>
+                <p>No build step and no framework: server-rendered templates and POST forms. Jinja macros cover alerts, toggles, device cards, status chips and buttons.</p>
+                <p>Bootstrap is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>, loaded after Bootstrap). <code>static/js/app.js</code> is used only for progressive enhancement (retry/toast, confirmation, reduced-motion).</p>
             </article>
-            <article class="pc-card">
-                <h3 class="pc-card__title">Accessibility notes</h3>
-                <p>Semantic fieldsets and legends; labels are never placeholder-only; keyboard order follows the visual order; WCAG AA contrast; prefers-reduced-motion disables live transitions; every action has text plus an icon.</p>
+            <article class="pc-card pc-annotation">
+                <h3 class="pc-annotation__title">
+                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor"/></svg>
+                    Responsive Bootstrap pattern
+                </h3>
+                <p>A <code>container-fluid</code> with a responsive row: Notifications and Local access are <code>col-12 col-xl-6</code> panels that collapse to one column below the breakpoint. Status alerts stay first and the device cards stack on small screens.</p>
             </article>
-            <article class="pc-card">
-                <h3 class="pc-card__title">Offline-capable implementation note</h3>
-                <p>Server-rendered HTML, minimal vanilla JS, no external fonts/icons/assets; safe on localhost.</p>
+            <article class="pc-card pc-annotation">
+                <h3 class="pc-annotation__title">
+                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-check"/></svg>
+                    Accessibility implementation
+                </h3>
+                <p>Semantic fieldsets and legends; visible labels (never placeholder-only); keyboard focus order follows the visual order; <code>aria-live</code> connection status; text + icon status (never colour alone); 44px controls; reduced motion honoured; lock controls disabled while offline.</p>
             </article>
         </div>
     </div>

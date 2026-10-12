@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {# =========================================================================
-   Overview (/ — Home), design-exports/SPEC.md Screen 1.
+   Overview (/ — Home), design-exports/REVISED-SPEC.md Screen 1.
 
-   Status-first family board: system summary, a per-account table (the phone
-   stack pattern gives labelled cards), an offline/sync banner, the admin list
-   and the design's specimen cards. Every selector pinned by the Katalon
-   contract and the stdlib suite is preserved literally:
-   #row-<user>, .btn-details, .btn-lock, .btn-unlock, .refresh-info,
-   #admin-panel, #admin-list, #new-admin-username, #toast (base),
-   plus the multi-device #device-selector/switchDevice JS.
+   Phone-first family board: a simple header (brand + "Local / Online") over a
+   single-column main with a 4-tab bottom nav — deliberately NO desktop
+   sidebar. Status-first: sync banner, system summary, one account card per
+   human account, the confirmation specimen, the design thesis and the empty
+   state.
+
+   Every selector pinned by the Katalon contract and the stdlib suite is
+   preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
+   .btn-lockscreen, .btn-logout, .refresh-info, #admin-panel, #admin-list,
+   #new-admin-username, #toast (base), plus the multi-device
+   #device-selector/switchDevice JS.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty %}
 
@@ -16,19 +20,26 @@
 {# Overview is the wide screen (audit + user are narrow). #}
 {% block shell_class %}{% endblock %}
 
+{# Overview drops the desktop sidebar and the full app bar: a simple header
+   over a single-column main, navigated by the 4-tab phone bottom bar. #}
+{% block layout_class %} pc-layout--phone{% endblock %}
+{% block sidebar %}{% endblock %}
+{% block appbar %}{% include '_partials/phone_header.html' %}{% endblock %}
+
 {% block content %}
 <p class="pc-eyebrow">Home</p>
 <h1 class="pc-page-title">Overview</h1>
 <p class="subtitle pc-subtitle">Logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }}) · Parent dashboard</p>
 
 {# Offline / sync banner (design Screen 1). The Retry action re-fetches
-   /api/users; the copy is refreshed by setStale()/refreshTable() below. #}
-<div class="pc-banner pc-banner--info" id="sync-banner" role="status">
+   /api/users; the copy is refreshed by setStale()/refreshTable() below. The
+   live region announces status changes without stealing focus. #}
+<div class="pc-banner pc-banner--info" id="sync-banner" role="status" aria-live="polite">
     <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wifi-off"/></svg>
     <span id="sync-text">Last sync just now · Local connection healthy</span>
     <button type="button" class="pc-btn pc-btn--sm pc-btn--ghost" onclick="refreshTable()">Retry</button>
 </div>
-<p class="pc-hint">Offline state: the last known status is preserved and destructive actions stay disabled until a fresh confirmation.</p>
+<p class="pc-hint"><strong>Offline state:</strong> preserve last known status and disable destructive actions until fresh confirmation.</p>
 
 {% if devices_enabled %}
 <div class="pc-row device-bar" id="device-selector">
@@ -45,9 +56,11 @@
 <section class="pc-card" aria-labelledby="summary-heading">
     <div class="pc-card__header">
         <h2 class="pc-card__title" id="summary-heading">System summary</h2>
-        <span class="pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-check"/></svg>Online</span>
+        <span class="pc-pill pc-pill--online"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-check"/></svg>Online</span>
     </div>
-    <p class="pc-meta">{{ machine_name }} · {{ users|length }} human accounts</p>
+    <p class="pc-account__name">{{ machine_name }}</p>
+    <p class="pc-meta">{{ users|length }} human accounts</p>
+    <p class="pc-meta" id="summary-sessions">1 active session</p>
     {# Glanceable KPI strip — computed from the existing user list, no new data.
        The ids/classes here are pinned by tests/test_ui_home.py. #}
     <div class="pc-summary" id="summary" aria-label="Status summary">
@@ -60,65 +73,61 @@
 
 <span id="pc-stale" class="pc-chip pc-chip--stale" role="status" hidden>stale — retrying</span>
 
-{# Accounts: the phone stack pattern renders each row as a labelled card.
-   Whole-row navigation is the Details link; the primary safe action is
-   Unlock (when locked) or Lock (when unlocked); destructive actions are
-   separated and confirmed. #}
-<table class="pc-table pc-table--stack" id="users-table">
-    <thead>
-        <tr>
-            <th scope="col">Username</th>
-            <th scope="col">UID</th>
-            <th scope="col">Status</th>
-            <th scope="col">Bedtime</th>
-            <th scope="col">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for user in users %}
-        <tr id="row-{{ user.username }}">
-            <td data-label="Username"><strong><a href="/user/{{ user.username }}">{{ user.username }}</a></strong>{% if user.wheel %} <span class="pc-meta">wheel admin</span>{% endif %}</td>
-            <td data-label="UID">{{ user.uid }}</td>
-            <td data-label="Status" class="status-{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
-                <span class="pc-status pc-status--{{ 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' }}">
-                    <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if user.locked == True else 'unlock' if user.locked == False else 'alert' }}"/></svg>
-                    {{ user.status_detail }}
-                </span>
-                {% if user.wheel %}<span class="badge-protected pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>Protected</span>{% endif %}
-                {% if user.in_bedtime %}<span class="pc-chip pc-chip--bedtime badge-bedtime"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock"/></svg>In Bedtime</span>{% endif %}
-                {% if user.in_bedtime and user.bedtime.manual_override %}<span class="pc-chip pc-chip--override badge-override">Override</span>{% endif %}
-            </td>
-            <td data-label="Bedtime">
-                {% if user.bedtime and user.bedtime.start %}
-                    {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }}
-                    <br>
-                    <span class="bedtime-summary pc-meta">{% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
-                {% else %}
-                    <span class="bedtime-summary pc-meta">Not set</span>
-                {% endif %}
-            </td>
-            <td class="actions pc-row" data-label="Actions">
-                {% if user.wheel %}
-                <span class="pc-meta">wheel admins can never be locked or removed.</span>
-                <button type="button" class="btn-details pc-btn pc-btn--ghost" onclick="window.location='/user/{{ user.username }}'">Details</button>
-                {% else %}
-                {% if user.locked != True %}
-                <button type="button" class="pc-btn pc-btn--danger btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
-                {% endif %}
-                {% if user.locked == True %}
-                <button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
-                {% endif %}
-                <button type="button" class="btn-lockscreen pc-btn pc-btn--neutral" onclick="lockScreen('{{ user.username }}')" title="Locks the screen without terminating the session">Lock screen</button>
-                <button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('{{ user.username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
-                <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
-                {% endif %}
-            </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" data-label="">{{ pc_empty('No human accounts found', 'No users were found on this system. Check the machine connection, then refresh.', action_html='<button type="button" class="pc-btn pc-btn--ghost" onclick="refreshTable()">Refresh</button>') }}</td></tr>
-        {% endfor %}
-    </tbody>
-</table>
+{# Accounts: one card per human account (design Screen 1). The whole card's
+   name links to the child's Time screen; the primary safe action is Unlock
+   (when locked) or Lock (when unlocked); destructive actions are separated
+   and confirmed. Wheel admins are system-protected: all actions disabled. #}
+<h2 class="pc-card__title pc-accounts__heading">Accounts</h2>
+<div class="pc-stack pc-accounts" id="accounts">
+    {% for user in users %}
+    {% set cls = 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' %}
+    <article class="pc-card pc-account" id="row-{{ user.username }}">
+        <div class="pc-account__head">
+            <div class="pc-account__id">
+                <p class="pc-account__name">
+                    <strong><a href="/user/{{ user.username }}">{{ user.username }}</a></strong>
+                    · {{ 'wheel admin' if user.wheel else 'child' }}
+                    · {{ user.status_detail|lower }}{% if user.locked == True and user.bedtime and user.bedtime.start %} until {{ user.bedtime.end|twelve }}{% endif %}
+                </p>
+                <p class="pc-meta pc-account__meta">
+                    UID {{ user.uid }}
+                    {% if user.bedtime and user.bedtime.start %}· Bedtime {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }} ({% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
+                </p>
+            </div>
+            <span class="pc-pill pc-pill--{{ cls }} pc-status pc-status--{{ cls }} status-{{ cls }}">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if cls == 'locked' else 'unlock' if cls == 'unlocked' else 'alert' }}"/></svg>
+                {{ user.status_detail }}
+            </span>
+            {% if user.wheel %}<span class="badge-protected pc-pill pc-pill--protected"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>Protected</span>{% endif %}
+            {% if user.in_bedtime %}<span class="pc-chip pc-chip--bedtime badge-bedtime"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock"/></svg>In Bedtime</span>{% endif %}
+            {% if user.in_bedtime and user.bedtime and user.bedtime.manual_override %}<span class="pc-chip pc-chip--override badge-override">Override</span>{% endif %}
+        </div>
+        <div class="pc-account__actions pc-row" data-label="Actions">
+            {% if user.wheel %}
+            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Lock</button>
+            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Unlock</button>
+            <button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Emergency logout</button>
+            <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
+            <span class="pc-meta">wheel admins can never be locked or removed.</span>
+            {% else %}
+            {% if user.locked != True %}
+            <button type="button" class="pc-btn pc-btn--primary btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
+            {% endif %}
+            {% if user.locked == True %}
+            <button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
+            {% endif %}
+            <button type="button" class="btn-lockscreen pc-btn pc-btn--neutral" onclick="lockScreen('{{ user.username }}')" title="Locks the screen without terminating the session">Lock screen</button>
+            <button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('{{ user.username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
+            <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
+            {% endif %}
+        </div>
+    </article>
+    {% else %}
+    <div class="pc-card">
+        {{ pc_empty('No human accounts found', 'No users were found on this system. Check the machine connection, then refresh.', action_html='<button type="button" class="pc-btn pc-btn--ghost" onclick="refreshTable()">Refresh</button>') }}
+    </div>
+    {% endfor %}
+</div>
 
 <p class="refresh-info">Status updates automatically every 10 seconds</p>
 
@@ -136,27 +145,33 @@
     </div>
 </details>
 
-{# Specimen cards (design Screen 1): the confirmation pattern + design thesis.
-   Kept in a disclosure so the operational board stays first. #}
-<details class="pc-disclosure" id="overview-specimens">
-    <summary>Design notes</summary>
-    <div class="pc-disclosure__body">
-        <div class="pc-grid pc-grid--2">
-            <article class="pc-card pc-card--hero" aria-labelledby="specimen-confirm">
-                <h3 class="pc-card__title" id="specimen-confirm">Confirmation specimen</h3>
-                <p class="pc-meta">Selected account: <strong>Sam</strong></p>
-                <p>Confirmation required.</p>
-                <label class="pc-switch"><input type="checkbox" checked disabled> Confirm lock action</label>
-                <button type="button" class="pc-btn pc-btn--danger pc-btn--block" disabled>Lock Sam</button>
-                <p class="pc-hint">Irreversible actions require an explicit confirmation and are logged with actor + timestamp.</p>
-            </article>
-            <article class="pc-card" aria-labelledby="design-thesis">
-                <h3 class="pc-card__title" id="design-thesis">Design thesis</h3>
-                <p>Status first, reversible actions up front, destructive actions separated and confirmed.</p>
-            </article>
+{# Specimen cards (design Screen 1): the confirmation pattern, the design
+   thesis and the empty-state card. #}
+<section id="overview-specimens" class="pc-stack" aria-label="Design specimens">
+    <article class="pc-card pc-card--hero" aria-labelledby="specimen-confirm">
+        <div class="pc-card__header">
+            <h3 class="pc-card__title" id="specimen-confirm">Selected account: Sam</h3>
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-lock-keyhole"/></svg>
         </div>
-    </div>
-</details>
+        <p class="pc-meta">Confirmation required.</p>
+        <label class="pc-switch"><input type="checkbox"> Confirm lock action</label>
+        <button type="button" class="pc-btn pc-btn--primary pc-btn--block">Lock Sam</button>
+        <p class="pc-hint">Irreversible actions require an explicit confirmation and are logged with actor + timestamp.</p>
+    </article>
+    <article class="pc-card pc-card--secondary" aria-labelledby="design-thesis">
+        <h3 class="pc-card__title" id="design-thesis">Design thesis</h3>
+        <p>Status first, reversible actions up front, destructive actions separated and confirmed.</p>
+    </article>
+    <article class="pc-card" aria-labelledby="empty-specimen">
+        <div class="pc-card__header">
+            <div>
+                <h3 class="pc-card__title" id="empty-specimen">No human accounts found</h3>
+                <p class="pc-meta">Check the machine connection</p>
+            </div>
+            <button type="button" class="pc-btn pc-btn--ghost" onclick="refreshTable()">Refresh</button>
+        </div>
+    </article>
+</section>
 {% endblock %}
 
 {% block scripts %}
@@ -223,37 +238,40 @@
         set('summary-bedtime', users.filter(u => u.in_bedtime).length);
     }
 
-    function rowHtml(u) {
+    function accountHtml(u) {
         const cls = statusClass(u.locked);
-        let status = `<span class="pc-status pc-status--${cls}">` +
+        let badges = `<span class="pc-pill pc-pill--${cls} pc-status pc-status--${cls} status-${cls}">` +
             `<svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-${statusIcon(u.locked)}"/></svg> ` +
             `${esc(u.status_detail)}</span>`;
         if (u.wheel) {
-            status += '<span class="badge-protected pc-chip pc-chip--ok">' +
+            badges += '<span class="badge-protected pc-pill pc-pill--protected">' +
                 '<svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>Protected</span>';
         }
         if (u.in_bedtime) {
-            status += '<span class="pc-chip pc-chip--bedtime badge-bedtime">' +
+            badges += '<span class="pc-chip pc-chip--bedtime badge-bedtime">' +
                 '<svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock"/></svg> In Bedtime</span>';
         }
         if (u.in_bedtime && u.bedtime && u.bedtime.manual_override) {
-            status += '<span class="pc-chip pc-chip--override badge-override">Override</span>';
+            badges += '<span class="pc-chip pc-chip--override badge-override">Override</span>';
         }
-        let bedtimeCell;
+        let meta = `UID ${esc(u.uid)}`;
         if (u.bedtime && u.bedtime.start) {
             const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
-            bedtimeCell = `${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))}<br>` +
-                `<span class="bedtime-summary pc-meta">${esc(days)}</span>`;
-        } else {
-            bedtimeCell = '<span class="bedtime-summary pc-meta">Not set</span>';
+            meta += ` · Bedtime ${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))} (${esc(days)})`;
         }
+        const name = `<strong><a href="/user/${encodeURIComponent(u.username)}">${esc(u.username)}</a></strong>` +
+            ` · ${u.wheel ? 'wheel admin' : 'child'} · ${esc(String(u.status_detail).toLowerCase())}` +
+            ((u.locked === true && u.bedtime && u.bedtime.start) ? ` until ${esc(fmt12(u.bedtime.end))}` : '');
         let actions = '';
         if (u.wheel) {
-            actions = '<span class="pc-meta">wheel admins can never be locked or removed.</span>' +
-                `<button type="button" class="btn-details pc-btn pc-btn--ghost" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
+            actions = '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Lock</button>' +
+                '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Unlock</button>' +
+                '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Emergency logout</button>' +
+                `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>` +
+                '<span class="pc-meta">wheel admins can never be locked or removed.</span>';
         } else {
             if (u.locked !== true) {
-                actions += `<button type="button" class="pc-btn pc-btn--danger btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
+                actions += `<button type="button" class="pc-btn pc-btn--primary btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
             }
             if (u.locked === true) {
                 actions += `<button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
@@ -262,14 +280,12 @@
             actions += `<button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('${esc(u.username)}')">Emergency logout</button>`;
             actions += `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
         }
-        const nameCell = `<strong><a href="/user/${encodeURIComponent(u.username)}">${esc(u.username)}</a></strong>` +
-            (u.wheel ? ' <span class="pc-meta">wheel admin</span>' : '');
-        return `<tr id="row-${esc(u.username)}">` +
-            `<td data-label="Username">${nameCell}</td>` +
-            `<td data-label="UID">${esc(u.uid)}</td>` +
-            `<td data-label="Status" class="status-${cls}">${status}</td>` +
-            `<td data-label="Bedtime">${bedtimeCell}</td>` +
-            `<td data-label="Actions" class="actions pc-row">${actions}</td></tr>`;
+        return `<article class="pc-card pc-account" id="row-${esc(u.username)}">` +
+            '<div class="pc-account__head"><div class="pc-account__id">' +
+            `<p class="pc-account__name">${name}</p>` +
+            `<p class="pc-meta pc-account__meta">${meta}</p></div>` +
+            badges + '</div>' +
+            `<div class="pc-account__actions pc-row" data-label="Actions">${actions}</div></article>`;
     }
 
     function setStale(stale) {
@@ -286,11 +302,11 @@
     }
 
     async function refreshTable() {
-        const tbody = document.querySelector('#users-table tbody');
+        const list = document.getElementById('accounts');
         try {
             const resp = await fetch('/api/users');
             const users = await resp.json();
-            if (tbody) { tbody.innerHTML = users.map(rowHtml).join(''); }
+            if (list) { list.innerHTML = users.map(accountHtml).join(''); }
             updateSummary(users);
             setStale(false);
         } catch (e) {
@@ -361,7 +377,7 @@
         }
     }
 
-    // Targeted refresh: only the table body is re-rendered, every 10s.
+    // Targeted refresh: only the account list is re-rendered, every 10s.
     setInterval(refreshTable, 10000);
 
     async function refreshAdmins() {

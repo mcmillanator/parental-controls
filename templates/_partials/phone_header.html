@@ -1,0 +1,16 @@
+{# ==========================================================================
+   Simple header for the Overview screen (design-exports/REVISED-SPEC.md
+   Screen 1).
+
+   Overview deliberately does NOT use the desktop sidebar or the full app bar:
+   just the product brand and a green "Local / Online" status dot over a
+   single-column main. Navigation lives in the 4-tab phone bottom bar
+   (templates/_partials/tabbar.html).
+   ========================================================================== #}
+<header class="pc-phoneheader">
+  <span class="pc-phoneheader__title">{{ app_title|default('Parental Controls') }}</span>
+  <span class="pc-phoneheader__status">
+    <span class="pc-dot pc-dot--online" aria-hidden="true"></span>
+    <span>Local / Online</span>
+  </span>
+</header>
