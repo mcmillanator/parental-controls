@@ -98,11 +98,16 @@ class TestNotifyUser(unittest.TestCase):
             self.assertFalse(app.notify_user('bad;user', 'T', 'B'))
             m.assert_not_called()
 
-    def test_no_session_fails_silently_live(self):
-        """bluefox has no session: must log-and-return-False, never raise."""
-        if bluefox_has_session():
-            self.skipTest('bluefox unexpectedly has a live session')
-        self.assertFalse(app.notify_user('bluefox', 'Test', 'graceful check'))
+    def test_sessionless_target_fails_silently(self):
+        """A target with no machine must log-and-return-False, never raise.
+
+        Uses a nonexistent account on purpose: there is no
+        `--machine=<u>@.host` to reach, so `systemd-run` fails and
+        notify_user returns False. Deliberately NOT a real account — these
+        tests must never send a notification to tester/bluefox/stan.
+        """
+        self.assertFalse(
+            app.notify_user('pcno_such_user', 'Test', 'graceful check'))
 
 
 class TestMinutesUntilBedtime(unittest.TestCase):

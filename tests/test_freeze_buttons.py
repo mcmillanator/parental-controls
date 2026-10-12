@@ -589,23 +589,19 @@ class TestFreezeDeploy(unittest.TestCase):
             lines = [ln.strip() for ln in f
                      if ln.strip() and not ln.strip().startswith('#')]
         service = '@SERVICE_USER@'
-        self.assertEqual(lines, [
-            f'{service} ALL=(root) NOPASSWD: /usr/sbin/tee '
-            '/sys/fs/cgroup/parental-*/cgroup.freeze, /usr/bin/tee '
-            '/sys/fs/cgroup/parental-*/cgroup.freeze',
-            f'{service} ALL=(root) NOPASSWD: /usr/sbin/tee '
-            '/sys/fs/cgroup/parental-*/cgroup.procs, /usr/bin/tee '
-            '/sys/fs/cgroup/parental-*/cgroup.procs',
-            f'{service} ALL=(root) NOPASSWD: /usr/sbin/cat '
-            '/sys/fs/cgroup/parental-*/cgroup.freeze, /usr/bin/cat '
-            '/sys/fs/cgroup/parental-*/cgroup.freeze',
-            f'{service} ALL=(root) NOPASSWD: /usr/sbin/cat '
-            '/sys/fs/cgroup/parental-*/cgroup.procs, /usr/bin/cat '
-            '/sys/fs/cgroup/parental-*/cgroup.procs',
-            f'{service} ALL=(root) NOPASSWD: /usr/sbin/mkdir -p '
-            '/sys/fs/cgroup/parental-*, /usr/bin/mkdir -p '
-            '/sys/fs/cgroup/parental-*',
-        ])
+        # Five grants, one per cgroup attribute, each anchored to the
+        # parental-<user>-<category> namespace and both resolved binaries.
+        # (Regex-anchored, not trailing-wildcard: see sudo-audit.md §5.)
+        self.assertEqual(len(lines), 5)
+        for ln in lines:
+            self.assertIn(f'{service} ALL=(root) NOPASSWD: ^/usr/sbin/', ln)
+            self.assertIn(', ^/usr/bin/', ln)
+            self.assertTrue(ln.endswith('$'), ln)
+            self.assertIn('/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+', ln)
+        for verb in ('tee', 'cat', 'mkdir'):
+            self.assertTrue(
+                any(f'/usr/sbin/{verb} ' in ln for ln in lines),
+                f'no grant for {verb}')
         # The new freeze paths must not touch subprocess/sudo directly —
         # all privileged writes go through the five existing helpers.
         for fn in (budgets.freeze_category, budgets.unfreeze_category):

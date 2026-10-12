@@ -58,7 +58,9 @@ def granted_commands(rel):
     """[(binary, argument pattern)] for every entry in a sudoers template.
 
     sudoers command specifications are comma separated after NOPASSWD:, so
-    each entry is split out and the binary separated from its arguments.
+    each entry is split out and the binary separated from its arguments. An
+    anchored-ERE entry (leading `^`) carries the path inside the regex and is
+    returned as (None, regex) -- see parse_command_specs().
     """
     out = []
     for line in rule_lines(rel):
@@ -66,6 +68,9 @@ def granted_commands(rel):
         for item in spec.split(','):
             item = item.strip()
             if not item:
+                continue
+            if item.startswith('^'):
+                out.append((None, item))
                 continue
             binary, _, args = item.partition(' ')
             out.append((binary, ' '.join(args.split())))
@@ -75,13 +80,21 @@ def granted_commands(rel):
 def authorizes(rel, argv):
     """True if the template would let sudo run `argv` (sudoers(5) semantics).
 
-    Command-line arguments are matched as a single, concatenated string
-    against the rule's argument pattern ("* matches any set of zero or more
-    characters, including white space"), which is what fnmatch does.
+    `argv` omits both `sudo` and the binary name (e.g. NOTIFY_ARGV). Command
+    arguments are matched as a single, concatenated string against the rule's
+    argument pattern. An anchored-ERE rule (leading `^`, carried as
+    (None, pattern)) has its path baked into the pattern, so the path is
+    prepended before matching.
     """
     joined = ' '.join(argv)
-    return any(binary and fnmatch.fnmatchcase(joined, args)
-               for binary, args in granted_commands(rel))
+    for binary, args in granted_commands(rel):
+        if binary is None:
+            path = args.split(' ', 1)[0].lstrip('^')
+            if re.fullmatch(args, f'{path} {joined}'):
+                return True
+        elif fnmatch.fnmatchcase(joined, args):
+            return True
+    return False
 
 
 # The exact argv notify_user() runs — pinned by
@@ -167,12 +180,26 @@ def _glob_to_regex(pattern, pathname):
 
 
 def _command_matches(pattern, path):
-    """Match a command path. sudoers(5) forbids `*` crossing a `/` here."""
+    """Match a command path. sudoers(5) forbids `*` crossing a `/` here.
+
+    A leading `^` and trailing `$` mean the pattern is already a POSIX
+    extended regex (the hardened templates anchor every grant), so match it
+    as-is. Otherwise fall back to wildcard semantics.
+    """
+    if pattern.startswith('^') and pattern.endswith('$'):
+        return re.fullmatch(pattern, path) is not None
     return _glob_to_regex(pattern, pathname=True).match(path) is not None
 
 
 def _args_match(pattern, args):
-    """Match arguments: one concatenated string, `*` matches anything."""
+    """Match arguments: one concatenated string, `*` matches anything.
+
+    A leading `^` and trailing `$` mean the pattern is already a POSIX
+    extended regex (the hardened templates anchor every grant), so match it
+    as-is. Otherwise fall back to wildcard semantics.
+    """
+    if pattern.startswith('^') and pattern.endswith('$'):
+        return re.fullmatch(pattern, args) is not None
     return _glob_to_regex(pattern, pathname=False).match(args) is not None
 
 
@@ -188,7 +215,13 @@ def resolve_command(name):
 
 
 def parse_command_specs(body):
-    """[(binary, argument pattern)] for the NOPASSWD specs in a sudoers body."""
+    """[(binary, argument pattern)] for the NOPASSWD specs in a sudoers body.
+
+    An anchored POSIX ERE (leading `^`) is returned as (None, regex): sudoers
+    matches such a pattern against the WHOLE command line -- binary path and
+    arguments joined -- as one string, so it cannot be split on the first
+    space the way a wildcard spec is.
+    """
     out = []
     for line in body.splitlines():
         line = line.strip()
@@ -197,6 +230,9 @@ def parse_command_specs(body):
         for item in line.split('NOPASSWD:', 1)[-1].split(','):
             item = item.strip()
             if not item:
+                continue
+            if item.startswith('^'):
+                out.append((None, item))
                 continue
             binary, _, args = item.partition(' ')
             out.append((binary, ' '.join(args.split())))
@@ -225,10 +261,17 @@ def sudoers_authorizes(rendered_body, argv):
     if path is None:
         return False
     arg_string = ' '.join(rest[1:])
-    return any(
-        binary and _command_matches(binary, path)
-        and (not args or _args_match(args, arg_string))
-        for binary, args in parse_command_specs(rendered_body))
+    full_line = path if not arg_string else f'{path} {arg_string}'
+    for binary, args in parse_command_specs(rendered_body):
+        if binary is None:
+            # Anchored whole-command-line regex (the hardened templates).
+            if re.fullmatch(args, full_line) is not None:
+                return True
+            continue
+        if binary and _command_matches(binary, path) \
+                and (not args or _args_match(args, arg_string)):
+            return True
+    return False
 
 
 def authorized_by_template(argv):
@@ -314,6 +357,25 @@ REQUIRED_COMMANDS = (
 # Commands the scoped rules must NEVER authorize. These are the escalations
 # the stan-nopasswd blanket currently permits and that scoped sudoers has to
 # actually close before the blanket can be dropped; see sudo-audit.md.
+# With trailing-wildcard rules these all passed, because `usermod -U *` spans
+# whitespace and `/` in the argument string. The regex-anchored templates must
+# now deny each of them: root mutation, wheel/uid-0 takeover, kill-everything,
+# path traversal, and password-flag injection on passwd.
+REGEX_ATTACKS = (
+    ['sudo', 'usermod', '-U', '-p', '$y$j9$hash', 'root'],
+    ['sudo', 'usermod', '-U', '-G', 'wheel', 'kidaccount'],
+    ['sudo', 'usermod', '-U', '-o', '-u', '0', 'kidaccount'],
+    ['sudo', 'usermod', '-L', '-U', 'root'],
+    ['sudo', 'loginctl', 'terminate-user', '--all'],
+    ['sudo', 'loginctl', 'terminate-user', '-f', '--all'],
+    ['sudo', 'tee', '/sys/fs/cgroup/parental-kidaccount/../system.slice/'
+                   'sshd.service/cgroup.procs'],
+    ['sudo', 'tee', '/sys/fs/cgroup/../parental-kidaccount-games/cgroup.freeze'],
+    ['sudo', 'passwd', '-S', '-d', 'root'],
+    ['sudo', 'passwd', '-S', '-u', 'root'],
+    ['sudo', 'passwd', '-S', '-e', 'kidaccount'],
+)
+
 MUST_NEVER_AUTHORIZE = (
     ['sudo', 'bash'],
     ['sudo', '/bin/bash'],
@@ -430,6 +492,11 @@ def _instantiate(tokens):
     # A trailing list-concatenation slot always contributes operands.
     variadic = [t for t in tokens if t.endswith('...>')]
     tokens = [t for t in tokens if not t.endswith('...>')]
+    # f-string sites carry a bare '?' inside a larger literal
+    # (e.g. '--machine=?@.host'); substitute the representative value so an
+    # anchored-regex grant can match it the way sudo would.
+    tokens = [t.replace('?', USER) if '?' in t and not t.startswith('<')
+              else t for t in tokens]
     outputs = [list(tokens)]
     for index, token in enumerate(tokens):
         if token not in _DYNAMIC_VALUES:
@@ -628,16 +695,56 @@ class TestSudoersCoversTheCode(unittest.TestCase):
                     'scoped sudoers must NOT authorize: sudo '
                     + ' '.join(argv[1:]))
 
-    def test_residual_privilege_of_trailing_wildcards_is_pinned(self):
-        """Characterisation test: document what the wildcards DO allow.
+    def test_regex_anchored_rules_deny_the_wildcard_attacks(self):
+        """The six attacks the trailing-wildcard rules allowed are now denied.
 
-        sudoers(5) matches arguments as one concatenated string and `*`
-        spans whitespace, so `usermod -L *` also matches extra usermod
-        flags ('sudo usermod -U -G wheel bluefox' authorizes). The app
-        never builds such an argv -- valid_username() rejects a leading '-'
-        -- but the residual survives blanket removal. If this test starts
-        failing the templates got tighter, which is welcome; update
-        sudo-audit.md to match.
+        sudo matches arguments as ONE space-joined string, so `usermod -U *`
+        also matched `usermod -U -p <hash> root`. The anchored regexes must
+        reject every one of these while still authorizing the legitimate
+        commands (covered by the coverage tests above).
+        """
+        for argv in REGEX_ATTACKS:
+            with self.subTest(argv=' '.join(argv)):
+                self.assertFalse(
+                    authorized_by_template(argv),
+                    'regex-anchored sudoers must NOT authorize: sudo '
+                    + ' '.join(argv[1:]))
+
+    def test_no_mutator_rule_uses_a_bare_trailing_wildcard(self):
+        """A trailing `*` on a mutating command is the bug this fixes.
+
+        `usermod -U *` spans whitespace and `/` in the argument string, so it
+        authorized root mutation. Every mutating command (usermod, loginctl,
+        tee, mkdir, passwd) must use an anchored regex instead. The notify
+        grant keeps `.* .*` deliberately: title and body are free text.
+        """
+        for rel in ('sudoers-parental-controls',
+                    'sudoers-parental-controls-budgets'):
+            for line in read(rel).splitlines():
+                if line.startswith('#') or '@SERVICE_USER@' not in line:
+                    continue
+                for grant in line.split(':', 1)[1].split(','):
+                    grant = grant.strip()
+                    if not grant:
+                        continue
+                    parts = grant.split()
+                    if len(parts) < 2:
+                        continue
+                    binary = parts[0].lstrip('^')
+                    if binary.rsplit('/', 1)[-1] in (
+                            'usermod', 'loginctl', 'tee', 'mkdir', 'passwd'):
+                        self.assertTrue(
+                            grant.startswith('^') and grant.endswith('$'),
+                            f'{rel}: mutating grant must be regex-anchored, '
+                            f'got: {grant}')
+
+    def test_residual_privilege_of_trailing_wildcards_is_now_denied(self):
+        """The regex-anchored templates closed the trailing-wildcard residuals.
+
+        This began life as a characterisation test documenting what the bare
+        `usermod -U *` form allowed (sudoers(5) matches arguments as one
+        concatenated string and `*` spans whitespace). The templates are now
+        anchored regexes, so every one of those escapes must be DENIED.
         """
         residuals = (
             ['sudo', 'usermod', '-U', '-G', 'wheel', 'bluefox'],
@@ -647,10 +754,10 @@ class TestSudoersCoversTheCode(unittest.TestCase):
         )
         for argv in residuals:
             with self.subTest(argv=' '.join(argv)):
-                self.assertTrue(
+                self.assertFalse(
                     authorized_by_template(argv),
-                    'residual privilege narrowed below what sudo-audit.md '
-                    'documents -- update the audit table')
+                    'anchored templates must deny the old residual: sudo '
+                    + ' '.join(argv[1:]))
 
     def test_residual_privilege_does_not_include_a_root_shell(self):
         """Even with the trailing-wildcard residuals, no shell is reachable.
@@ -864,12 +971,14 @@ class TestSudoersTemplates(unittest.TestCase):
 
     def test_passwd_status_check_is_allowed_and_scoped(self):
         body = read('sudoers-parental-controls')
-        self.assertIn('/usr/sbin/passwd -S *', body)
-        self.assertIn('/usr/bin/passwd -S *', body)
-        # No unscoped passwd rule: every passwd entry must carry the -S flag.
+        self.assertIn('/usr/sbin/passwd -S [A-Za-z0-9_.-]+$', body)
+        self.assertIn('/usr/bin/passwd -S [A-Za-z0-9_.-]+$', body)
+        # No unscoped passwd rule: every passwd entry must carry the -S flag,
+        # and the rule is anchored so no other flag (-d/-u/-e) can ride along.
         for line in body.splitlines():
             if 'passwd' in line and not line.strip().startswith('#'):
-                self.assertIn('passwd -S', line)
+                self.assertIn('passwd -S ', line)
+                self.assertIn('^/usr/sbin/passwd -S', line)
 
     def test_budget_rules_cover_resolved_sbin_and_bin_paths(self):
         body = read('sudoers-parental-controls-budgets')
@@ -877,7 +986,8 @@ class TestSudoersTemplates(unittest.TestCase):
             self.assertIn(f'/usr/sbin/{binary}', body)
             self.assertIn(f'/usr/bin/{binary}', body)
 
-    NOTIFY_ARGS = '--machine=*@.host --user notify-send -u critical * *'
+    NOTIFY_ARGS = ('--machine=[A-Za-z0-9_.-]+@[.]host --user notify-send '
+                   '-u critical .* .*')
 
     def test_systemd_run_granted_for_notifications(self):
         body = read('sudoers-parental-controls')
@@ -888,7 +998,7 @@ class TestSudoersTemplates(unittest.TestCase):
         for line in rule_lines('sudoers-parental-controls'):
             if 'systemd-run' not in line:
                 continue
-            self.assertIn('--machine=*@.host', line)
+            self.assertIn('--machine=[A-Za-z0-9_.-]+@[.]host', line)
             self.assertIn('--user notify-send -u critical', line)
             # `--user *` would authorize any command in a child's session
             # (sudoers(5): "Preventing shell escapes").
@@ -919,7 +1029,10 @@ class TestSudoersTemplates(unittest.TestCase):
     def test_granted_binary_paths_exist_on_this_box(self):
         for rel in ('sudoers-parental-controls',
                     'sudoers-parental-controls-budgets'):
-            for binary, _ in granted_commands(rel):
+            for binary, spec in granted_commands(rel):
+                if binary is None:
+                    # Anchored regex: the path lives inside the pattern.
+                    binary = spec.split(' ', 1)[0].lstrip('^')
                 self.assertTrue(
                     os.path.exists(binary),
                     f'{rel} grants {binary}, which does not exist here')
