@@ -1,0 +1,114 @@
+{# Confirm / destructive-action dialogs — native <dialog> + showModal()
+   (UI_UX_PLAN.md Q4). No Bootstrap JS: the native element gives focus
+   trapping, Esc-to-close and inert background for free.
+
+   * `pc_confirm_dialog(...)` is the reusable macro a page can render inline
+     for a specific destructive action.
+   * `#pc-confirm` is the generic dialog used by `window.pcConfirm(opts)`,
+     which returns a Promise<boolean>.
+
+   Irreversible actions (Lock, Emergency logout, Remove admin, Clear schedule)
+   use `danger=True` and may require the operator to type a name
+   (Redundant-Entry-friendly: the value is read, not questioned). #}
+{% macro pc_confirm_dialog(dialog_id, title, body, confirm_label='Confirm', cancel_label='Cancel', danger=False, require_text=None) -%}
+<dialog id="{{ dialog_id }}" class="pc-dialog{{ ' pc-dialog--danger' if danger else '' }}" aria-labelledby="{{ dialog_id }}-title">
+  <div class="pc-dialog__header" id="{{ dialog_id }}-title">{{ title }}</div>
+  <div class="pc-dialog__body">
+    <p>{{ body }}</p>
+    {% if require_text %}
+    <label class="pc-field__label" for="{{ dialog_id }}-confirm-text">{{ require_text }}</label>
+    <input class="pc-input" id="{{ dialog_id }}-confirm-text" type="text" autocomplete="off" data-pc-confirm-text>
+    {% endif %}
+  </div>
+  <div class="pc-dialog__footer">
+    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>{{ cancel_label }}</button>
+    <button type="button" class="pc-btn {{ 'pc-btn--danger' if danger else 'pc-btn--primary' }}" data-pc-dialog-confirm>{{ confirm_label }}</button>
+  </div>
+</dialog>
+{%- endmacro %}
+
+<dialog id="pc-confirm" class="pc-dialog" aria-labelledby="pc-confirm-title">
+  <div class="pc-dialog__header" id="pc-confirm-title">Confirm</div>
+  <div class="pc-dialog__body">
+    <p id="pc-confirm-body">Are you sure?</p>
+    <label class="pc-field__label" for="pc-confirm-text" hidden>Type to confirm</label>
+    <input class="pc-input" id="pc-confirm-text" type="text" autocomplete="off" data-pc-confirm-text hidden>
+  </div>
+  <div class="pc-dialog__footer">
+    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>Cancel</button>
+    <button type="button" class="pc-btn pc-btn--primary" data-pc-dialog-confirm>Confirm</button>
+  </div>
+</dialog>
+
+<script>
+/* window.pcConfirm({ title, body, confirmLabel, cancelLabel, danger, requireText })
+   -> Promise<boolean>. A drop-in replacement for window.confirm() that is
+   styleable, titled and focus-trapped. Resolves false on Esc / backdrop /
+   Cancel; only resolves true after an explicit confirm click, and only types
+   -checked when requireText matches (case-insensitive, trimmed). */
+(function () {
+  'use strict';
+  function pcConfirm(opts) {
+    opts = opts || {};
+    var dialog = document.getElementById('pc-confirm');
+    if (!dialog || typeof dialog.showModal !== 'function') {
+      return Promise.resolve(window.confirm(opts.body || 'Are you sure?'));
+    }
+    var titleEl = document.getElementById('pc-confirm-title');
+    var bodyEl = document.getElementById('pc-confirm-body');
+    var textEl = document.getElementById('pc-confirm-text');
+    var textLabel = document.querySelector('label[for="pc-confirm-text"]');
+    var confirmBtn = dialog.querySelector('[data-pc-dialog-confirm]');
+    var cancelBtn = dialog.querySelector('[data-pc-dialog-cancel]');
+
+    titleEl.textContent = opts.title || 'Confirm';
+    bodyEl.textContent = opts.body || 'Are you sure?';
+    confirmBtn.textContent = opts.confirmLabel || 'Confirm';
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    confirmBtn.className = 'pc-btn ' + (opts.danger ? 'pc-btn--danger' : 'pc-btn--primary');
+    dialog.classList.toggle('pc-dialog--danger', !!opts.danger);
+
+    var required = opts.requireText || null;
+    if (required) {
+      textLabel.hidden = false;
+      textLabel.textContent = required === true ? 'Type to confirm' : required;
+      textEl.hidden = false;
+      textEl.value = '';
+      confirmBtn.disabled = true;
+    } else {
+      textLabel.hidden = true;
+      textEl.hidden = true;
+      textEl.value = '';
+      confirmBtn.disabled = false;
+    }
+
+    return new Promise(function (resolve) {
+      var settled = false;
+      function finish(value) {
+        if (settled) { return; }
+        settled = true;
+        textEl.removeEventListener('input', onInput);
+        confirmBtn.removeEventListener('click', onConfirm);
+        cancelBtn.removeEventListener('click', onCancel);
+        dialog.removeEventListener('close', onClose);
+        if (dialog.open) { dialog.close(); }
+        resolve(value);
+      }
+      function onInput() {
+        if (!required) { return; }
+        var want = (required === true ? '' : String(required)).trim().toLowerCase();
+        confirmBtn.disabled = want !== '' && textEl.value.trim().toLowerCase() !== want;
+      }
+      function onConfirm() { finish(true); }
+      function onCancel() { finish(false); }
+      function onClose() { finish(false); }
+      textEl.addEventListener('input', onInput);
+      confirmBtn.addEventListener('click', onConfirm);
+      cancelBtn.addEventListener('click', onCancel);
+      dialog.addEventListener('close', onClose);
+      dialog.showModal();
+    });
+  }
+  window.pcConfirm = pcConfirm;
+})();
+</script>

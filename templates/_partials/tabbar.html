@@ -1,0 +1,27 @@
+{# Bottom tab bar — phone only, hidden >=768px by app.css.
+   Three flat destinations, 44px targets, aria-current on the active one
+   (UI_UX_PLAN.md §4.2, Q3). The Account entry is a native <details> popover so
+   the bar works without any JS framework. #}
+{% set _active = active_nav|default('') %}
+<nav class="pc-tabbar" aria-label="Primary">
+  <a class="pc-tab" href="{{ url_for('index') }}"{% if _active == 'home' %} aria-current="page"{% endif %}>
+    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-home"/></svg>
+    <span>Home</span>
+  </a>
+  <a class="pc-tab" href="{{ url_for('admin_audit') }}"{% if _active == 'admin' %} aria-current="page"{% endif %}>
+    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>
+    <span>Admin</span>
+  </a>
+  <details class="pc-tabmenu">
+    <summary class="pc-tab" aria-label="Account">
+      <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>
+      <span>Account</span>
+    </summary>
+    <div class="pc-menu__panel pc-tabmenu__panel">
+      <a class="pc-menu__item" href="{{ url_for('change_password') }}">Change password</a>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="pc-menu__item pc-menu__item--button">Log out</button>
+      </form>
+    </div>
+  </details>
+</nav>

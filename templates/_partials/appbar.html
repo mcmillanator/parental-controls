@@ -1,0 +1,42 @@
+{# Sticky app bar (UI_UX_PLAN.md §4.2).
+   Phone: title + account <details> menu. >=768px: the same three destinations
+   inline (Home · Admin) plus the account menu; the bottom tab bar handles the
+   phone case (see _partials/tabbar.html).
+
+   Context (all optional, with defaults so any page can render the shell):
+     active_nav   : 'home' | 'admin' | ''  -> aria-current on the active link
+     app_title    : product name shown top-left
+     app_subtitle : one-line "what this is" under the title
+     current_user : actor name shown in the account menu, if known
+#}
+{% set _active = active_nav|default('') %}
+<header class="pc-appbar">
+  <div class="pc-appbar__brand">
+    <span class="pc-appbar__title">{{ app_title|default('Parental Controls') }}</span>
+    <span class="pc-appbar__sub">{{ app_subtitle|default('Manage this Bazzite system') }}</span>
+  </div>
+
+  <nav class="pc-appbar__nav" aria-label="Primary">
+    <a class="pc-btn pc-btn--ghost" href="{{ url_for('index') }}"{% if _active == 'home' %} aria-current="page"{% endif %}>
+      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-home"/></svg>Home
+    </a>
+    <a class="pc-btn pc-btn--ghost" href="{{ url_for('admin_audit') }}"{% if _active == 'admin' %} aria-current="page"{% endif %}>
+      <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>Admin
+    </a>
+  </nav>
+
+  <div class="pc-appbar__actions">
+    <details class="pc-menu">
+      <summary aria-label="Account menu">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>
+        <span aria-hidden="true">{{ current_user|default('Account') }}</span>
+      </summary>
+      <div class="pc-menu__panel">
+        <a class="pc-menu__item" href="{{ url_for('change_password') }}">Change password</a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button type="submit" class="pc-menu__item pc-menu__item--button">Log out</button>
+        </form>
+      </div>
+    </details>
+  </div>
+</header>

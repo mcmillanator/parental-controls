@@ -1,0 +1,6 @@
+{# Insecure-LAN warning banner.
+   Rendered from the `insecure_lan` context processor (see app.py
+   `_insecure_lan_banner`). Token-based replacement for the inline-styled
+   `_insecure_banner.html`; the original partial stays untouched while the
+   existing pages remain un-converted. #}
+{% if insecure_lan %}<div class="pc-banner pc-banner--danger" role="alert">Insecure LAN mode — logins can be read off the network. Re-run install with --tls.</div>{% endif %}

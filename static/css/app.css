@@ -1,0 +1,1272 @@
+/* ==========================================================================
+   app.css — Bazzite Parental Controls design system
+   --------------------------------------------------------------------------
+   Hand-written, no build step. Loaded AFTER the vendored Bootstrap 5.3.3 CSS
+   so our tokens and components win the cascade.
+
+   Layers (see UI_UX_PLAN.md §3):
+     1. tokens           (core palette -> semantic -> component)
+     2. reset / base
+     3. layout shells    (.pc-shell, .pc-main, .pc-auth, skip link)
+     4. navigation       (app bar, bottom tab bar)
+     5. components       (button, chip, status, card, table, field, toast,
+                          dialog, empty, skeleton, summary, banner, meter)
+     6. state matrix + accessibility (focus-visible, reduced motion, touch)
+
+   Everything is written for a 360px phone first; widths below 768px are the
+   single-column "card" world, >=768px restores tables and inline nav.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ tokens */
+:root {
+  /* Tier 1 — core palette. Only a theme swaps these values. */
+  --pc-ink-900: #12121f;
+  --pc-ink-800: #16213e;
+  --pc-ink-700: #1a1a2e;
+  --pc-ink-600: #1a1a3e;
+  --pc-ink-500: #1f2b50;
+  --pc-ink-400: #2a3a5e;
+  --pc-navy-700: #0f3460;
+  --pc-navy-800: #131c36;
+  --pc-green-500: #4ecca3;
+  --pc-green-600: #2f9e79;
+  --pc-red-500: #e94560;
+  --pc-red-700: #7a1f2b;
+  --pc-amber-400: #f0c040;
+  --pc-amber-700: #8a5a00;
+  --pc-violet-500: #6a4c93;
+  --pc-orange-500: #e67e22;
+  --pc-blue-500: #4a90d9;
+  --pc-slate-100: #e0e0e0;
+  --pc-slate-400: #a8c0d8;
+  --pc-slate-500: #8b8b9c;
+  --pc-slate-600: #6b6b7b;
+  --pc-white: #ffffff;
+  --pc-black: #000000;
+
+  /* Tier 2 — semantic tokens (dark is the default). Components never reach
+     for a Tier 1 name; only these. */
+  --bg: var(--pc-ink-700);
+  --surface: var(--pc-ink-800);
+  --surface-2: var(--pc-ink-600);
+  --surface-3: var(--pc-ink-500);
+  --surface-raised: var(--pc-ink-800);
+  --border: var(--pc-ink-400);
+  --border-strong: var(--pc-navy-700);
+  --text: var(--pc-slate-100);
+  --text-muted: var(--pc-slate-400);
+  --text-faint: var(--pc-slate-500);
+  --link: var(--pc-green-500);
+  --focus-ring: var(--pc-green-500);
+
+  /* status foregrounds chosen to pass WCAG AA on their chip background
+     (fixes the four failures audited in UI_UX_PLAN.md §2.8). */
+  --ok-fg: #062b20;
+  --ok-bg: #4ecca3;
+  --danger-fg: #ffffff;
+  --danger-bg: #c62b45;
+  --warn-fg: #3a2600;
+  --warn-bg: #f0c040;
+  --info-fg: #04223f;
+  --info-bg: #7cc0f5;
+  --override-fg: #2a1200;
+  --override-bg: #f3a95c;
+  --bedtime-fg: #ffffff;
+  --bedtime-bg: #6a4c93;
+  --bonus-fg: #2a1200;
+  --bonus-bg: #f3a95c;
+  --neutral-fg: #ffffff;
+  --neutral-bg: #0f3460;
+
+  /* Type scale (rem against a 16px root; system font stack — no webfont,
+     the panel must work offline). */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.85rem;
+  --fs-base: 1rem;
+  --fs-lg: 1.15rem;
+  --fs-xl: 1.4rem;
+  --fs-2xl: 1.75rem;
+
+  /* Spacing — 4px base. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-8: 48px;
+
+  /* Radius. */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* Elevation — dark mode separates by surface lightening + border, never a
+     glow on pure black. */
+  --el-0: none;
+  --el-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --el-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+
+  /* Motion. */
+  --dur: 140ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+
+  /* Layout / targets. Breakpoint tokens mirror the media queries below; CSS
+     custom properties cannot be used inside @media, so they are documentation
+     plus a single source of truth for JS if ever needed. */
+  --bp-sm: 576px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1200px;
+  --nav-h: 56px;
+  --tabbar-h: 60px;
+  --touch: 44px;
+  --content: 880px;
+  --content-wide: 1120px;
+
+  /* Tier 3 — component tokens. */
+  --btn-bg: var(--surface-3);
+  --btn-fg: var(--text);
+  --btn-radius: var(--r-sm);
+  --chip-bg: var(--neutral-bg);
+  --chip-fg: var(--neutral-fg);
+  --card-radius: var(--r-md);
+  --field-bg: var(--pc-ink-900);
+  --field-border: var(--border);
+  --appbar-bg: var(--pc-ink-900);
+  --tabbar-bg: var(--pc-ink-900);
+  color-scheme: dark;
+}
+
+/* Light theme — opt-in per element (data-theme) and automatic per the OS
+   (prefers-color-scheme: light), per the plan's Q1 recommendation. */
+[data-theme='light'],
+:root[data-theme='light'] {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f5;
+  --surface-3: #e4e8f0;
+  --surface-raised: #ffffff;
+  --border: #c9cfdb;
+  --border-strong: #a9b2c4;
+  --text: #1a1c26;
+  --text-muted: #4a5568;
+  --text-faint: #5f6b7a;
+  --link: #1f7a5c;
+  --focus-ring: #1f7a5c;
+  --danger-bg: #b3203a;
+  --info-bg: #2f80c9;
+  --info-fg: #ffffff;
+  --override-bg: #d9821f;
+  --override-fg: #2a1200;
+  --warn-bg: #b8860b;
+  --warn-fg: #ffffff;
+  --field-bg: #ffffff;
+  --appbar-bg: #ffffff;
+  --tabbar-bg: #ffffff;
+  --el-1: 0 1px 2px rgba(20, 24, 40, 0.12);
+  --el-2: 0 6px 20px rgba(20, 24, 40, 0.18);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f4f5f8;
+    --surface: #ffffff;
+    --surface-2: #eef0f5;
+    --surface-3: #e4e8f0;
+    --surface-raised: #ffffff;
+    --border: #c9cfdb;
+    --border-strong: #a9b2c4;
+    --text: #1a1c26;
+    --text-muted: #4a5568;
+    --text-faint: #5f6b7a;
+    --link: #1f7a5c;
+    --focus-ring: #1f7a5c;
+    --danger-bg: #b3203a;
+    --info-bg: #2f80c9;
+    --info-fg: #ffffff;
+    --override-bg: #d9821f;
+    --override-fg: #2a1200;
+    --warn-bg: #b8860b;
+    --warn-fg: #ffffff;
+    --field-bg: #ffffff;
+    --appbar-bg: #ffffff;
+    --tabbar-bg: #ffffff;
+    --el-1: 0 1px 2px rgba(20, 24, 40, 0.12);
+    --el-2: 0 6px 20px rgba(20, 24, 40, 0.18);
+    color-scheme: light;
+  }
+}
+
+/* -------------------------------------------------------------------- base */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body.pc-body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0 0 var(--sp-2);
+  line-height: 1.25;
+  /* keep focused headings clear of the sticky app bar (WCAG 2.4.11) */
+  scroll-margin-top: calc(var(--nav-h) + var(--sp-3));
+}
+
+h1 {
+  font-size: var(--fs-2xl);
+}
+h2 {
+  font-size: var(--fs-xl);
+}
+h3 {
+  font-size: var(--fs-lg);
+}
+
+p {
+  margin: 0 0 var(--sp-3);
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* Consistent keyboard-only focus ring (2px + 2px offset, WCAG 2.4.7). */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Utilities. */
+.pc-muted {
+  color: var(--text-muted);
+}
+.pc-faint {
+  color: var(--text-faint);
+}
+.pc-meta {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-inline {
+  display: inline;
+}
+.pc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.pc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Visually hidden but available to screen readers (used for live regions and
+   the clipped <thead> of stacked tables). */
+.pc-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------- layout shell */
+.pc-shell {
+  max-width: var(--content-wide);
+  margin: 0 auto;
+  padding: var(--sp-4);
+  padding-top: calc(var(--nav-h) + var(--sp-4));
+}
+.pc-shell--narrow {
+  max-width: var(--content);
+}
+.pc-main {
+  display: block;
+}
+.pc-page-title {
+  margin-bottom: var(--sp-1);
+}
+.pc-subtitle {
+  color: var(--text-muted);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+/* Skip link: first focusable, revealed on focus. */
+.pc-skip-link {
+  position: absolute;
+  left: var(--sp-3);
+  top: -3rem;
+  z-index: 40;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  transition: top var(--dur) var(--ease);
+}
+.pc-skip-link:focus {
+  top: var(--sp-2);
+}
+
+/* Auth shell (login / change-password): centered card, no nav. */
+.pc-auth {
+  max-width: 26rem;
+  margin: var(--sp-8) auto;
+  padding: var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--el-2);
+}
+.pc-auth__title {
+  text-align: center;
+  margin-bottom: var(--sp-1);
+}
+.pc-auth__note {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* -------------------------------------------------------------- navigation */
+.pc-appbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 30;
+  min-height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  padding-top: calc(var(--sp-2) + env(safe-area-inset-top, 0px));
+  background: var(--appbar-bg);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--el-1);
+}
+.pc-appbar__brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.pc-appbar__title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pc-appbar__sub {
+  display: none;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.pc-appbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.pc-appbar__nav {
+  display: none;
+  gap: var(--sp-2);
+}
+
+/* Account menu — native <details> popover, no JS framework. */
+.pc-menu {
+  position: relative;
+}
+.pc-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: var(--touch);
+  min-width: var(--touch);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text);
+}
+.pc-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.pc-menu[open] > summary {
+  border-color: var(--focus-ring);
+}
+.pc-menu__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--sp-1));
+  min-width: 12rem;
+  padding: var(--sp-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--el-2);
+  display: flex;
+  flex-direction: column;
+}
+.pc-menu__item {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  color: var(--text);
+}
+.pc-menu__item:hover {
+  background: var(--surface-3);
+  text-decoration: none;
+}
+
+/* Bottom tab bar — phone only. */
+.pc-tabbar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 30;
+  display: flex;
+  min-height: var(--tabbar-h);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--tabbar-bg);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--el-1);
+}
+.pc-tab {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--touch);
+  padding: var(--sp-2) 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.pc-tab:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.pc-tab[aria-current='page'] {
+  color: var(--link);
+  font-weight: 600;
+}
+.pc-tab__icon {
+  width: 22px;
+  height: 22px;
+}
+/* Account entry of the tab bar: a <details> popover anchored above the bar. */
+.pc-tabmenu {
+  flex: 1 1 0;
+  position: relative;
+  display: flex;
+}
+.pc-tabmenu > summary {
+  flex: 1 1 0;
+  list-style: none;
+}
+.pc-tabmenu > summary::-webkit-details-marker {
+  display: none;
+}
+.pc-tabmenu__panel {
+  top: auto;
+  bottom: calc(100% + var(--sp-1));
+  right: var(--sp-2);
+}
+
+@media (min-width: 768px) {
+  body.pc-body {
+    padding-bottom: 0;
+  }
+  .pc-appbar__sub {
+    display: block;
+  }
+  .pc-appbar__nav {
+    display: flex;
+  }
+  .pc-tabbar {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- buttons */
+.pc-btn {
+  --pc-btn-bg: var(--btn-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  padding: var(--sp-2) var(--sp-4);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  color: var(--btn-fg);
+  background: var(--pc-btn-bg);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.pc-btn:hover {
+  background: color-mix(in srgb, var(--pc-btn-bg) 88%, var(--pc-white));
+  text-decoration: none;
+}
+.pc-btn:active {
+  transform: translateY(1px);
+}
+.pc-btn:disabled,
+.pc-btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pc-btn--primary {
+  background: var(--pc-green-500);
+  color: var(--pc-ink-900);
+}
+.pc-btn--primary:hover {
+  background: var(--pc-green-600);
+}
+.pc-btn--danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.pc-btn--warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.pc-btn--neutral {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--border);
+}
+.pc-btn--ghost {
+  background: transparent;
+  color: var(--link);
+  border-color: var(--border);
+}
+.pc-btn--ghost:hover {
+  background: var(--surface-3);
+}
+.pc-btn--block {
+  width: 100%;
+}
+/* Small keeps WCAG 2.2 2.5.8 (>=24px) with room to spare: 32px min + 8px gap. */
+.pc-btn--sm {
+  min-height: 32px;
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+.pc-btn--icon {
+  min-width: var(--touch);
+  padding: var(--sp-2);
+}
+/* Loading state keeps the label, adds aria-busy + spinner. */
+.pc-btn[aria-busy='true'] {
+  position: relative;
+  color: transparent;
+}
+.pc-btn[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--btn-fg);
+  animation: pc-spin 0.7s linear infinite;
+}
+@keyframes pc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ chips */
+.pc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  border-radius: var(--r-pill);
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  white-space: nowrap;
+}
+.pc-chip__icon {
+  width: 0.9em;
+  height: 0.9em;
+  flex: none;
+}
+.pc-chip--ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+.pc-chip--danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.pc-chip--warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.pc-chip--info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.pc-chip--override {
+  background: var(--override-bg);
+  color: var(--override-fg);
+}
+.pc-chip--bedtime {
+  background: var(--bedtime-bg);
+  color: var(--bedtime-fg);
+}
+.pc-chip--bonus {
+  background: var(--bonus-bg);
+  color: var(--bonus-fg);
+}
+.pc-chip--neutral {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+.pc-chip--stale {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+/* Status pill — larger, icon + text + colour (never colour alone). */
+.pc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  border-radius: var(--r-pill);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+.pc-status--locked {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.pc-status--unlocked {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+.pc-status--unknown {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+/* Preserve the legacy text-colour status classes until pages are converted. */
+.status-locked {
+  color: var(--pc-red-500);
+  font-weight: 600;
+}
+.status-unlocked {
+  color: var(--pc-green-500);
+  font-weight: 600;
+}
+.status-unknown {
+  color: var(--pc-amber-400);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ cards */
+.pc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.pc-card:hover {
+  box-shadow: var(--el-1);
+}
+.pc-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.pc-card__title {
+  font-size: var(--fs-lg);
+  margin: 0;
+}
+.pc-card__body > :last-child {
+  margin-bottom: 0;
+}
+.pc-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.pc-card--hero {
+  border-color: var(--border-strong);
+}
+.pc-card--muted {
+  opacity: 0.75;
+}
+.pc-card--error {
+  border-color: var(--danger-bg);
+}
+
+/* Summary strip — KPI row on the home screen. */
+.pc-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.pc-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.pc-summary__count {
+  font-size: var(--fs-lg);
+}
+
+/* ----------------------------------------------------------------- tables */
+.pc-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  margin: 0 0 var(--sp-4);
+}
+.pc-table caption {
+  text-align: left;
+  color: var(--text-muted);
+  padding: var(--sp-2) 0;
+}
+.pc-table th,
+.pc-table td {
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.pc-table thead th {
+  position: sticky;
+  top: var(--nav-h);
+  background: var(--border-strong);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
+.pc-table tbody tr:nth-child(even) {
+  background: var(--surface-2);
+}
+.pc-table tbody tr:hover {
+  background: var(--surface-3);
+}
+.pc-table td.pc-num,
+.pc-table th.pc-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Table -> card on phones. Keeps the semantic <table> (thead clipped, not
+   display:none) so screen readers still get row/column relationships. */
+@media (max-width: 767.98px) {
+  .pc-table--stack {
+    display: block;
+    background: transparent;
+    border-radius: 0;
+  }
+  .pc-table--stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .pc-table--stack tbody,
+  .pc-table--stack tr,
+  .pc-table--stack td {
+    display: block;
+    width: 100%;
+  }
+  .pc-table--stack tr {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-3);
+  }
+  .pc-table--stack tbody tr:nth-child(even) {
+    background: var(--surface);
+  }
+  .pc-table--stack td {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: var(--sp-3);
+    align-items: center;
+    padding: var(--sp-1) 0;
+    border: 0;
+  }
+  .pc-table--stack td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .pc-table--stack td[data-label='']::before,
+  .pc-table--stack td:not([data-label])::before {
+    content: none;
+  }
+}
+
+/* ------------------------------------------------------------ disclosure */
+.pc-disclosure {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  margin-bottom: var(--sp-4);
+}
+.pc-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: var(--touch);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+.pc-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.pc-disclosure > summary::after {
+  content: '▸';
+  color: var(--text-muted);
+  transition: transform var(--dur) var(--ease);
+}
+.pc-disclosure[open] > summary::after {
+  transform: rotate(90deg);
+}
+.pc-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.pc-disclosure__body {
+  padding: var(--sp-4);
+}
+.pc-disclosure__summary-value {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ----------------------------------------------------------------- fields */
+.pc-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+}
+.pc-field__label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.pc-field__hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.pc-field__error {
+  font-size: var(--fs-sm);
+  color: var(--danger-bg);
+  font-weight: 600;
+}
+.pc-input,
+.pc-field select,
+.pc-field textarea {
+  min-height: var(--touch);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
+  transition: border-color var(--dur) var(--ease);
+}
+.pc-input:hover,
+.pc-field select:hover {
+  border-color: var(--text-muted);
+}
+.pc-input[aria-invalid='true'],
+.pc-field--error .pc-input {
+  border-color: var(--danger-bg);
+}
+.pc-input:disabled,
+.pc-field select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Duration input: hours + minutes + unit labels, numeric keypad. */
+.pc-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.pc-duration input {
+  width: 4.5rem;
+  min-height: var(--touch);
+  text-align: center;
+}
+.pc-duration__unit {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* 12-hour time control — three selects, preserved per the plan (§2.12). */
+.pc-time {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.pc-time select {
+  min-height: var(--touch);
+}
+.pc-time__sep {
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------------- toast/aria */
+.pc-toast-region {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--tabbar-h) + var(--sp-3));
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: min(92vw, 30rem);
+  pointer-events: none;
+}
+.pc-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--focus-ring);
+  border-radius: var(--r-md);
+  box-shadow: var(--el-2);
+  pointer-events: auto;
+}
+.pc-toast--success {
+  border-left-color: var(--ok-bg);
+}
+.pc-toast--error {
+  border-left-color: var(--danger-bg);
+}
+.pc-toast__body {
+  flex: 1 1 auto;
+}
+.pc-toast__close {
+  flex: none;
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+}
+@media (min-width: 768px) {
+  .pc-toast-region {
+    bottom: var(--sp-4);
+  }
+}
+
+/* ---------------------------------------------------------------- dialogs */
+.pc-dialog {
+  width: min(92vw, 32rem);
+  padding: 0;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--el-2);
+}
+.pc-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.pc-dialog__header {
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+.pc-dialog__body {
+  padding: 0 var(--sp-4) var(--sp-3);
+  color: var(--text-muted);
+}
+.pc-dialog__body input {
+  margin-top: var(--sp-2);
+}
+.pc-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+}
+.pc-dialog--danger {
+  border-color: var(--danger-bg);
+}
+.pc-dialog--danger .pc-dialog__header {
+  color: var(--danger-bg);
+}
+
+/* ------------------------------------------------------- empty / skeleton */
+.pc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--card-radius);
+}
+.pc-empty__icon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.7;
+}
+.pc-empty__title {
+  color: var(--text);
+  font-weight: 600;
+}
+.pc-empty__body {
+  font-size: var(--fs-sm);
+}
+
+.pc-skeleton {
+  display: block;
+  height: 1rem;
+  border-radius: var(--r-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 37%,
+    var(--surface-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: pc-skeleton 1.4s ease infinite;
+}
+.pc-skeleton--row {
+  height: var(--touch);
+  margin-bottom: var(--sp-2);
+}
+@keyframes pc-skeleton {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* ---------------------------------------------------------- meter / banner */
+.pc-meter {
+  --pc-meter-value: 0%;
+  --pc-meter-color: var(--ok-bg);
+  position: relative;
+  height: 10px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.pc-meter__fill {
+  display: block;
+  height: 100%;
+  width: var(--pc-meter-value);
+  background: var(--pc-meter-color);
+}
+.pc-meter--warn {
+  --pc-meter-color: var(--warn-bg);
+}
+.pc-meter--danger {
+  --pc-meter-color: var(--danger-bg);
+}
+
+.pc-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+}
+.pc-banner--danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border-color: var(--danger-bg);
+}
+.pc-banner--warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-bg);
+}
+.pc-banner--info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info-bg);
+}
+.pc-banner--ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border-color: var(--ok-bg);
+}
+
+/* --------------------------------------------------------------- lists */
+.pc-list {
+  list-style: none;
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+}
+.pc-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.pc-list__item:last-child {
+  border-bottom: 0;
+}
+
+/* Legacy hooks preserved so un-converted pages keep their look while the
+   inline <style> blocks are still in place. */
+.refresh-info {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  color: var(--link);
+}
+
+/* ------------------------------------------------------------------- a11y */
+/* Touch targets: any interactive control we own is at least 44px tall; the
+   smallest allowed is 32px (.pc-btn--sm) per WCAG 2.5.8. */
+.pc-touch {
+  min-width: var(--touch);
+  min-height: var(--touch);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .pc-appbar,
+  .pc-tabbar,
+  .pc-skip-link,
+  .pc-toast-region {
+    display: none !important;
+  }
+  body.pc-body {
+    padding: 0;
+  }
+}
