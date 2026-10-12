@@ -3,9 +3,11 @@
 ## Goal
 
 A web-based UI for parent-controlled account lock/unlock, bedtimes and per-category
-app time budgets on Bazzite. The prototype phase and the MVP security/operations
-gate are both **complete and merged** — this branch is the release-ready 1.0
-baseline (parent-facing summary: `RELEASE.md`).
+app time budgets on Bazzite. The prototype phase, the MVP security/operations gate
+and the post-MVP hardening wave (SQLite state, tamper-evident audit log, manual
+freeze buttons, TLS for LAN binds, health check, dedicated service user) are all
+**complete and merged** — this branch is the release-ready 1.1 baseline
+(parent-facing summary: `RELEASE.md`).
 
 ## Target Platform
 
@@ -15,7 +17,20 @@ verified running on: **Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44
 ## Architecture
 
 - **Web UI**: Python Flask app served by waitress, bound to `127.0.0.1:5000` by
-  default (LAN bind is an explicit opt-in)
+  default (LAN bind is an explicit opt-in). A loopback bind stays byte-identical
+  waitress HTTP; a LAN bind is refused unless it serves HTTPS through cheroot with
+  an install-time self-signed certificate (`--tls`, never auto-regenerated) or the
+  operator knowingly passes `--insecure-lan` (persistent warning banner). Loopback
+  has no TLS by design — it is reached over an SSH tunnel
+- **Runtime state**: SQLite (`state.db`, WAL, `schema_version`, ordered
+  migrations, backup-before-migrate) holding the bedtime/budgets/process_prefs
+  documents keyed by user. Atomic JSON mirrors are a best-effort rollback copy
+  only (never read back). `auth.json` deliberately stays a separate fail-closed
+  credential store
+- **Audit log**: append-only hash-chained JSONL (`audit.jsonl`) for
+  lock/unlock/logout/bedtime/bonus/budget/admin actions, exposed admin-only via
+  `GET /api/audit`. Tamper-evident, not encrypted; logging never blocks
+  enforcement
 - **Auth**: app-only admin logins with server-side sessions, two tiers
   (`wheel` members + app-only admins); no PAM anywhere. CSRF token required on
   every state-changing request
@@ -30,7 +45,13 @@ verified running on: **Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44
   process; `install.sh` creates the account idempotently (`--user` overrides)
 - **Deployment**: code is staged into the install dir (`@APP_DIR@`, default
   `/opt/parental-controls`); runtime state stays beside the code and is never
-  overwritten by a redeploy
+  overwritten by a redeploy. `install.sh` also installs the root-only recovery
+  CLI at `/usr/local/bin/parental-controls` (0750) and enables a health-check
+  timer that probes the panel every 5 minutes
+- **Monitoring**: `parental-controls-healthcheck.timer` probes unit state, an
+  HTTP/HTTPS 200/302 on `/`, and auth-store readability/parseability every 5
+  minutes, surfacing breakage as a failed unit. It never notifies a child and
+  never restarts the panel
 
 ## Development Workflow
 
@@ -77,25 +98,42 @@ merged and deleted; nothing in this section is in progress).
 
 ### Post-MVP phases (open roadmap)
 Phase 3 (hardening, after MVP):
-- [ ] TLS when LAN-exposed (session cookies otherwise travel in the clear)
-- [ ] Audit log of every action (who locked/unlocked/froze whom, and when) — a parental
-      control a parent may need to defend needs a tamper-evident record. Today's audit
-      trail is only the per-user bonus history (last 20 entries, `bonus_history`)
+- [x] TLS when LAN-exposed — **shipped.** Plain-HTTP LAN binds are refused by the
+      installer; `--tls` serves cheroot+HTTPS with an install-time self-signed
+      certificate (0600, never auto-regenerated, `--tls-cert`/`--tls-key` override,
+      TOFU fingerprint printed, `--regen-tls-cert` to rotate), `--insecure-lan`
+      knowingly stays on HTTP with a persistent banner. Loopback intentionally
+      remains plain waitress HTTP
+- [x] Audit log of every action — **shipped** (`audit.py`, `audit.jsonl`).
+      Append-only, hash-chained JSONL (sha256 over each entry including the
+      previous hash) with hooks on lock/unlock/logout/bedtime/bonus/budget/admin
+      actions and an admin-only `GET /api/audit?limit=N` returning the newest
+      entries plus `chain_ok`. Tamper-*evident*, not encrypted; logging is
+      best-effort and never blocks enforcement
 - [ ] Sudo audit: retire the blanket passwordless-sudo rule on the dev machine so
       the scoped `/etc/sudoers.d/parental-controls*` rules are actually the only path to
       root. The panel itself already runs as the dedicated `parental-controls`
       user (never covered by any blanket); the remaining blanket is
       `stan-nopasswd` on the shared human/agent ops account, which still masks
-      scoped-rule verification on dev (tracked on `feature/sudo-audit`)
+      scoped-rule verification on dev. Containment work (argument-regex
+      hardening of the trailing-wildcard grants) exists; its landing and
+      verification are tracked on `feature/sudo-audit` and will be recorded in
+      `sudo-audit.md` by that work
 - [x] Admin recovery escape hatch: `cli.py` (`unlock`, `unfreeze-all`,
       `reset-password`, `add-admin`, `remove-admin`, `lock-admin`) runs as root and
       works even if the app is wedged; wheel targets are refused in the handler
-      itself, not just hidden in the UI
+      itself, not just hidden in the UI. `install.sh` installs it as
+      `/usr/local/bin/parental-controls` (root-only, 0750)
 - [ ] Physical escape hatch for a machine with no admin credentials at all (CLI still
       assumes someone can get a root shell)
 
 Phase 4 (data & accuracy):
-- [ ] JSON state → SQLite with migrations (atomic writes, corruption recovery, budget history)
+- [x] JSON state → SQLite with migrations — **shipped** (`store.py`,
+      `state.db`). One JSON-document table per store, `schema_version` + ordered
+      migrations, WAL + busy timeout for the three writers, backup-before-migrate
+      (`state.db.bak.<version>`), fail-closed corruption recovery, and a one-time
+      legacy-JSON import. Atomic JSON mirrors remain as the rollback copy. A
+      corrupt store fails closed rather than being silently replaced
 - [ ] Per-user session agent for focus-based usage measurement (replaces CPU-delta proxy)
 - [ ] Per-app overrides and weekly budget windows (deferred from Phase 1 budgets)
 
@@ -103,6 +141,20 @@ Phase 5 (scale & polish):
 - [ ] Multi-device support (multiple Bazzite devices)
 - [x] Child-facing warnings ("10 minutes left" via notify-send) — shipped as the
       pre-lock/pre-freeze warning path (bedtime, budget-low and bonus messages)
+
+### Open after 1.1 (deliberately not done)
+
+- **State migration is granularity-preserving, not per-field normalization.** The
+  SQLite tables hold whole per-user JSON documents; conflicting writers still
+  resolve last-writer-wins (narrowed by WAL + `BEGIN IMMEDIATE`, not eliminated).
+- **The audit log is hash-chained, not encrypted.** Anyone who can read
+  `audit.jsonl` can read every entry; the chain proves tampering, it does not
+  hide content.
+- **No TLS on loopback**, by design — localhost is reached over an SSH tunnel.
+- **The recovery CLI assumes a root shell** (a physical escape hatch for a machine
+  with no admin credentials at all is still open, see Phase 3).
+- **The `stan-nopasswd` blanket remains on this dev VM by owner decision**; it is
+  an ops aid, not something the installer ever creates.
 
 ### Completed in prototype phase
 Systemd service + auto-start, bedtime enforcement timer, notifications before lock,
@@ -122,8 +174,8 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 - Custom entry is **hours + minutes**; the server re-validates and enforces a
   **5-minute minimum** (`BONUS_CUSTOM_MIN`)
 - Shortcut denominations stay **15 / 30 / 60 / 90 / 120 minutes**
-- History keeps the **last 20** entries per user (`bonus_history`, feeding the future
-  audit log)
+- History keeps the **last 20** entries per user (`bonus_history`); the
+  tamper-evident audit log records grant/revoke/expiry independently
 - A **leftover bonus is cleared when the bedtime window ends** — it is meaningless past
   the scheduled unlock and must not sit there as a stale "Bonus active"
 - A manual lock still wins: it cancels an active bonus (`lock_cancelled` history entry)
@@ -140,19 +192,25 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 |------|---------|
 | `README.md` | Project overview, setup, API reference |
 | `PLAN.md` | This file |
-| `RELEASE.md` | Release 1.0 notes, deploy/rollback guide (parent-facing) |
+| `RELEASE.md` | Release notes, deploy/rollback guide (parent-facing) |
 | `QA_LOCK_UNLOCK.md` | QA report for the lock/unlock core mechanisms |
 | `AUTH_DESIGN.md` | Authentication/authorization design (MVP auth) |
 | `BONUS_TIME_PLAN.md` | Bonus-time design |
 | `PROCESS_GROUPING_PLAN.md` | Process-grouping design |
+| `FREEZE_BUTTONS_PLAN.md` | Manual freeze/unfreeze buttons design |
+| `TLS_PLAN.md` | TLS-for-LAN design |
+| `sudo-audit.md` | Sudo coverage audit and blanket-removal procedure |
+| `katalon/README.md` | Browser (Katalon Recorder) QA suite guide |
 | `.gitignore` | Ignores worktrees, Python artifacts and runtime state (`*.json`) |
 
 ## Release status
 
-**1.0 — release-ready.** Code baseline: `master` @ `24fb669`. First version this
-release was verified running on: **Bazzite 44.20261002.0 (Kinoite)**,
-`BUILD_ID="Stable (F44.20261002)"`. Parent-facing summary, deploy steps and the
-rollback story live in `RELEASE.md`.
+**1.1 — release-ready.** Code baseline: `master` @ `108392d` (plus these
+documentation updates). First version this release was verified running on:
+**Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44.20261002)"`.
+Test suite: **526 tests, 9 environmental skips** (22 test files, stdlib
+`unittest`). Parent-facing summary, deploy steps and the rollback story live in
+`RELEASE.md`.
 
 ## Status
 
@@ -208,3 +266,11 @@ rollback story live in `RELEASE.md`.
 - [x] Parent-granted bonus time past bedtime: 5 one-click shortcuts (15/30/60/90/120 min) + a custom hours+minutes entry (minimum 5 min), tracked in `bedtime.json` with a capped audit trail (last 20 entries); grants **stack with no upper cap**, suppress the bedtime lock until expiry then re-lock in-window, leftover bonus is cleared when the bedtime window ends; manual lock cancels, revoke re-locks inline (`feature/bonus-time`, `BONUS_TIME_PLAN.md`)
 - [x] Duplicate processes grouped into one expandable row per category with a count badge and max elapsed; click toggles individual PIDs; expand state survives the 10s refresh; per-comm Hide at group level (`feature/process-grouping`, `PROCESS_GROUPING_PLAN.md`)
 - [x] Processes table auto-hides everything not explicitly user-started (pipewire hidden by default, Firefox visible) with human-friendly app names from `.desktop` files where known; `shown_comm` re-shows, `hidden_comm` still hides, budgets/freezer matching untouched (`feature/auto-hide`)
+- [x] Runtime state migrated from JSON files to SQLite `state.db` (WAL, `schema_version`, ordered migrations, backup-before-migrate, fail-closed corruption recovery, one-time legacy import); atomic JSON mirrors kept as the rollback copy; `auth.json` stays a separate fail-closed store (`feature/sqlite`, `store.py`)
+- [x] Tamper-evident audit log: append-only hash-chained JSONL `audit.jsonl` with hooks on lock/unlock/logout/bedtime/bonus/budget/admin actions and an admin-only `GET /api/audit?limit=N` (entries + `chain_ok`); never raises, never blocks enforcement (`feature/audit`)
+- [x] Manual Freeze/Unfreeze toggle in each budget Status cell and on visible process-group rows (`POST /api/budgets/freeze`, `/api/budgets/unfreeze`); `manual_frozen` is distinct from budget-exhaustion `paused` and is released by the daily reset or by clearing the limit (`feature/freeze-buttons`, `FREEZE_BUTTONS_PLAN.md`)
+- [x] TLS for LAN binds: plain-HTTP LAN binds refused by the installer; `--tls` serves HTTPS via cheroot with an install-time self-signed cert (0600, never auto-regenerated, `--tls-cert`/`--tls-key` override, TOFU fingerprint printed), `--insecure-lan` for the deliberate plain-HTTP case; loopback stays byte-identical waitress HTTP (`feature/tls`, `TLS_PLAN.md`)
+- [x] Health check: `parental-controls-healthcheck.timer` probes every 5 minutes (unit active, HTTP/HTTPS 200/302 on `/`, auth store parseable by the service user) and surfaces breakage as a failed unit; it never notifies a child and never restarts the panel (`feature/health-check`)
+- [x] Dedicated service user: the panel and its oneshots run as system user `parental-controls` (nologin, locked password, no sudo of its own, scoped sudoers only), created idempotently by `install.sh`; `pcverify` keeps the scoped least-privilege verification role
+- [x] Recovery CLI installed by `install.sh` at `/usr/local/bin/parental-controls` (root-only, 0750), so the escape hatch exists on-machine without the checkout
+- [x] Katalon Recorder browser QA suite (`katalon/objects`, `katalon/test-cases`, `katalon/README.md`) plus a CI validator (`tests/test_katalon_objects.py`) that pins every selector and expected string against `templates/` and `app.py` (`feature/katalon-qa`)

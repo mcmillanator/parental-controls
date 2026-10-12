@@ -12,6 +12,18 @@ the bedtime/timer enforcement paths that drive them).
 > below record those closures; item 7 is the one live gap they leave behind.
 > The physical-machine checks above and the suite counts still describe the
 > state of the original run unless explicitly re-dated.
+>
+> **Release-1.1 refresh (2026-10-11, docs only).** Nothing in the lock/unlock
+> conclusions changed. Since the 1.0 refresh: the manual Freeze/Unfreeze buttons
+> (distinct from the exhaustion `paused` state) landed; runtime state moved behind
+> SQLite (`store.py`) with the JSON files demoted to rollback mirrors — items 4/8
+> below are updated accordingly; a hash-chained audit log now records every
+> lock/unlock/logout action (`audit.py`); the panel runs as the dedicated
+> `parental-controls` service user; and the browser QA suite in `katalon/` now
+> automates several of the physical-machine items below (see the last section).
+> The suite counts below are the values at the time of the original run; the
+> current full suite is **526 tests across 22 files, 9 environmental skips**
+> (re-verified 2026-10-11).
 
 ## Summary
 
@@ -162,8 +174,10 @@ via `su -`. Creates and deletes its own throwaway account; never touches
 `lock-session` or `kill`; skips itself without privileges.
 
 **Full suite: 122 tests, all green (was 61)** — the counts at the time of this
-run. The suite has grown substantially since (`tests/`, 13 files, 300+ test
-methods); those later runs are not re-verified in this report.
+run. The suite has grown substantially since: current counts are **526 tests
+across 22 files, 9 environmental skips** (re-verified 2026-10-11), including the
+new `test_audit.py`, `test_sqlite.py`, `test_service_user.py`, `test_tls.py`,
+`test_health.py` and `test_katalon_objects.py` coverage.
 
 I confirmed the tests actually catch the bugs by reverting each fix in turn:
 
@@ -285,10 +299,18 @@ Please run these as the parent, at the machine:
    the override flag, so "parent unlocked during this window" is discarded by a
    subsequent manual lock. Covered by tests; flagging as intended behaviour.
 
-4. **Two writers, no file locking.** `bedtime.json` is read-modify-written by the
-   web app, its 60s thread, and the systemd timer with no locking. The fix narrows
-   the window but does not eliminate the race. Atomic writes / SQLite are already
-   tracked in PLAN.md Phase 4.
+4. **Multi-writer state — narrowed to SQLite, not eliminated.** The JSON race
+   described below is superseded: runtime state moved to SQLite (`store.py`,
+   `state.db`, WAL + busy timeout + `BEGIN IMMEDIATE`), so readers never see a
+   torn store and writers serialize on the busy timeout instead of failing fast.
+   Whole-document table writes are still last-writer-wins across the three
+   writers (web app, 60s thread, enforce timer); per-field normalization is open.
+   The JSON files are now rollback mirrors only. Original report kept below:
+
+   Original report: `bedtime.json` is read-modify-written by the web app, its
+   60s thread, and the systemd timer with no locking. The fix narrows the window
+   but does not eliminate the race. Atomic writes / SQLite were tracked in
+   PLAN.md Phase 4 (now shipped).
 
 5. **RESOLVED — authentication now ships.** This was a pre-existing MVP gate item:
    at the time of this QA run anyone reaching port 5000 could drive these endpoints.
@@ -321,14 +343,60 @@ Please run these as the parent, at the machine:
    a failed notification never blocks a lock, and an offline user simply gets
    nothing.
 
-7. **Open: blanket passwordless sudo still masks every scoped rule.** On this
-   machine the service account keeps a blanket `NOPASSWD: ALL` rule
-   (`/etc/sudoers.d/stan-nopasswd`), which overrides the scoped
-   `/etc/sudoers.d/parental-controls*` rules. Consequence: the least-privilege
-   story above cannot be *verified in practice* on this box — a bug that ran the
-   wrong command would still succeed. Retiring the blanket rule is tracked as a
-   sudo audit (`PLAN.md` Phase 3); it is the single most valuable hardening item
-   left before this runs on someone else's machine.
+7. **Open: the `stan-nopasswd` blanket still masks scoped-rule verification on
+   this dev VM.** The panel no longer runs as a blanket-covered account — it
+   runs as the dedicated `parental-controls` system user (nologin, locked, no
+   sudo of its own) — so the blanket no longer covers service actions at all.
+   It remains on the shared human/agent ops account by owner decision, which
+   means the scoped `parental-controls*` rules still cannot be *verified in
+   practice* on this box. Containment work (argument-regex hardening of the
+   trailing-wildcard grants) exists; landing/verification details are tracked on
+   `feature/sudo-audit` and will be recorded in `sudo-audit.md` by that work.
+   This is the single most valuable hardening item left before this runs on
+   someone else's machine.
 
-8. **Open: multi-writer state files.** See item 4 above — no file locking between
-   the web app, its 60s thread and the enforce timer.
+8. **Open (partly closed by the audit log): the enforce timer's actions are now
+   visible.** Every lock/unlock/logout, bedtime, bonus, budget and admin action is
+   hash-chained into `audit.jsonl`; the timer's own freeze/thaw writes are logged
+   with the watchdog actor where applicable. The audit log is tamper-evident but
+   **not encrypted** — anyone able to read `audit.jsonl` can read every entry.
+
+9. **Open: manual freeze is a parent-initiated cgroup write, not a new privilege
+   path.** `freeze_category()`/`unfreeze_category()` reuse only the existing
+   privileged helpers (`ensure_cgroup`, `migrate_pid`, `set_frozen`,
+   `cgroup_members`) and the existing budgets sudoers grants — no new rule was
+   added. The residual risk is the same one the whole freezer carries: a bug in
+   the cgroup-path builder would act on the wrong `parental-*` group, which is
+   why paths are re-validated and the watchdog only ever thaws, never freezes,
+   foreign groups.
+
+10. **Open: health check proves liveness, not correctness.** The 5-minute probe
+    (unit active, HTTP/HTTPS 200/302, auth store parseable) catches a hung or
+    wedged panel, but not a subtle enforcement bug (e.g. a bedtime that "wins"
+    the wrong way). The browser QA suite and the mocked unit tests are the
+    correctness net.
+
+## Newly automatable checklist items (Katalon Recorder)
+
+The physical-machine list above is still the ground truth for the
+greeter/PAM/screen halves, but several items are now automatable in a real
+browser via the Katalon Recorder suite in `katalon/` (full guide:
+`katalon/README.md`). Run those first, repeatedly and cheaply; keep the physical
+machine for the parts a browser cannot see.
+
+| Physical item (above) | Browser twin in the Katalon suite | Still needs the physical machine? |
+|---|---|---|
+| Manual Lock really locks / Unlock really unlocks (items 2–4) | `08_manual_unlock_round_trip`, objects `24_manual_lock` / `25_manual_unlock` | The button path is proven; the **greeter/PAM** half (locked account cannot sign back in) still does. |
+| Lock state survives a refresh / matches the action buttons | `11_verify_account_status` (status text ↔ button) | No. |
+| Manual lock is sticky across changes | `24_manual_lock` + `25_manual_unlock` round trips (regression-level coverage; a bedtime-boundary variant is still a manual check) | Partly — the bedtime-boundary case. |
+| All lock paths preserve the session | Partly: the suite checks the Emergency logout button is only ever *present*, never clicked (no `.btn-logout` click); manual Lock is exercised | The session-preservation guarantee itself still needs a live session. |
+| Wheel-admin protection | Pointing the freeze/lock cases at an admin fails **loudly** (the app refuses) instead of damaging anything | No. |
+| Per-category Freeze/Unfreeze buttons | `07_time_budget_limit_freeze_toggle`, objects `16`–`18` (`budget_set_limit`, `freeze_toggle`, `clear_limit`) | The cgroup freeze/thaw on real PIDs still needs the machine's own processes. |
+| Bonus grant/revoke, login/backoff, forced password change, process grouping | Cases `01`–`06` | No. |
+| 10-second live refresh has no error toast | `23_auto_refresh_health` | No. |
+
+The suite's selectors and expected strings are pinned against the templates and
+`app.py` by `tests/test_katalon_objects.py` (CI), so it cannot silently drift.
+It never contains real credentials — values are typed into the Recorder at run
+time, and the safety rules (test account only, never an admin as `TEST_USER`,
+each case restores state) are documented in `katalon/README.md`.
