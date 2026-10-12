@@ -28,21 +28,63 @@
 {% block shell_class %}{% endblock %}
 
 {% block content %}
-<h1 class="pc-page-title">Admin Console</h1>
-<p class="subtitle pc-subtitle">Audit log + admin accounts — logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})</p>
+<div class="pc-toolbar">
+    <div>
+        <h1 class="pc-page-title">Admin Console</h1>
+        <p class="subtitle pc-subtitle">Changes are recorded locally with tamper-evident integrity checks — logged in as <strong>{{ g.admin }}</strong> ({{ g.tier }})</p>
+    </div>
+    <div class="pc-toolbar__actions">
+        <button type="button" id="export-audit" class="pc-btn pc-btn--primary" onclick="exportAudit()">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-download"/></svg>Export audit log
+        </button>
+    </div>
+</div>
 
+<div class="pc-grid pc-grid--2">
 <!-- ------------------------------------------------------------------ -->
 <!-- Audit log viewer (read-only)                                        -->
 <!-- ------------------------------------------------------------------ -->
 <section id="audit-section" aria-labelledby="audit-heading">
     <h2 id="audit-heading">Audit Log</h2>
-    <p class="pc-hint">Tamper-evident, append-only. Newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
+    <p class="pc-hint">Recent administrative changes. Tamper-evident, append-only, newest first. Read-only — the log cannot be modified from here. Times are shown in your local time zone.</p>
 
     {# Chain status: a status banner (role=status when intact, role=alert when
        broken). The legacy `.chain-intact`/`.chain-broken` classes ride along so
        the runtime Katalon selector keeps resolving. #}
     <div id="chain-status" class="pc-banner pc-banner--{{ 'ok' if chain_ok else 'danger' }} {{ 'chain-intact' if chain_ok else 'chain-broken' }}" role="{{ 'status' if chain_ok else 'alert' }}">
         {% if chain_ok %}Audit chain intact{% else %}Audit chain broken{% if bad_seq %} — first bad entry: seq {{ bad_seq }}{% else %} — unparseable entry{% endif %}{% endif %}
+    </div>
+
+    {# Integrity summary (design Screen 5): "N of N entries verified". #}
+    <p class="pc-row" id="integrity-summary">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-badge-check"/></svg>
+        <strong>{{ verified_count }} of {{ entry_count }} entries verified</strong>
+    </p>
+
+    {# Filters (design Screen 5): actor / action / date range. Client-side. #}
+    <div class="pc-inline-form" id="audit-filters">
+        <div class="pc-field">
+            <label class="pc-field__label" for="filter-actor">Actor</label>
+            <select id="filter-actor" class="pc-input" onchange="applyAuditFilters()">
+                <option value="">All</option>
+                {% for a in admins %}<option value="{{ a.username }}">{{ a.username }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="filter-action">Action</label>
+            <select id="filter-action" class="pc-input" onchange="applyAuditFilters()">
+                <option value="">All</option>
+                <option value="access">Access</option>
+                <option value="schedule">Schedule</option>
+            </select>
+        </div>
+        <div class="pc-field">
+            <label class="pc-field__label" for="filter-range">Date range</label>
+            <select id="filter-range" class="pc-input" onchange="applyAuditFilters()">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+            </select>
+        </div>
     </div>
 
     <p class="pc-meta">
@@ -59,20 +101,22 @@
                 <th>Action</th>
                 <th>Target</th>
                 <th>Detail</th>
+                <th>Integrity</th>
             </tr>
         </thead>
         <tbody>
             {% for e in entries %}
-            <tr class="audit-row" data-seq="{{ e.seq }}">
+            <tr class="audit-row" data-actor="{{ e.actor or '' }}" data-action="{{ e.action or '' }}" data-seq="{{ e.seq }}">
                 <td data-label="Seq" class="pc-num">{{ e.seq }}</td>
                 <td data-label="Time (local)" class="audit-time" data-at="{{ e.at or '' }}">{{ e.at or '' }}</td>
                 <td data-label="Actor">{{ e.actor or '' }}</td>
                 <td data-label="Action">{{ e.action or '' }}</td>
                 <td data-label="Target">{{ e.target or '' }}</td>
                 <td data-label="Detail" class="audit-detail" style="word-break: break-all;">{{ e.detail_summary or '' }}</td>
+                <td data-label="Integrity">{% if e.verified %}<span class="pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-badge-check"/></svg>Verified</span>{% else %}<span class="pc-chip pc-chip--danger">Unverified</span>{% endif %}</td>
             </tr>
             {% else %}
-            <tr><td colspan="6" data-label="">{{ pc_empty('No audit entries yet.') }}</td></tr>
+            <tr><td colspan="7" data-label="">{{ pc_empty('No audit entries yet.') }}</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -89,7 +133,11 @@
 <!-- ------------------------------------------------------------------ -->
 <section id="admin-section" aria-labelledby="admin-heading">
     <h2 id="admin-heading">Admin Accounts</h2>
+    <p class="pc-meta">Access to this machine.</p>
     <p class="pc-hint">Wheel admins are system-protected and can never be removed (or added) from the console. App-only admins manage app logins only.</p>
+    <button type="button" class="pc-btn pc-btn--primary pc-btn--block" onclick="openAddAdmin()">
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user-plus"/></svg>Add app-only admin
+    </button>
 
     <table class="pc-table pc-table--stack" id="admin-table">
         <thead>
@@ -156,6 +204,38 @@
     </details>
     {% endif %}
 </section>
+</div>
+
+{# Specimen cards (design Screen 5). #}
+<details class="pc-disclosure" id="admin-specimens">
+    <summary>Design notes</summary>
+    <div class="pc-disclosure__body">
+        <div class="pc-grid pc-grid--2">
+            <article class="pc-card">
+                <h3 class="pc-card__title">Irreversible actions</h3>
+                <p>Never rely on colour, require explicit confirmation, and log actor + timestamp.</p>
+            </article>
+            <article class="pc-card">
+                <h3 class="pc-card__title">Theme specimen</h3>
+                <div class="pc-segmented">
+                    <span class="pc-tabbtn" aria-pressed="true">Dark</span>
+                    <span class="pc-tabbtn" aria-pressed="false">Light</span>
+                </div>
+                <p class="pc-hint">Dark is selected; Light is available (use the theme toggle).</p>
+            </article>
+            <article class="pc-card">
+                <h3 class="pc-card__title">Component callouts</h3>
+                <p class="pc-row">
+                    <button type="button" class="pc-btn pc-btn--primary pc-btn--sm" disabled>Primary button</button>
+                    <span class="pc-chip pc-chip--ok">Status chip</span>
+                    <span class="pc-chip pc-chip--info">Toast: Audit exported</span>
+                    <span class="pc-kbd">Esc</span>
+                </p>
+                <p class="pc-hint">Dialog: focus trapped, Escape closes. Focus ring: a 2px outline.</p>
+            </article>
+        </div>
+    </div>
+</details>
 {% endblock %}
 
 {% block scripts %}
@@ -223,18 +303,23 @@
         const label = AUDIT_MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' +
             d.getFullYear();
         return '<tr class="audit-day" data-day="' + esc(auditDayKey(at)) + '">' +
-            '<td colspan="6" data-label="" class="pc-meta">' + esc(label) + '</td></tr>';
+            '<td colspan="7" data-label="" class="pc-meta">' + esc(label) + '</td></tr>';
     }
 
     function auditRowHtml(e) {
-        return '<tr class="audit-row" data-seq="' + esc(e.seq) + '">' +
+        const verified = e.verified !== false;
+        const integrity = verified
+            ? '<span class="pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-badge-check"/></svg>Verified</span>'
+            : '<span class="pc-chip pc-chip--danger">Unverified</span>';
+        return '<tr class="audit-row" data-actor="' + esc(e.actor || '') + '" data-action="' + esc(e.action || '') + '" data-seq="' + esc(e.seq) + '">' +
             '<td data-label="Seq" class="pc-num">' + esc(e.seq) + '</td>' +
             '<td data-label="Time (local)" class="audit-time" data-at="' + esc(e.at || '') + '">' +
                 esc(formatAuditAt(e.at || '')) + '</td>' +
             '<td data-label="Actor">' + esc(e.actor || '') + '</td>' +
             '<td data-label="Action">' + esc(e.action || '') + '</td>' +
             '<td data-label="Target">' + esc(e.target || '') + '</td>' +
-            '<td data-label="Detail" class="audit-detail" style="word-break: break-all;">' + esc(detailSummary(e.detail)) + '</td></tr>';
+            '<td data-label="Detail" class="audit-detail" style="word-break: break-all;">' + esc(detailSummary(e.detail)) + '</td>' +
+            '<td data-label="Integrity">' + integrity + '</td></tr>';
     }
 
     // In-place decoration of every server-rendered / freshly loaded row:
@@ -299,7 +384,7 @@
             const tbody = document.querySelector('#audit-table tbody');
             const rows = (data.entries || []).map(auditRowHtml).join('');
             tbody.innerHTML = rows ||
-                '<tr><td colspan="6" data-label="">No audit entries yet.</td></tr>';
+                '<tr><td colspan="7" data-label="">No audit entries yet.</td></tr>';
             limitInput.value = data.limit;
             document.getElementById('audit-count').textContent = (data.entries || []).length;
             decorateRows();
@@ -421,10 +506,11 @@
 
     async function removeAdmin(username) {
         const ok = await window.pcConfirm({
-            title: 'Remove admin?',
-            body: 'Remove admin "' + username + '"? They lose console access immediately.',
-            confirmLabel: 'Remove',
+            title: 'Remove app-only admin?',
+            body: username + ' will lose app-only admin access. This action is recorded and cannot be undone.',
+            confirmLabel: 'Remove admin',
             danger: true,
+            requireText: 'REMOVE',
         });
         if (!ok) { return; }
         try {
@@ -445,9 +531,60 @@
         }
     }
 
+    // Design Screen 5: open the add-admin disclosure and focus its field.
+    function openAddAdmin() {
+        const details = document.getElementById('admin-add');
+        if (!details) { return; }
+        details.open = true;
+        const input = document.getElementById('new-admin-username');
+        if (input) { input.focus(); }
+    }
+
+    // Actor / Action / Date-range filters (client-side over the rendered rows).
+    function applyAuditFilters() {
+        const actorEl = document.getElementById('filter-actor');
+        const actionEl = document.getElementById('filter-action');
+        const rangeEl = document.getElementById('filter-range');
+        const actor = actorEl ? actorEl.value : '';
+        const action = actionEl ? actionEl.value : '';
+        const days = rangeEl ? parseInt(rangeEl.value, 10) : 0;
+        const cutoff = days ? Date.now() - days * 86400000 : 0;
+        document.querySelectorAll('#audit-table tr.audit-row').forEach(function (row) {
+            let show = true;
+            if (actor && row.getAttribute('data-actor') !== actor) { show = false; }
+            if (action && String(row.getAttribute('data-action') || '').toLowerCase().indexOf(action) === -1) { show = false; }
+            const cell = row.querySelector('td.audit-time[data-at]');
+            const at = cell ? Date.parse(cell.getAttribute('data-at')) : NaN;
+            if (cutoff && !isNaN(at) && at < cutoff) { show = false; }
+            row.hidden = !show;
+        });
+    }
+
+    // Export the audit log as a local JSON download (no external request).
+    async function exportAudit() {
+        try {
+            const resp = await fetch('/api/audit?limit=' + MAX_AUDIT_LIMIT);
+            const data = await resp.json();
+            if (!data.success) { showToast('Error: ' + (data.error || 'unknown'), true); return; }
+            const blob = new Blob([JSON.stringify(data.entries || [], null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'audit-log.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            showToast('Audit exported', false);
+        } catch (e) {
+            showToast('Error: ' + e.message, true);
+        }
+    }
+
     // First paint: decorate the server-rendered rows (local 12h + day groups)
     // and refresh the admin list.
     decorateRows();
     refreshAdmins();
+    applyAuditFilters();
 </script>
 {% endblock %}

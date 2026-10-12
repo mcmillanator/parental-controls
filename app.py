@@ -2515,10 +2515,21 @@ def admin_audit():
                 'must_change': bool(row.get('must_change', False)),
             })
         admins.sort(key=lambda a: a['username'])
+    # Per-entry integrity (design Screen 5): every entry at or before the
+    # first bad link is verified when the chain is intact; otherwise only
+    # entries whose seq precedes the first bad seq are trusted.
+    verified_count = 0
+    for e in entries:
+        e['verified'] = bool(chain_ok) or (
+            bad_seq is not None and e.get('seq', 0) < bad_seq)
+        if e['verified']:
+            verified_count += 1
     return render_template('admin_audit.html', entries=entries,
                            chain_ok=chain_ok, bad_seq=bad_seq,
                            limit=limit, has_more=has_more,
-                           admins=admins)
+                           admins=admins,
+                           verified_count=verified_count,
+                           entry_count=len(entries))
 
 
 @app.route('/time-rules')
