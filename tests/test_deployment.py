@@ -1000,6 +1000,124 @@ class TestNextStepsOutput(unittest.TestCase):
             'first login).', script)
 
 
+class TestVerifyWaitsForActive(unittest.TestCase):
+    """install.sh's verify step must wait for `active` instead of a single
+    fixed sleep + bare `systemctl is-active`.
+
+    Regression: `sudo ./install.sh --tls` ended at 'activating' with no
+    further output. Under `set -euo pipefail` the bare `systemctl is-active`
+    exits non-zero while the slow cheroot/TLS cold start is still
+    `activating`, aborting the installer before the 'Next steps' block
+    prints. The verify step must poll until `active` (or a hard `failed`),
+    warn on timeout, and always fall through to the final block.
+    """
+
+    def _region(self):
+        """From the '== 8/8 verify ==' header through the 'Next steps:' line
+        — exactly the stretch that must never abort before the final block."""
+        script = read('install.sh')
+        start = script.index('== 8/8 verify ==')
+        end = script.index('Next steps:')
+        return script[start:end]
+
+    def _code_lines(self, region):
+        return [l.strip() for l in region.splitlines()
+                if l.strip() and not l.strip().startswith('#')]
+
+    def _state_query_calls(self, region):
+        """(line, safe) for every line in `region` that invokes `systemctl`.
+
+        Echoed hints for the parent ('echo "run: sudo systemctl ..."')
+        mention systemctl but never run it, so they are skipped. A real call
+        is captured (`$(systemctl ...)`), sits in an if/&&/||/run condition,
+        or is a bare standalone line — which is exactly the unsafe shape
+        that aborts under `set -e` on a non-zero exit.
+        """
+        for line in self._code_lines(region):
+            if line.startswith('echo '):
+                continue
+            for match in re.finditer(r'\bsystemctl\b', line):
+                before = line[:match.start()]
+                if re.search(r'\$\($', before) \
+                   or re.search(r'(?:if |elif |while |until |run |&& |\|\| )$',
+                                before):
+                    yield line, True
+                else:
+                    yield line, False
+                break
+
+    def test_is_active_is_polled_not_a_single_fixed_sleep(self):
+        region = self._region()
+        # a wait loop: captured state, break on a terminal state, 1s polling
+        self.assertRegex(region, r'for _ in \$\(')
+        self.assertIn('$(systemctl is-active parental-controls.service '
+                      '|| true)', region)
+        self.assertIn('sleep 1', region)
+        # the old single fixed sleep must be gone
+        self.assertNotIn('sleep 3', region)
+
+    def test_every_state_query_in_the_verify_path_is_wrapped(self):
+        """No bare `systemctl` invocation remains in the verify path: each
+        state query is inside an `if`/`&&` condition or a `$(...)` capture,
+        so none can abort under `set -e`."""
+        calls = list(self._state_query_calls(self._region()))
+        self.assertTrue(calls,
+                        'no systemctl invocation found in the verify path')
+        for line, safe in calls:
+            self.assertTrue(
+                safe,
+                'verify-path systemctl call is a bare set -e abort risk: %r'
+                % (line,))
+
+    def test_no_bare_is_active_for_the_panel_unit(self):
+        """The panel-unit is-active query only ever appears captured with
+        `|| true`; a bare line would abort mid-start under `set -e`."""
+        region = self._region()
+        self.assertNotRegex(
+            region,
+            r'(?m)^\s*systemctl is-active parental-controls\.service\s*$')
+        self.assertEqual(
+            region.count('systemctl is-active parental-controls.service'),
+            region.count('$(systemctl is-active parental-controls.service '
+                         '|| true)'),
+            'every panel-unit is-active query must be captured with || true')
+
+    def test_timeout_warns_and_keeps_going(self):
+        """On timeout/failed the verify step prints a WARNING naming the unit
+        and how to inspect it, then continues — nothing may exit before the
+        final 'Next steps' block."""
+        region = self._region()
+        self.assertRegex(region, r'did not reach .active.')
+        self.assertIn('journalctl -u parental-controls.service', region)
+        self.assertIn('inspect with: journalctl', region)
+        self.assertNotRegex(region, r'\bexit\b')
+
+    def test_tls_cheroot_path_has_no_other_set_e_abort_risks(self):
+        """Between the restart and the final block every remaining probe is
+        captured or if-guarded: the curl probes swallow failure, the
+        healthcheck probe and timer check stay in `if` conditions, and the
+        TLS block only runs under its mode guard."""
+        region = self._region()
+        # curl probes: assigned into a capture and failure-swallowed
+        self.assertEqual(region.count('code=$(curl'), 2,
+                         'both curl probes must be captured assignments')
+        self.assertRegex(region, r'code=\$\(curl -s -o /dev/null -w')
+        self.assertGreaterEqual(region.count('|| true'), 3,
+                                'wait loop + both curl probes must be '
+                                'failure-swallowed')
+        # the healthcheck probe and the timer state check stay if-guarded
+        self.assertRegex(
+            region,
+            r'if systemctl start --wait --quiet '
+            r'parental-controls-healthcheck\.service; then')
+        self.assertRegex(
+            region,
+            r'if systemctl is-enabled -q '
+            r'parental-controls-healthcheck\.timer')
+        # the TLS fingerprint/enddate/expiry block only runs under mode=tls
+        self.assertIn('if [ "$MODE" = "tls" ]; then', region)
+
+
 class TestSudoersTemplates(unittest.TestCase):
     def test_templates_use_placeholder_not_a_real_user(self):
         for rel in ('sudoers-parental-controls',

@@ -478,8 +478,26 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 echo "== 8/8 verify =="
-sleep 3
-systemctl is-active parental-controls.service
+# The service may still be starting after the restart: cheroot's TLS cold
+# start (venv interpreter + imports + listen) is slower than waitress on
+# loopback. A bare `systemctl is-active` exits non-zero while the state is
+# `activating`/`auto-restart`, which under `set -e` aborts the installer
+# before the 'Next steps' block ever prints. Poll instead: keep waiting for
+# `active` (or a hard `failed`), then fall through to the final block either
+# way, warning when the slow start times out.
+SERVICE_STATE=""
+for _ in $(seq 1 30); do
+    SERVICE_STATE="$(systemctl is-active parental-controls.service || true)"
+    [ "$SERVICE_STATE" = "active" ] && break
+    [ "$SERVICE_STATE" = "failed" ] && break
+    sleep 1
+done
+if [ "$SERVICE_STATE" = "active" ]; then
+    echo "active"
+else
+    echo "WARNING: parental-controls.service did not reach 'active' (state: '${SERVICE_STATE:-unknown}');" >&2
+    echo "inspect with: journalctl -u parental-controls.service -n 50" >&2
+fi
 # The panel must run as the dedicated service user — never as the shared
 # human/agent login account — and the auth store must be owned and writable
 # by it (password changes, lockouts and revocations persist there; startup
