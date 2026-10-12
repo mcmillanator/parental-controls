@@ -53,12 +53,14 @@ class SettingsRenderTest(_AdminSessionMixin, unittest.TestCase):
 
     def test_status_stack(self):
         html = self.render()
-        self.assertIn('Last sync just now', html)
+        self.assertIn('Last sync 4 min ago', html)
         self.assertIn('Offline — lock controls require a fresh connection', html)
         self.assertIn('Unavailable', html)
         self.assertIn('Could not reach local service', html)
         self.assertIn('role="alert"', html)
+        self.assertIn('aria-live="assertive"', html)
         self.assertIn('#pc-i-lock-keyhole', html)
+        self.assertIn('#pc-i-triangle-alert', html)
 
     def test_notifications_fieldset(self):
         html = self.render()
@@ -103,9 +105,10 @@ class SettingsRenderTest(_AdminSessionMixin, unittest.TestCase):
     def test_annotation_sections(self):
         html = self.render()
         self.assertIn('id="settings-annotations"', html)
-        self.assertIn('Responsive behavior annotation', html)
-        self.assertIn('Accessibility notes', html)
-        self.assertIn('Offline-capable implementation note', html)
+        self.assertIn('Flask + Jinja + vanilla JavaScript + Bootstrap 5', html)
+        self.assertIn('Responsive Bootstrap pattern', html)
+        self.assertIn('Accessibility implementation', html)
+        self.assertIn('col-12 col-xl-6', html)
 
     def test_no_external_assets(self):
         html = self.render()

@@ -81,24 +81,26 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('id="summary-locked">1<', html)
         self.assertIn('id="summary-bedtime">1<', html)
 
-    def test_user_table_is_the_stack_pattern_with_data_labels(self):
+    def test_accounts_are_cards_with_pinned_hooks(self):
+        # REVISED-SPEC.md Screen 1: accounts render as cards, not a table.
         html = self._render()
-        self.assertIn('pc-table pc-table--stack', html)
-        self.assertIn('<thead>', html)
-        for label in ('Username', 'UID', 'Status', 'Bedtime', 'Actions'):
-            self.assertIn('data-label="%s"' % label, html,
-                          'missing stacked-table data-label %r' % label)
+        self.assertIn('class="pc-stack pc-accounts" id="accounts"', html)
+        self.assertIn('class="pc-card pc-account"', html)
+        self.assertIn('data-label="Actions"', html)
+        for user in USERS:
+            with self.subTest(user=user['username']):
+                self.assertIn('id="row-%s"' % user['username'], html)
 
-    def test_every_user_renders_a_row_with_pinned_hooks(self):
+    def test_every_user_renders_a_card_with_pinned_hooks(self):
         html = self._render()
         for user in USERS:
             self.assertIn('id="row-%s"' % user['username'], html)
         self.assertIn('class="pc-btn pc-btn--ghost btn-details"', html)
-        self.assertIn('class="pc-btn pc-btn--danger btn-lock"', html)
-        self.assertIn('class="pc-btn pc-btn--primary btn-unlock"', html)
-        # status pill + the preserved status colour class
+        self.assertIn('btn-lock', html)
+        self.assertIn('btn-unlock', html)
+        # status pill + the preserved status colour class tokens
         self.assertIn('pc-status--locked', html)
-        self.assertIn('class="status-locked"', html)
+        self.assertIn('status-locked', html)
 
     def test_bedtime_is_rendered_12h(self):
         html = self._render()
@@ -256,7 +258,8 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         html = self._render()
         self.assertIn('id="summary-heading">System summary<', html)
         self.assertIn('human accounts', html)
-        self.assertIn('pc-chip pc-chip--ok', html)
+        # REVISED-SPEC.md: explicit green Online pill.
+        self.assertIn('pc-pill pc-pill--online', html)
         self.assertIn('>Online<', html)
 
     def test_offline_sync_banner_has_retry(self):
@@ -269,19 +272,23 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
     def test_wheel_account_is_protected_with_disabled_actions(self):
         html = self._render(wheel=('kidfree',))
         idx = html.index('id="row-kidfree"')
-        row = html[idx:html.index('</tr>', idx)]
-        self.assertIn('badge-protected', row)
-        self.assertIn('Protected', row)
-        self.assertIn('wheel admins can never be locked or removed', row)
-        self.assertNotIn('btn-lock', row)
-        self.assertNotIn('btn-unlock', row)
-        self.assertNotIn('btn-logout', row)
-        # a non-wheel row still carries the pinned actions
+        card = html[idx:html.index('</article>', idx)]
+        self.assertIn('badge-protected', card)
+        self.assertIn('Protected', card)
+        self.assertIn('wheel admins can never be locked or removed', card)
+        self.assertNotIn('btn-lock', card)
+        self.assertNotIn('btn-unlock', card)
+        self.assertNotIn('btn-logout', card)
+        # REVISED-SPEC.md: all three actions render disabled for a wheel admin.
+        self.assertIn('disabled aria-disabled="true"', card)
+        self.assertIn('>Lock<', card)
+        self.assertIn('>Unlock<', card)
+        # a non-wheel card still carries the pinned actions
         idx2 = html.index('id="row-kidlocked"')
-        row2 = html[idx2:html.index('</tr>', idx2)]
-        self.assertIn('btn-unlock', row2)
-        self.assertIn('btn-lockscreen', row2)
-        self.assertIn('btn-logout', row2)
+        card2 = html[idx2:html.index('</article>', idx2)]
+        self.assertIn('btn-unlock', card2)
+        self.assertIn('btn-lockscreen', card2)
+        self.assertIn('btn-logout', card2)
 
     def test_emergency_logout_requires_typed_confirmation(self):
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
@@ -292,10 +299,12 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
     def test_specimen_cards_present(self):
         html = self._render()
         self.assertIn('id="overview-specimens"', html)
-        self.assertIn('Confirmation specimen', html)
+        self.assertIn('Selected account: Sam', html)
         self.assertIn('Confirm lock action', html)
         self.assertIn('Design thesis', html)
         self.assertIn('destructive actions separated and confirmed', html)
+        self.assertIn('No human accounts found', html)
+        self.assertIn('Check the machine connection', html)
 
 
 if __name__ == '__main__':

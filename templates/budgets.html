@@ -142,24 +142,24 @@
         <span class="pc-meta">Recurring allowances for school and weekend schedules.</span>
     </div>
     {% if overrides and overrides.windows and overrides.windows|length > 0 %}
-    <div class="table-responsive">
-    <table class="pc-table pc-table--stack">
-        <thead>
-            <tr><th scope="col">Target</th><th scope="col">Days</th><th scope="col">Time</th><th scope="col">Allowance</th><th scope="col">Enabled</th><th scope="col"></th></tr>
-        </thead>
-        <tbody>
-            {% for w in overrides.windows %}
-            <tr class="window-row" data-window-id="{{ w.id }}">
-                <td data-label="Target">{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
-                <td data-label="Days">{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-                <td data-label="Time">{{ w.start|twelve }}–{{ w.end|twelve }}</td>
-                <td class="window-allowance" data-label="Allowance">{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}</td>
-                <td data-label="Enabled"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
-                <td data-label=""><button type="button" class="btn-unfreeze pc-btn pc-btn--sm pc-btn--danger" data-window-id="{{ w.id }}" onclick="removeWindow(this)">Remove window</button></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {# Weekly windows as rows (not a table): REVISED-SPEC.md keeps tables only
+       on the Processes + Admin screens. #}
+    <div class="pc-stack" id="weekly-windows-list">
+        {% for w in overrides.windows %}
+        <div class="pc-card pc-window-row window-row" data-window-id="{{ w.id }}">
+            <p class="pc-window-row__main">
+                {{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}
+                · {% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}
+                · {{ w.start|twelve }}–{{ w.end|twelve }}
+                · <span class="window-allowance">{{ w.allowance_minutes|hm }}</span> allowance
+                {% if w.window_active %} <span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}
+            </p>
+            <span class="pc-row">
+                <label class="pc-switch"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"><span>Enabled</span></label>
+                <button type="button" class="btn-unfreeze pc-btn pc-btn--sm pc-btn--danger" data-window-id="{{ w.id }}" onclick="removeWindow(this)">Remove window</button>
+            </span>
+        </div>
+        {% endfor %}
     </div>
     {% else %}
     <p id="windows-empty">No weekly windows configured.</p>
@@ -233,14 +233,11 @@
 <section class="pc-card" aria-labelledby="override-specimen-heading">
     <h2 class="pc-card__title" id="override-specimen-heading">App override</h2>
     <p class="pc-meta">Steam override</p>
-    <table class="pc-table pc-table--stack">
-        <thead><tr><th scope="col">App</th><th scope="col">Override</th></tr></thead>
-        <tbody>
-            <tr><td data-label="App">Steam</td><td data-label="Override">Unlimited</td></tr>
-            <tr><td data-label="App">Firefox</td><td data-label="Override">45m allowance</td></tr>
-            <tr><td data-label="App">YouTube</td><td data-label="Override">Unlimited</td></tr>
-        </tbody>
-    </table>
+    <ul class="pc-list" id="override-specimen-rows">
+        <li class="pc-row"><span>Steam</span><span class="pc-meta">Unlimited</span></li>
+        <li class="pc-row"><span>Firefox</span><span class="pc-meta">45m allowance</span></li>
+        <li class="pc-row"><span>YouTube</span><span class="pc-meta">Unlimited</span></li>
+    </ul>
     <p class="pc-hint">Specimen only — set real per-app overrides on the Processes screen.</p>
     <button type="button" class="pc-btn pc-btn--primary pc-btn--block" disabled>Done</button>
 </section>

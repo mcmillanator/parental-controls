@@ -417,12 +417,16 @@ class RenderedA11yTest(_RenderBase, unittest.TestCase):
         for field in ('current', 'new', 'confirm'):
             self.assertIn('id="%s"' % field, html)
 
-    def test_home_render_keeps_thead_and_scope_in_the_stack(self):
+    def test_home_render_is_phone_first_with_account_cards(self):
         html = self._render_home()
         self._assert_common_scaffolding(html)
-        self.assertIn('pc-table--stack', html)
-        self.assertIn('<thead>', html)
-        self.assertIn('scope="col"', html)
+        # REVISED-SPEC.md Screen 1: no desktop sidebar, a simple header and a
+        # 4-tab phone nav; accounts render as cards (no stacked table).
+        self.assertIn('pc-layout pc-layout--phone', html)
+        self.assertIn('class="pc-phoneheader"', html)
+        self.assertNotIn('class="pc-sidebar"', html)
+        self.assertIn('id="accounts"', html)
+        self.assertNotIn('pc-table--stack', html)
 
 
 if __name__ == '__main__':

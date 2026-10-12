@@ -539,7 +539,7 @@ class ConvertedPageTest(unittest.TestCase):
             'id="new-admin-username"', 'class="refresh-info"',
             'Status updates automatically every 10 seconds',
             'id="device-selector"', 'switchDevice',
-            'pc-summary', 'pc-table--stack', 'data-label="Username"',
+            'pc-summary', 'pc-account', 'pc-pill--online',
             'Parental Controls', 'Logged in as',
         ),
         'login.html': (

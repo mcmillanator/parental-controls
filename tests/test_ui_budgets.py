@@ -96,13 +96,18 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('id="budget-date"', html)
         self.assertIn('Last refreshed', html)
 
-    def test_app_budgets_table_columns_and_labels(self):
+    def test_app_budgets_are_cards_not_a_table(self):
+        # REVISED-SPEC.md Screen 3: category CARDS (single column), no table.
         html = self.render()
-        self.assertIn('id="budgets-table"', html)
-        self.assertIn('pc-table pc-table--stack', html)
-        for label in ('Category', 'Used today', 'Daily limit', 'State', 'Action'):
-            with self.subTest(label=label):
-                self.assertIn('data-label="%s"' % label, html)
+        self.assertIn('id="budget-cards"', html)
+        self.assertIn('pc-card pc-catcard', html)
+        self.assertIn('pc-catcard__dl', html)
+        self.assertIn('<dl', html)
+        self.assertIn('Used today', html)
+        self.assertIn('Daily limit', html)
+        self.assertNotIn('id="budgets-table"', html)
+        # full-width freeze/unfreeze action carries an aria-label
+        self.assertRegex(html, r'aria-label="(Freeze|Unfreeze) [^"]+"')
 
     def test_every_category_row_renders(self):
         html = self.render()
@@ -126,6 +131,7 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('Add weekly window', html)
         self.assertIn('Remove window', html)
         self.assertIn('data-window-id="w-category-games"', html)
+        self.assertIn('pc-window-row window-row', html)
         self.assertIn('4:00 PM', html)
         self.assertIn('8:00 PM', html)
 
@@ -147,6 +153,14 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('Steam override', html)
         self.assertIn('45m allowance', html)
         self.assertIn('Unlimited', html)
+
+    def test_implementation_aside(self):
+        # REVISED-SPEC.md Screen 3 implementation annotation.
+        html = self.render()
+        self.assertIn('id="budgets-implementation"', html)
+        self.assertIn('Implementation', html)
+        self.assertIn('Flask + Jinja + vanilla JavaScript + Bootstrap 5', html)
+        self.assertIn('static/js/app.js', html)
 
     def test_empty_state_when_no_user(self):
         with mock.patch.object(app, 'get_human_users', return_value=[]), \
@@ -175,6 +189,11 @@ class BudgetsSourceTest(unittest.TestCase):
                      "'/api/budgets/unfreeze'", "'/api/budgets/windows'"):
             with self.subTest(path=path):
                 self.assertIn(path, self.src)
+
+    def test_budgets_screen_uses_no_tables(self):
+        # REVISED-SPEC.md: tables stay on the Processes + Admin screens only;
+        # the budgets screen renders category cards and window rows.
+        self.assertNotIn('<table', self.src)
 
     def test_no_raw_window_confirm(self):
         self.assertNotIn('window.confirm(', self.src)

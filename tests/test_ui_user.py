@@ -343,6 +343,7 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('pc-switch', html)
         self.assertIn('id="bedtime-warning"', html)
         self.assertIn('Warning lead-time', html)
+        self.assertIn('schedule edits are reversible', html)
 
     def test_day_buttons_keep_the_day_checkboxes(self):
         html = self.render(self._live_with())
@@ -351,6 +352,26 @@ class TimeRulesDesignTest(_UserPageRender):
             with self.subTest(day=i):
                 self.assertIn('name="day_%d"' % i, html)
         self.assertIn('Apply to all days', html)
+
+    def test_days_group_is_a_fieldset_with_aria_pressed(self):
+        # REVISED-SPEC.md Screen 2: fieldset/legend for the Days group and
+        # aria-pressed day buttons.
+        html = self.render(self._live_with())
+        self.assertIn('<fieldset class="pc-field pc-fieldset">', html)
+        self.assertIn('<legend class="pc-field__label">Custom days:</legend>', html)
+        self.assertIn('aria-pressed="true"', html)
+        self.assertIn('aria-pressed="false"', html)
+
+    def test_countdown_is_a_live_region(self):
+        html = self.render(self._live_with())
+        self.assertIn('id="bedtime-countdown" role="timer" aria-live="polite"',
+                      html)
+
+    def test_implementation_annotation(self):
+        html = self.render(self._live_with())
+        self.assertIn('id="time-rules-implementation"', html)
+        self.assertIn('Flask + Jinja server-rendered', html)
+        self.assertIn('static/css/tokens.css', html)
 
     def test_countdown_card(self):
         html = self.render(self._live_with())

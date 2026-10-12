@@ -1,0 +1,46 @@
+{# ==========================================================================
+   _partials/macros.html — reusable Jinja macros for the design system
+   (REVISED-SPEC.md stack directive: macros for time inputs, day toggles,
+   buttons, badges, alerts, toggles, device cards and dialogs).
+
+   Every macro emits the same class names the pinned selector contract
+   (`tests/test_katalon_objects.py`, UI_UX_PLAN.md §7.4) expects, so pages can
+   adopt them without moving a selector. The page-local `time_select`
+   macro (templates/user.html, templates/budgets.html) keeps the 12-hour
+   selects; `pc_empty` / `pc_skeleton` / `pc_banner` live in
+   `_partials/flash.html`; the dialogs live in `_partials/dialog.html` and
+   `_partials/override_dialog.html`.
+   ========================================================================== #}
+
+{# Status pill — explicit Online/Unlocked colours, text + icon (never colour
+   alone). Keeps the legacy `pc-status--*` / `status-*` hooks. #}
+{%- macro pc_status_pill(cls, label, icon) -%}
+<span class="pc-pill pc-pill--{{ cls }} pc-status pc-status--{{ cls }} status-{{ cls }}"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg> {{ label }}</span>
+{%- endmacro -%}
+
+{# A plain badge / status chip. #}
+{%- macro pc_badge(variant, label) -%}
+<span class="pc-chip pc-chip--{{ variant }}">{{ label }}</span>
+{%- endmacro -%}
+
+{# A button. `variant` is the `.pc-btn--*` suffix ('primary'|'danger'|'warn'|
+   'neutral'|'ghost'); `extra` carries onclick/disabled/etc. #}
+{%- macro pc_button(label, variant='primary', extra='', block=false) -%}
+<button type="button" class="pc-btn pc-btn--{{ variant }}{% if block %} pc-btn--block{% endif %}" {{ extra|safe }}>{{ label }}</button>
+{%- endmacro -%}
+
+{# A toggle switch (checkbox + visible label). #}
+{%- macro pc_toggle(id, label, checked=false, disabled=false, extra='') -%}
+<label class="pc-switch"><input type="checkbox" id="{{ id }}"{% if checked %} checked{% endif %}{% if disabled %} disabled{% endif %} {{ extra|safe }}><span>{{ label }}</span></label>
+{%- endmacro -%}
+
+{# A device card for the Settings screen. #}
+{%- macro pc_device_card(name, meta, online=false, chip='') -%}
+<article class="pc-card" data-device="{{ name }}">
+  <div class="pc-card__header">
+    <h3 class="pc-card__title">{{ name }}</h3>
+    {% if online %}<span class="pc-chip pc-chip--ok"><span class="pc-dot pc-dot--online" aria-hidden="true"></span>Online</span>{% elif chip %}<span class="pc-chip pc-chip--neutral">{{ chip }}</span>{% endif %}
+  </div>
+  <p class="pc-meta">{{ meta }}</p>
+</article>
+{%- endmacro -%}

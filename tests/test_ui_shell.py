@@ -83,29 +83,37 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
                      '/admin/audit', '/settings'):
             with self.subTest(path=path):
                 html = self._render(path)
-                self.assertIn('class="pc-sidebar"', html)
                 self.assertIn('class="pc-tabbar"', html)
                 self.assertIn('id="pc-main"', html)
+                if path == '/':
+                    # REVISED-SPEC.md Screen 1: Overview is phone-first and
+                    # deliberately has no desktop sidebar.
+                    self.assertNotIn('class="pc-sidebar"', html)
+                    self.assertIn('class="pc-phoneheader"', html)
+                else:
+                    self.assertIn('class="pc-sidebar"', html)
 
     def test_sidebar_lists_all_five_sections(self):
-        html = self._render('/')
+        html = self._render('/processes')
         sidebar = html[html.index('class="pc-sidebar"'):]
         sidebar = sidebar[:sidebar.index('</aside>')]
         for label in SECTIONS:
             with self.subTest(label=label):
                 self.assertIn(label, sidebar)
 
-    def test_tabbar_lists_all_five_sections_plus_account(self):
+    def test_tabbar_lists_four_tabs_plus_account_and_settings(self):
+        # REVISED-SPEC.md Screen 1/3: the phone bar is Home/Time/Activity/Admin;
+        # Settings lives in the account popover on phones.
         html = self._render('/')
         tabbar = html[html.index('class="pc-tabbar"'):]
         tabbar = tabbar[:tabbar.index('</nav>')]
-        for label in SECTIONS + ('Account',):
+        for label in ('Home', 'Time', 'Activity', 'Admin', 'Account',
+                      'Settings'):
             with self.subTest(label=label):
                 self.assertIn(label, tabbar)
 
     def test_active_section_is_marked_current(self):
         cases = {
-            '/': 'Overview',
             '/time-rules': 'Time rules',
             '/budgets': 'Time rules',
             '/processes': 'Activity',
@@ -124,8 +132,17 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
                     re.S)
                 self.assertEqual([label], current)
 
-    def test_machine_card_is_scheme_less_and_online(self):
+    def test_overview_marks_home_current_in_the_tabbar(self):
         html = self._render('/')
+        tabbar = html[html.index('class="pc-tabbar"'):]
+        tabbar = tabbar[:tabbar.index('</nav>')]
+        current = re.findall(
+            r'<a class="pc-tab"[^>]*aria-current="page"[^>]*>\s*'
+            r'<svg[^>]*>.*?</svg>\s*<span>([^<]+)</span>', tabbar, re.S)
+        self.assertEqual(['Home'], current)
+
+    def test_machine_card_is_scheme_less_and_online(self):
+        html = self._render('/processes')
         self.assertIn('Selected machine', html)
         self.assertIn('Local / Online', html)
         self.assertIn('pc-dot--online', html)
@@ -134,7 +151,7 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertNotIn('https://', html)
 
     def test_user_chip_and_theme_and_help_are_present(self):
-        html = self._render('/')
+        html = self._render('/processes')
         self.assertIn('id="pc-theme-toggle"', html)
         self.assertIn('aria-label="Toggle light or dark theme"', html)
         self.assertIn('aria-label="Help"', html)
@@ -168,6 +185,20 @@ class ShellSourceTest(unittest.TestCase):
         self.assertIn("_partials/appbar.html", self.base)
         self.assertIn("_partials/tabbar.html", self.base)
 
+    def test_base_links_the_progressive_enhancement_script(self):
+        # REVISED-SPEC.md: static/js/app.js is progressive enhancement only.
+        self.assertIn("js/app.js", self.base)
+
+    def test_css_defines_the_revised_pills_and_phone_shell(self):
+        for sel in ('.pc-pill--online', '.pc-pill--protected',
+                    '.pc-layout--phone', '.pc-phoneheader', '.pc-catcard__dl',
+                    '.pc-annotation'):
+            with self.subTest(sel=sel):
+                self.assertIn(sel, self.css)
+        # explicit Online/Unlocked mockup colours
+        self.assertIn('#d7ebd7', self.css)
+        self.assertIn('#003a05', self.css)
+
     def test_sidebar_has_brand_machine_and_nav(self):
         self.assertIn('pc-sidebar__brand', self.sidebar)
         self.assertIn('pc-machine', self.sidebar)
@@ -177,10 +208,12 @@ class ShellSourceTest(unittest.TestCase):
                 self.assertIn(label, self.sidebar)
         self.assertIn('aria-current="page"', self.sidebar)
 
-    def test_tabbar_has_all_five_sections(self):
-        for label in SECTIONS:
+    def test_tabbar_has_four_tabs_and_settings_in_the_menu(self):
+        for label in ('Home', 'Time', 'Activity', 'Admin'):
             with self.subTest(label=label):
-                self.assertIn(label, self.tabbar)
+                self.assertIn("'%s'" % label, self.tabbar)
+        # Settings is sidebar-only / account-menu on phones, not a tab.
+        self.assertIn('Settings', self.tabbar)
         self.assertIn('aria-current="page"', self.tabbar)
 
     def test_appbar_has_theme_help_and_account(self):

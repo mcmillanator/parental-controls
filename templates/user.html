@@ -153,6 +153,7 @@
             <span class="pc-field__label">End time:</span>
             {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
         </div>
+        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
         <div class="pc-field">
             {# Label + checkbox share one row (they used to sit on separate
                lines); the checkbox's id/name/behaviour are unchanged. #}
@@ -191,6 +192,7 @@
             <span class="pc-field__label">End time:</span>
             {{ time_select('end', 'End', None) }}
         </div>
+        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
         <div class="pc-field">
             {# Label + checkbox share one row (they used to sit on separate
                lines); the checkbox's id/name/behaviour are unchanged. #}
