@@ -581,7 +581,13 @@ echo "Installed into $INSTALL_DIR (listening on ${BIND_HOST}:${BIND_PORT}). Next
 echo "  1. Get the one-time admin credential: journalctl -u parental-controls.service | grep 'AUTH BOOTSTRAP'"
 case "$BIND_HOST" in
     127.0.0.1|localhost|::1)
-        echo "  2. Open your panel at: http://localhost:${BIND_PORT}"
+        # TLS-over-tunnel case: --tls on a loopback bind still serves TLS,
+        # so the URL scheme must follow MODE, not the loopback host alone.
+        if [ "$MODE" = "tls" ]; then
+            echo "  2. Open your panel at: https://localhost:${BIND_PORT}"
+        else
+            echo "  2. Open your panel at: http://localhost:${BIND_PORT}"
+        fi
         echo "     (from another machine, tunnel first: ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>)" ;;
     *)
         if [ "$MODE" = "tls" ]; then

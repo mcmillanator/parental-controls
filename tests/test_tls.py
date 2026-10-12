@@ -15,6 +15,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import ssl
@@ -82,6 +83,17 @@ def render_unit_via_shell(template_rel, host, port, mode,
             capture_output=True, text=True, timeout=60)
         assert proc.returncode == 0, proc.stderr
         return proc.stdout
+
+
+def execstart_python_argv(rendered):
+    """The python argv inside a rendered TLS ExecStart, as a list.
+
+    e.g. ['--host=0.0.0.0', '--port=5000', '--cert=/c.crt',
+          '--key=/c.key'] — the exact list tls_serve.main() must accept.
+    """
+    match = re.search(r"tls_serve\.py ([^']+)'", rendered)
+    assert match, 'no tls_serve python argv found in render'
+    return shlex.split(match.group(1))
 
 
 def make_cert(tmpdir, name='test-tls-name'):
@@ -229,6 +241,10 @@ class TestLoopbackUnitIsByteIdentical(unittest.TestCase):
             ". .venv/bin/activate && exec waitress-serve "
             "--host=127.0.0.1 --port=5000 wsgi:application'",
             rendered)
+        # The waitress/loopback variant legitimately keeps the trailing
+        # `wsgi:application` (waitress-serve is a pserve-style runner);
+        # only the tls_serve.py variant must not carry it.
+        self.assertIn('wsgi:application', rendered)
         self.assertNotIn('PARENTAL_TLS', rendered)
         self.assertNotIn('PARENTAL_INSECURE_LAN', rendered)
         self.assertNotRegex(rendered, r'@[A-Z_]+@')
@@ -259,6 +275,19 @@ class TestTlsUnitRendersCertPathsAndEnv(unittest.TestCase):
                       rendered)
         self.assertIn('--key=/etc/parental-controls/tls/server.key',
                       rendered)
+        # Regression: the TLS ExecStart must carry ONLY tls_serve.py's own
+        # argv. install.sh used to append the waitress-style trailing
+        # `wsgi:application`, which tls_serve.py's argparse rejects
+        # ("unrecognized arguments"), crash-looping every --tls deploy.
+        self.assertIn(
+            "ExecStart=/bin/bash -c 'cd /opt/parental-controls && "
+            ". .venv/bin/activate && exec python "
+            "/opt/parental-controls/tls_serve.py "
+            "--host=0.0.0.0 --port=5000 "
+            "--cert=/etc/parental-controls/tls/server.crt "
+            "--key=/etc/parental-controls/tls/server.key'",
+            rendered)
+        self.assertNotIn('wsgi:application', rendered)
         self.assertEqual(rendered.count('Environment=PARENTAL_TLS=1'), 1)
         self.assertNotIn('waitress-serve', rendered)
         self.assertNotIn('PARENTAL_INSECURE_LAN', rendered)
@@ -272,6 +301,86 @@ class TestTlsUnitRendersCertPathsAndEnv(unittest.TestCase):
         self.assertIn('waitress-serve', rendered)
         self.assertNotIn('PARENTAL_TLS', rendered)
         self.assertNotRegex(rendered, r'@[A-Z_]+@')
+
+
+class TestTlsExecStartArgvParsesCleanly(unittest.TestCase):
+    """The rendered TLS ExecStart must be exactly tls_serve.py's own argv.
+
+    Regression: install.sh rendered `... tls_serve.py --host=... --port=...
+    --cert=... --key=... wsgi:application`, but tls_serve.py imports the
+    WSGI app itself (the trailing app is a waitress runner arg) and its
+    argparse has no positional slot. Every --tls deploy crash-looped with
+    `unrecognized arguments: wsgi:application`, leaving the unit stuck in
+    `activating (auto-restart)`.
+    """
+
+    _CERT = '/etc/parental-controls/tls/server.crt'
+    _KEY = '/etc/parental-controls/tls/server.key'
+
+    def _store(self):
+        tmpdir = tempfile.mkdtemp(prefix='pc-tls-execstart-')
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        path = os.path.join(tmpdir, 'auth.json')
+        with open(path, 'w') as fh:
+            json.dump({'users': {}}, fh)
+        return path
+
+    def _parse(self, argv):
+        """tls_serve.main(argv) against tls_serve.py's REAL argparse, with
+        build_server stubbed so nothing binds. Returns (host, port, cert,
+        key) as parsed — SystemExit means argparse rejected the argv.
+
+        The auth store must be a temp file BEFORE the import: importing
+        tls_serve pulls in wsgi, whose module-level auth init reads
+        auth_file_path() at import time, and the real store at
+        /etc/parental-controls/auth.json is outside the verified
+        project/config scope (the prior version of this test read the
+        live store and triggered a broad permission prompt). Purging the
+        cached modules forces the import to run under the patched env.
+        """
+        store = self._store()
+        with mock.patch.dict(os.environ,
+                             {'PARENTAL_CONTROLS_AUTH': store}):
+            for _mod in ('tls_serve', 'wsgi', 'auth'):
+                sys.modules.pop(_mod, None)
+            import tls_serve  # noqa: F811  (imports under the temp store)
+            with mock.patch.object(
+                    tls_serve, 'build_server',
+                    return_value=mock.Mock()) as build:
+                tls_serve.main(argv)  # SystemExit == argparse rejected argv
+                return build.call_args.args
+
+    def test_lan_tls_render_parses_with_tls_serves_parser(self):
+        rendered = render_unit_via_shell('systemd/parental-controls.service',
+                                         '0.0.0.0', '5000', 'tls',
+                                         health_tls=' --tls')
+        self.assertNotIn('wsgi:application', rendered)
+        args = self._parse(execstart_python_argv(rendered))
+        self.assertEqual(args, ('0.0.0.0', 5000, self._CERT, self._KEY))
+
+    def test_loopback_tls_render_parses_with_tls_serves_parser(self):
+        # --tls on a loopback bind (TLS-over-tunnel) is a real mode: it must
+        # render an ExecStart the same parser accepts.
+        rendered = render_unit_via_shell('systemd/parental-controls.service',
+                                         '127.0.0.1', '5443', 'tls',
+                                         health_tls=' --tls')
+        self.assertNotIn('wsgi:application', rendered)
+        args = self._parse(execstart_python_argv(rendered))
+        self.assertEqual(args, ('127.0.0.1', 5443, self._CERT, self._KEY))
+
+    def test_old_buggy_trailing_wsgi_application_is_rejected(self):
+        """The pre-fix argv must FAIL argparse — that failure IS the bug
+        this suite pins so it can never regress."""
+        store = self._store()
+        import tls_serve  # noqa: F811
+        with mock.patch.dict(os.environ,
+                             {'PARENTAL_CONTROLS_AUTH': store}):
+            with mock.patch.object(tls_serve, 'build_server') as build:
+                with self.assertRaises(SystemExit):
+                    tls_serve.main(['--host=0.0.0.0', '--port=5000',
+                                    '--cert=/c.crt', '--key=/c.key',
+                                    'wsgi:application'])
+                build.assert_not_called()
 
 
 class TlsClientBase(unittest.TestCase):

@@ -99,7 +99,7 @@ tls_expiry_days() {
 tls_apply_variant() {
     case "$2" in
         tls)
-            exec_line="ExecStart=/bin/bash -c 'cd $3 && . .venv/bin/activate && exec python $3/tls_serve.py --host=$4 --port=$5 --cert=$6 --key=$7 wsgi:application'"
+            exec_line="ExecStart=/bin/bash -c 'cd $3 && . .venv/bin/activate && exec python $3/tls_serve.py --host=$4 --port=$5 --cert=$6 --key=$7'"
             # `&` would expand to the match in a sed replacement: escape it.
             exec_line="${exec_line//&/\\&}"
             sed -i -e '/^ExecStart=.*waitress-serve.*$/d' \
