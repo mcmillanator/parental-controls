@@ -22,6 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import adminstore  # noqa: E402
 import auth  # noqa: E402
 import audit  # noqa: E402
 import budgets  # noqa: E402
@@ -126,39 +127,29 @@ def cmd_reset_password(args):
 
 
 def cmd_add_admin(args):
-    try:
-        store = auth.load_store()
-    except auth.AuthStoreError:
-        if os.path.exists(auth.auth_file_path()):
-            # Corrupt/unreadable: fail closed, never bootstrap over it.
-            print('ERROR: auth store exists but is unreadable; refusing '
-                  'to overwrite it.', file=sys.stderr)
-            raise SystemExit(1)
-        # First admin on a fresh install: start from a blank store.
-        # (Every other command fails closed on a missing store.)
-        store = auth.blank_store()
+    # Store mutations + validations are shared with the web console
+    # (adminstore.add_admin); the CLI keeps its historical messages,
+    # exit codes and the missing-store bootstrap below.
     username = args.username
-    if not auth.valid_admin_username(username):
-        print('ERROR: invalid username.', file=sys.stderr)
+    try:
+        try:
+            store = auth.load_store()
+        except auth.AuthStoreError:
+            if os.path.exists(auth.auth_file_path()):
+                # Corrupt/unreadable: fail closed, never bootstrap over it.
+                print('ERROR: auth store exists but is unreadable; refusing '
+                      'to overwrite it.', file=sys.stderr)
+                raise SystemExit(1)
+            # First admin on a fresh install: start from a blank store.
+            # (Every other command fails closed on a missing store.)
+            store = auth.blank_store()
+        tier, generated = adminstore.add_admin(username, store=store)
+    except adminstore.RefusedError as e:
+        print(f'Refused: {e}', file=sys.stderr)
         raise SystemExit(1)
-    if username in store.get('users', {}):
-        print(f'ERROR: admin already exists: {username}', file=sys.stderr)
+    except adminstore.AdminStoreError as e:
+        print(f'ERROR: {e}', file=sys.stderr)
         raise SystemExit(1)
-    if auth.is_system_user(username) and not auth.is_wheel_member(username):
-        print(f'Refused: {username} is a non-admin system account and can '
-              'never authenticate.', file=sys.stderr)
-        raise SystemExit(1)
-    if auth.is_wheel_member(username):
-        tier = 'wheel'
-    else:
-        tier = 'app-only'
-    generated = secrets.token_urlsafe(24)
-    store['users'][username] = {
-        'hash': auth.hash_password(generated),
-        'must_change': True,
-        'locked': False,
-    }
-    _save(store)
     audit.safe_log('cli:add-admin', 'admin.add', username,
                    {'success': True, 'tier': tier})
     print(f'Admin {username!r} created (tier: {tier}).')
@@ -169,15 +160,15 @@ def cmd_add_admin(args):
 def cmd_remove_admin(args):
     store = _load()
     username = args.username
-    if auth.is_wheel_member(username):
-        print(f'Refused: {username} is a wheel admin and can never be '
-              'removed.', file=sys.stderr)
+    try:
+        # Shared with the web console; wheel targets always refused.
+        adminstore.remove_admin(username, store=store)
+    except adminstore.RefusedError as e:
+        print(f'Refused: {e}', file=sys.stderr)
         raise SystemExit(1)
-    if username not in store.get('users', {}):
-        print(f'ERROR: no such admin: {username}', file=sys.stderr)
+    except adminstore.AdminStoreError as e:
+        print(f'ERROR: {e}', file=sys.stderr)
         raise SystemExit(1)
-    del store['users'][username]
-    _save(store)
     audit.safe_log('cli:remove-admin', 'admin.remove', username,
                    {'success': True})
     print(f'Admin {username!r} removed.')

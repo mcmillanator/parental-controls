@@ -8,9 +8,9 @@ locking/unlocking their accounts via sudo commands.
 import subprocess
 import pwd
 import html
+import json
 import os
 import re
-import secrets
 import threading
 import time
 import traceback
@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from flask import (Flask, render_template, request, jsonify, redirect,
                    url_for, g, make_response)
 
+import adminstore
 import auth
 import audit
 import budgets
@@ -1906,12 +1907,14 @@ def api_admins_list():
 @app.route('/api/admins', methods=['POST'])
 @require_admin
 def api_admins_add():
-    """Create an admin account. Wheel admins only.
+    """Create an app-only admin account. Wheel admins only.
 
-    Accepts a wheel member (gives them a login row) or a non-system
-    username (app-only admin). Refuses non-wheel system accounts: that
-    would hand a login to a regular local user (e.g. the child). The
-    password is generated server-side and returned ONCE in the response.
+    The web console only ever adds app-only admins: a wheel member's
+    row is bootstrap/CLI territory (mirrors the CLI constraints, but the
+    UI refuses wheel targets outright — wheel admins are never addable
+    from the UI). Refuses non-wheel system accounts: that would hand a
+    login to a regular local user (e.g. the child). The password is
+    generated server-side and returned ONCE in the response.
     """
     if g.tier != 'wheel':
         return jsonify({'success': False,
@@ -1926,27 +1929,20 @@ def api_admins_add():
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
-    if username in store.get('users', {}):
+    try:
+        tier, generated = adminstore.add_admin(
+            username, store=store, allow_wheel=False)
+    except adminstore.RefusedError as e:
+        return jsonify({'success': False, 'error': str(e)}), 403
+    except adminstore.AdminExistsError:
         return jsonify({'success': False,
                         'error': 'Admin already exists.'}), 400
-    if auth.is_system_user(username) and not auth.is_wheel_member(username):
-        return jsonify({
-            'success': False,
-            'error': (f'Refused: {username} is a non-admin system account '
-                      'and can never authenticate.')}), 403
-    generated = secrets.token_urlsafe(24)
-    store['users'][username] = {
-        'hash': auth.hash_password(generated),
-        'must_change': True,
-        'locked': False,
-    }
-    try:
-        auth.save_store(store)
-    except auth.AuthStoreError as e:
+    except adminstore.AuthStoreUnavailable as e:
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
-    _safe_audit(_req_actor(), 'admin.add', username, {'success': True})
+    _safe_audit(_req_actor(), 'admin.add', username,
+                {'success': True, 'tier': tier})
     return jsonify({'success': True,
                     'message': f'Admin {username} created. This password is '
                                'shown ONCE and must be changed at first login.',
@@ -1973,18 +1969,16 @@ def api_admins_remove():
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
-    # Re-check after loading the live store: a wheel member is never
-    # removable even if their row looks app-only (belt and braces).
-    refused = _wheel_target_refused(username)
-    if refused is not None:
-        return refused
-    if username not in store.get('users', {}):
+    try:
+        # Re-checks wheel membership live after loading the store
+        # (belt and braces), then deletes + persists.
+        adminstore.remove_admin(username, store=store)
+    except adminstore.RefusedError as e:
+        return jsonify({'success': False, 'error': str(e)}), 403
+    except adminstore.NoSuchAdminError:
         return jsonify({'success': False,
                         'error': 'No such admin.'}), 404
-    del store['users'][username]
-    try:
-        auth.save_store(store)
-    except auth.AuthStoreError as e:
+    except adminstore.AuthStoreUnavailable as e:
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         return jsonify({'success': False,
                         'error': 'Authentication unavailable'}), 500
@@ -2009,6 +2003,74 @@ def api_audit():
     ok, bad_seq = audit.verify_chain()
     return jsonify({'success': True, 'entries': entries,
                     'chain_ok': ok, 'bad_seq': bad_seq, 'limit': limit})
+
+
+@app.route('/admin/audit')
+@require_admin
+def admin_audit():
+    """Admin console: tamper-evident audit viewer + admin management.
+
+    Read-only audit table (newest-first) with chain status and a
+    limit-based "load more" control (the button grows the limit via the
+    existing /api/audit endpoint, capped at 1000 — nothing is deletable).
+    The admin-management section lists every store row (wheel rows are
+    shown as protected); the add/remove actions are wheel-actor only and
+    target app-only admins only, enforced server-side by
+    adminstore.add_admin/remove_admin.
+    """
+    try:
+        limit = int(request.args.get('limit', '100'))
+    except (TypeError, ValueError):
+        limit = 100
+    limit = max(1, min(limit, 1000))
+    # Peek one past the limit purely to decide whether "load more" can
+    # grow (the page never exceeds the cap).
+    entries = audit.read_entries(limit=limit + 1)
+    has_more = len(entries) > limit
+    entries = entries[:limit]
+    for e in entries:
+        e['detail_summary'] = _audit_detail_summary(e.get('detail'))
+    chain_ok, bad_seq = audit.verify_chain()
+    admins = []
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        store = None
+    if store is not None:
+        for username, row in store.get('users', {}).items():
+            if not isinstance(row, dict):
+                continue
+            admins.append({
+                'username': username,
+                'tier': auth.classify_admin(username, store),
+                'locked': bool(row.get('locked', False)),
+                'must_change': bool(row.get('must_change', False)),
+            })
+        admins.sort(key=lambda a: a['username'])
+    return render_template('admin_audit.html', entries=entries,
+                           chain_ok=chain_ok, bad_seq=bad_seq,
+                           limit=limit, has_more=has_more,
+                           admins=admins)
+
+
+AUDIT_DETAIL_SUMMARY_LEN = 120
+
+
+def _audit_detail_summary(detail):
+    """One-line detail summary for the audit table (display only)."""
+    if detail is None:
+        return ''
+    if isinstance(detail, str):
+        text = detail
+    else:
+        try:
+            text = json.dumps(detail, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(detail)
+    if len(text) <= AUDIT_DETAIL_SUMMARY_LEN:
+        return text
+    return text[:AUDIT_DETAIL_SUMMARY_LEN - 1] + '\u2026'
 
 
 if __name__ == '__main__':
