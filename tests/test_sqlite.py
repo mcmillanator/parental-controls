@@ -231,8 +231,10 @@ class TestFailClosed(StoreCase):
                          self.bedtime_json)
         conn = sqlite3.connect(self.db)
         try:
-            conn.execute("INSERT INTO bedtime (username, doc) VALUES "
-                         "('garbage', '{nope')")
+            # v2 rows are (username, field, value); an unparseable field
+            # value must be skipped without sinking the store.
+            conn.execute("INSERT INTO bedtime (username, field, value) "
+                         "VALUES ('garbage', 'start', '{nope')")
             conn.commit()
         finally:
             conn.close()
@@ -366,8 +368,9 @@ class TestConcurrency(StoreCase):
         holder = sqlite3.connect(self.db, isolation_level=None)
         try:
             holder.execute('BEGIN IMMEDIATE')
-            holder.execute("UPDATE bedtime SET doc = '{}' "
-                           "WHERE username = 'kid'")
+            # v2 layout: the field name is split out of the doc column.
+            holder.execute("UPDATE bedtime SET value = '{}' "
+                           "WHERE username = 'kid' AND field = 'start'")
             started = time.monotonic()
 
             def locked_write():
