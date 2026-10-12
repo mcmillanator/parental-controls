@@ -129,11 +129,15 @@ Phase 3 (hardening, after MVP):
 
 Phase 4 (data & accuracy):
 - [x] JSON state → SQLite with migrations — **shipped** (`store.py`,
-      `state.db`). One JSON-document table per store, `schema_version` + ordered
-      migrations, WAL + busy timeout for the three writers, backup-before-migrate
-      (`state.db.bak.<version>`), fail-closed corruption recovery, and a one-time
-      legacy-JSON import. Atomic JSON mirrors remain as the rollback copy. A
-      corrupt store fails closed rather than being silently replaced
+      `state.db`). One table per store with **per-field granularity**
+      (one row per `(username, field)`, one stable TEXT value type,
+      `load_*` reconstructs the identical whole-document dict shape),
+      `schema_version` + ordered migrations (v1 whole-document → v2
+      per-field), WAL + busy timeout for the three writers,
+      backup-before-migrate (`state.db.bak.<version>`), fail-closed
+      corruption recovery, and a one-time legacy-JSON import. Atomic
+      JSON mirrors remain as the rollback copy. A corrupt store fails
+      closed rather than being silently replaced
 - [ ] Per-user session agent for focus-based usage measurement (replaces CPU-delta proxy)
 - [ ] Per-app overrides and weekly budget windows (deferred from Phase 1 budgets)
 
@@ -144,9 +148,11 @@ Phase 5 (scale & polish):
 
 ### Open after 1.1 (deliberately not done)
 
-- **State migration is granularity-preserving, not per-field normalization.** The
-  SQLite tables hold whole per-user JSON documents; conflicting writers still
-  resolve last-writer-wins (narrowed by WAL + `BEGIN IMMEDIATE`, not eliminated).
+- **Per-field state is normalized, but writers still resolve last-writer-wins.** The
+  v2 SQLite tables store one row per `(username, field)`; conflicting writers
+  still resolve last-writer-wins (narrowed by WAL + `BEGIN IMMEDIATE`, not
+  eliminated), and whole-table saves from `load_* → mutate → save_*` callers
+  rewrite only the users present in the payload.
 - **The audit log is hash-chained, not encrypted.** Anyone who can read
   `audit.jsonl` can read every entry; the chain proves tampering, it does not
   hide content.

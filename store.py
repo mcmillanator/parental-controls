@@ -5,9 +5,16 @@ Replaces the per-file JSON stores (``bedtime.json``, ``budgets.json``,
 ``process_prefs.json``) with a single SQLite database while keeping the
 exact same ``load_*``/``save_*`` behaviour for callers:
 
-* one table per store, keyed by username, holding the same JSON document
-  per user (TEXT column) — the granularity migrated, not the shape;
-* ``schema_version`` table + ordered ``MIGRATIONS`` applied on open;
+* one table per store with **per-field granularity**: each user's entry
+  is stored as one row per named field ``(username, field, value)`` with
+  a single stable value type (TEXT holding the JSON encoding of that
+  field), so a partial update touches only the edited user's rows;
+  ``load_*`` reconstructs the identical whole-document dict shape, so
+  callers are untouched (an empty-dict or non-dict entry is kept whole
+  under the reserved ``$doc`` field so it round-trips unchanged);
+* ``schema_version`` table + ordered ``MIGRATIONS`` applied on open
+  (v1 whole-document -> v2 per-field, backup-before-migrate at every
+  step);
 * WAL journal mode + busy timeout for the three writers (web app,
   60s enforcement thread, systemd timer);
 * backup-before-migrate (``state.db.bak.<version>``);
@@ -34,13 +41,20 @@ import os
 import sqlite3
 import tempfile
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_FILENAME = 'state.db'
 BUSY_TIMEOUT_MS = 5000
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TABLES = ('bedtime', 'budgets', 'process_prefs')
+
+# Reserved field name that holds a user's entry *whole* (as a JSON
+# value) instead of field-by-field. The per-field split only applies to
+# dict entries; an empty dict and any non-dict entry must round-trip
+# unchanged, so they are kept under this name. No production caller
+# produces a literal '$doc' key.
+WHOLE_DOC_FIELD = '$doc'
 
 LEGACY_FILES = {
     'bedtime': 'bedtime.json',
@@ -121,6 +135,25 @@ def _set_version(conn, version):
                  (version,))
 
 
+def _entry_fields(entry):
+    """(field, value) pairs for one user's stored entry.
+
+    A dict becomes one pair per key — the per-field granularity. An
+    empty dict, and any non-dict entry, is kept whole under the reserved
+    ``WHOLE_DOC_FIELD`` so every entry round-trips to the identical load
+    shape (an empty-dict user must not vanish; a scalar entry must not
+    turn into a dict).
+    """
+    if isinstance(entry, dict):
+        if WHOLE_DOC_FIELD in entry:
+            fields = [(WHOLE_DOC_FIELD, entry)]
+        else:
+            fields = list(entry.items())
+    else:
+        fields = [(WHOLE_DOC_FIELD, entry)]
+    return fields or [(WHOLE_DOC_FIELD, {})]
+
+
 def _migrate_1(conn):
     """v1: initial schema — one JSON-document table per store."""
     for table in TABLES:
@@ -128,10 +161,55 @@ def _migrate_1(conn):
                      '(username TEXT PRIMARY KEY, doc TEXT NOT NULL)' % table)
 
 
+def _migrate_2(conn):
+    """v2: per-field granularity — one row per (username, field).
+
+    Splits the v1 whole-document rows into individual field rows under
+    one stable value type (TEXT holding the JSON encoding of that
+    field), keeping empty-dict/non-dict entries whole under the reserved
+    ``$doc`` field so the reconstructed load is identical to v1's.
+    Garbage v1 rows are skipped exactly as v1's loader skipped them; a
+    table missing from a partial/foreign database becomes an empty v2
+    table instead of crashing the whole open. Idempotent: an already-v2
+    table is left untouched (only reachable on re-runs; normal
+    migrations are transactional and applied once).
+    """
+    for table in TABLES:
+        cols = [row[1] for row in conn.execute(
+            'PRAGMA table_info(%s)' % table)]
+        if cols == ['username', 'field', 'value']:
+            continue
+        rows = []
+        if cols:
+            rows = conn.execute(
+                'SELECT username, doc FROM %s' % table).fetchall()
+        conn.execute('DROP TABLE IF EXISTS %s' % table)
+        conn.execute(
+            'CREATE TABLE %s (username TEXT NOT NULL, '
+            'field TEXT NOT NULL, value TEXT NOT NULL, '
+            'PRIMARY KEY (username, field))' % table)
+        payload = []
+        for username, doc in rows:
+            try:
+                entry = json.loads(doc)
+            except (ValueError, TypeError):
+                continue
+            for field, value in _entry_fields(entry):
+                payload.append((username, field, json.dumps(value)))
+        if payload:
+            conn.executemany(
+                'INSERT INTO %s (username, field, value) '
+                'VALUES (?, ?, ?)' % table, payload)
+
+
 MIGRATIONS = [
     (1, 'initial schema: schema_version + one JSON-document '
         'table per store (bedtime, budgets, process_prefs)',
      _migrate_1),
+    (2, 'per-field granularity: split each user document into one '
+        'row per (username, field); empty/non-dict entries kept whole '
+        'under the reserved $doc field',
+     _migrate_2),
 ]
 
 
@@ -203,10 +281,12 @@ def open_db(db_path):
                     data = _read_legacy_json(json_path)
                     if data:
                         conn.executemany(
-                            'INSERT OR IGNORE INTO %s (username, doc) '
-                            'VALUES (?, ?)' % table,
-                            [(u, json.dumps(doc))
-                             for u, doc in data.items()])
+                            'INSERT OR IGNORE INTO %s '
+                            '(username, field, value) VALUES (?, ?, ?)'
+                            % table,
+                            [(u, field, json.dumps(value))
+                             for u, doc in data.items()
+                             for field, value in _entry_fields(doc)])
             conn.execute('COMMIT')
         except Exception:
             try:
@@ -241,15 +321,19 @@ def load_table(db_path, table):
     try:
         try:
             rows = conn.execute(
-                'SELECT username, doc FROM %s' % table).fetchall()
+                'SELECT username, field, value FROM %s' % table).fetchall()
         except sqlite3.DatabaseError:
             return {}
         data = {}
-        for username, doc in rows:
+        for username, field, value in rows:
             try:
-                data[username] = json.loads(doc)
+                decoded = json.loads(value)
             except (ValueError, TypeError):
                 continue
+            if field == WHOLE_DOC_FIELD:
+                data[username] = decoded
+            else:
+                data.setdefault(username, {})[field] = decoded
         return data
     finally:
         conn.close()
@@ -286,9 +370,14 @@ def _write_mirror(json_path, data):
 
 
 def save_table(db_path, table, data, mirror_json_path=None):
-    """Atomically replace a whole store table (same granularity as the
-    old whole-file JSON rewrite: deletions propagate, last writer wins
-    across writers, but readers never see a torn store).
+    """Atomically persist a store, per user, per field.
+
+    Each user present in ``data`` has their field rows replaced in one
+    transaction (only that user's rows are touched, so a single-field
+    edit rewrites that user's rows rather than the whole table);
+    users absent from ``data`` are removed, so deletions propagate and
+    last-writer-wins holds across writers, but readers never see a torn
+    store.
 
     Raises OSError when the store cannot be persisted (callers already
     handle that exactly like the old JSON write failures). A corrupt
@@ -303,13 +392,21 @@ def save_table(db_path, table, data, mirror_json_path=None):
         raise OSError('state store unreadable: %s: %s'
                       % (db_path, e)) from e
     try:
-        payload = [(username, json.dumps(doc))
-                   for username, doc in data.items()]
         conn.execute('BEGIN IMMEDIATE')
         try:
-            conn.execute('DELETE FROM %s' % table)
-            conn.executemany('INSERT INTO %s (username, doc) '
-                             'VALUES (?, ?)' % table, payload)
+            current = {row[0] for row in conn.execute(
+                'SELECT DISTINCT username FROM %s' % table)}
+            for username in current - set(data):
+                conn.execute('DELETE FROM %s WHERE username = ?' % table,
+                             (username,))
+            for username, doc in data.items():
+                conn.execute('DELETE FROM %s WHERE username = ?' % table,
+                             (username,))
+                conn.executemany(
+                    'INSERT INTO %s (username, field, value) '
+                    'VALUES (?, ?, ?)' % table,
+                    [(username, field, json.dumps(value))
+                     for field, value in _entry_fields(doc)])
             conn.execute('COMMIT')
         except sqlite3.DatabaseError as e:
             try:
