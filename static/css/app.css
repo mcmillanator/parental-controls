@@ -1929,9 +1929,30 @@ body.pc-body--auth {
   color: var(--text);
 }
 
+/* Day toggle button (bedtime schedule): a checkbox styled as a pill button.
+   The checkbox keeps its name/class for the form + selector contract. */
+.pc-daybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.pc-daybtn:has(input:checked) {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--focus-ring);
+  font-weight: 600;
+}
+
 /* Inline form row (filter selects). */
-.pc-inline-form {
-  display: flex;
+.pc-inline-form {  display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: var(--sp-3);

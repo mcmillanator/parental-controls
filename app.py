@@ -1832,6 +1832,32 @@ def api_budgets_get(username):
     return jsonify(budgets.budget_status(username))
 
 
+def _format_countdown(minutes):
+    """HH:MM:SS for the live countdown card; '--:--:--' when unknown."""
+    if minutes is None:
+        return '--:--:--'
+    try:
+        total = max(0, int(round(float(minutes) * 60)))
+    except (TypeError, ValueError):
+        return '--:--:--'
+    return f'{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}'
+
+
+def _countdown_text(user):
+    """Countdown for the Time rules screen (design Screen 2).
+
+    Bonus time remaining when a bonus is active, otherwise the minutes until
+    the next bedtime window; '--:--:--' when there is nothing to count down.
+    """
+    bonus = (user or {}).get('bonus') or {}
+    if bonus.get('active') and bonus.get('remaining_minutes') is not None:
+        return _format_countdown(bonus.get('remaining_minutes'))
+    entry = (user or {}).get('bedtime') or {}
+    if entry.get('start'):
+        return _format_countdown(minutes_until_bedtime(entry))
+    return '--:--:--'
+
+
 @app.route('/user/<username>')
 @require_admin
 def user_detail(username):
@@ -1869,6 +1895,8 @@ def user_detail(username):
                            budget_state=data['budget_state'],
                            overrides=data.get('overrides'),
                            app_names=data.get('app_names') or [],
+                           children=data.get('children') or [],
+                           countdown_text=_countdown_text(data['user']),
                            category_labels=budgets.CATEGORY_LABELS,
                            categories=budgets.CATEGORIES,
                            day_labels=DAY_LABELS,
@@ -2033,6 +2061,10 @@ def get_user_live(username):
         'budget_state': budget_state,
         'overrides': budgets.overrides_view(username, overrides_data),
         'app_names': app_names,
+        # Human accounts on this box, for the per-child tabs on the Time rules
+        # screen (design Screen 2). Computed here so no route re-reads the
+        # passwd database.
+        'children': [u['username'] for u in users],
     }
 
 
