@@ -527,9 +527,18 @@ class TestFeatureGate(BaseHubTest):
         self.assertNotIn('device-selector', html)
         self.assertNotIn('switchDevice', html)
 
-    def test_user_page_single_box_is_byte_identical(self):
+    def test_user_page_single_box_leaks_no_device_markup(self):
+        """The feature gate adds nothing to a single-box user page.
+
+        Before the mobile-first UI redesign this compared the raw template
+        to tests/fixtures/user_pre_multidevice.html byte-for-byte. The page
+        now extends the shared templates/base.html shell (and its Jinja
+        render therefore needs a request context for url_for), so the guard
+        renders the current template and asserts the multi-device feature
+        leaks nothing when devices_enabled is false. The enabled path is
+        covered by test_user_page_remote_renders_remote_payload below.
+        """
         app, g, users = self._base_ctx()
-        env = app.app.jinja_env
         ctx = dict(
             g=g, username='kid',
             user=users[0], processes=[], visible=[], hidden=[],
@@ -540,11 +549,13 @@ class TestFeatureGate(BaseHubTest):
             categories=budgets.CATEGORIES, day_labels=app.DAY_LABELS,
             devices_enabled=False, insecure_lan=False,
             devices=[], selected_device='', device_error=None)
-        original = open(os.path.join(HERE, 'fixtures',
-                                     'user_pre_multidevice.html')).read()
-        current = open(os.path.join(ROOT, 'templates', 'user.html')).read()
-        self.assertEqual(env.from_string(current).render(**ctx),
-                         env.from_string(original).render(**ctx))
+        with app.app.test_request_context('/user/kid'):
+            html = app.app.jinja_env.from_string(
+                open(os.path.join(ROOT, 'templates', 'user.html')).read()
+            ).render(**ctx)
+        for marker in ('device-selector', 'switchDevice', 'device-bar'):
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, html)
 
     def test_index_with_devices_shows_selector(self):
         import app

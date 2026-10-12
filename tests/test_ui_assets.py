@@ -12,9 +12,12 @@ the foundation commit adds and nothing else:
 * the Katalon selector contract is still intact, reusing the real validator in
   ``tests/test_katalon_objects.py`` rather than a weaker copy (§7.4).
 
-The remaining un-converted pages (``user.html``, ``admin_audit.html``) still
-carry their inline styles until their own phases land; their conversions are
-covered by their own tests once converted.
+Deliberately **not** asserted here: the *rendered* behaviour of each page
+(that needs a Flask test client and lives in the per-page modules, e.g.
+``tests/test_ui_home.py`` and ``tests/test_ui_user.py``). This module is the
+stdlib-only, no-Flask guardrail: it checks the source of the converted pages
+is offline and carries the design-system structure. ``admin_audit.html``
+conversion lands in its own phase.
 
 Stdlib only (``hashlib`` + ``re`` + ``unittest``), no Flask, no network.
 """
@@ -253,6 +256,108 @@ class BaseTemplateTest(unittest.TestCase):
     def test_has_no_type_equals_time_input(self):
         # contract preserved from test_time12h (12h selects only)
         self.assertNotIn('type="time"', self.html)
+
+
+class UserPageConversionTest(unittest.TestCase):
+    """`user.html` extends the shell and uses the shared design system.
+
+    Source-level (no Flask): the rendered page is covered by
+    tests/test_ui_user.py. This is the guardrail that the busiest screen
+    left the CDN/inline-CSS world and adopted the shell + stack/disclosure
+    markup the plan requires (UI_UX_PLAN.md §5.4, Phase 3).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = read(TEMPLATE_DIR / 'user.html')
+
+    def test_extends_the_shared_shell(self):
+        self.assertTrue(self.html.lstrip().startswith('{% extends "base.html" %}'),
+                        'user.html must extend templates/base.html')
+        self.assertIn('{% block content %}', self.html)
+        self.assertIn('{% block scripts %}', self.html)
+
+    def test_has_no_doctype_head_or_cdn(self):
+        self.assertNotIn('<!DOCTYPE html>', self.html)
+        self.assertNotIn('<head>', self.html)
+        self.assertIsNone(EXTERNAL_ASSET.search(self.html),
+                          'user.html must not reference a CDN')
+
+    def test_uses_the_stacked_table_pattern_with_labels(self):
+        self.assertIn('pc-table--stack', self.html)
+        for label in ('Category', 'Limit (per day)', 'Used', 'Left', 'Status',
+                      'Usage', 'Command', 'Elapsed', 'Actions', 'Allowance'):
+            with self.subTest(label=label):
+                self.assertIn('data-label="%s"' % label, self.html)
+        # semantic theads stay in the DOM (clipped on phones, not removed)
+        self.assertGreaterEqual(self.html.count('<thead>'), 4)
+
+    def test_uses_details_disclosures(self):
+        self.assertIn('class="pc-disclosure"', self.html)
+        self.assertIn('<details', self.html)
+        for section_id in ('bedtime-section', 'bonus-section',
+                           'budgets-section', 'weekly-windows'):
+            with self.subTest(section=section_id):
+                self.assertIn('id="%s"' % section_id, self.html)
+
+    def test_destructive_actions_use_the_dialog_helper(self):
+        self.assertIn('pcConfirm(', self.html)
+        self.assertNotIn('window.confirm(', self.html)
+        self.assertNotIn('!confirm(', self.html)
+        # Emergency logout keeps its deliberate type-to-confirm barrier.
+        self.assertIn('requireText', self.html)
+
+    def test_budget_meter_is_present(self):
+        self.assertIn('pc-meter', self.html)
+        self.assertIn('pc-meter__fill', self.html)
+
+    def test_pinned_ids_and_classes_still_render(self):
+        pinned_ids = (
+            'account-status', 'account-status-text', 'account-badges',
+            'account-actions', 'bonus-status', 'bonus-hours', 'bonus-minutes',
+            'budget-{{ cat }}-hours', 'budget-{{ cat }}-minutes',
+            'budget-used-{{ cat }}', 'budget-left-{{ cat }}',
+            'budget-status-{{ cat }}', 'budget-window-{{ cat }}',
+            'budget-meter-{{ cat }}', 'process-section', 'hidden-procs',
+        )
+        pinned_classes = (
+            'back-link', 'subtitle', 'badge-bonus', 'btn-lock', 'btn-unlock',
+            'btn-logout', 'btn-group-toggle', 'btn-hide', 'btn-show-hidden',
+            'group-chevron', 'process-name', 'group-row', 'group-detail',
+            'refresh-info', 'override-mode', 'window-row', 'day-checkbox',
+        )
+        for token in pinned_ids:
+            with self.subTest(kind='id', token=token):
+                self.assertIn('id="%s"' % token, self.html)
+        for token in pinned_classes:
+            with self.subTest(kind='class', token=token):
+                self.assertIn(token, self.html)
+        for attr in ('aria-expanded', 'aria-controls', 'data-window-id',
+                     'data-group-cat', 'data-group-comm', 'data-comm',
+                     'data-label'):
+            with self.subTest(kind='attr', attr=attr):
+                self.assertIn(attr, self.html)
+
+    def test_refresh_info_and_param_names_are_kept(self):
+        self.assertIn('Status updates automatically every 10 seconds',
+                      self.html)
+        for name in ('start_hour', 'end_hour', 'window_start_hour',
+                     'window_end_hour', 'all_days', 'day_0'):
+            with self.subTest(name=name):
+                self.assertIn(name, self.html)
+
+    def test_router_needs_for_the_shell_are_satisfied(self):
+        # The shell's app bar/tab bar link these; the page must keep the
+        # back link (Katalon `a.back-link`) and the shared toast container
+        # comes from base (not duplicated here).
+        self.assertIn('class="back-link">← Back to Parental Controls</a>',
+                      self.html)
+        self.assertNotIn('id="toast"', self.html)
+
+    def test_insecure_banner_is_owned_by_the_shell(self):
+        # base.html includes _partials/insecure_banner.html; the page keeps
+        # the legacy partial reference discoverable for the TLS guardrail.
+        self.assertIn('_insecure_banner.html', self.html)
 
 
 class PartialTest(unittest.TestCase):
