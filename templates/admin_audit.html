@@ -40,11 +40,13 @@
     </div>
 </div>
 
-<div class="pc-grid pc-grid--2">
+{# Canvas S5 stacks the Audit log and Admin accounts cards full-width in the
+   main column (max 1120px) — not side by side. #}
+<div class="pc-grid">
 <!-- ------------------------------------------------------------------ -->
 <!-- Audit log viewer (read-only)                                        -->
 <!-- ------------------------------------------------------------------ -->
-<section id="audit-section" aria-labelledby="audit-heading">
+<section id="audit-section" class="pc-card" aria-labelledby="audit-heading">
     <div class="pc-card__header">
         <div>
             <h2 id="audit-heading">Audit Log</h2>
@@ -136,7 +138,7 @@
 <!-- ------------------------------------------------------------------ -->
 <!-- Admin management (add/remove app-only, wheel-actor only)            -->
 <!-- ------------------------------------------------------------------ -->
-<section id="admin-section" aria-labelledby="admin-heading">
+<section id="admin-section" class="pc-card" aria-labelledby="admin-heading">
     <div class="pc-card__header">
         <div>
             <h2 id="admin-heading">Admin Accounts</h2>
@@ -219,7 +221,7 @@
 {# Specimen cards (design Screen 5). The canvas shows these inline in the main
    column (not behind a collapsed disclosure), so they are plain cards here. #}
 <section id="admin-specimens" aria-label="Design notes">
-    <div class="pc-grid pc-grid--2">
+    <div class="pc-grid">
         <article class="pc-card">
             <h3 class="pc-card__title">Irreversible actions</h3>
             <p>Never rely on colour, require explicit confirmation, and log actor + timestamp.</p>
