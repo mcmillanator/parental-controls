@@ -1,0 +1,20 @@
+Bootstrap 5.3.3 — vendored CSS distribution
+===========================================
+
+File:   bootstrap.min.css
+Source: https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css
+        (upstream: https://github.com/twbs/bootstrap/releases/tag/v5.3.3)
+Bytes:  232803
+SHA256: 3c8f27e6009ccfd710a905e6dcf12d0ee3c6f2ac7da05b0572d3e0d12e736fc8
+
+Vendored instead of linked from a CDN on purpose: the panel is a home-LAN /
+localhost tool that must render with zero external requests (see
+UI_UX_PLAN.md §6.3). Only the CSS is vendored — no JS bundle. The redesign
+replaces modals/tooltips with native <dialog> and <details>, so
+bootstrap.bundle.js is not needed.
+
+License: MIT (Copyright 2011-2024 The Bootstrap Authors). The unmodified
+upstream license banner is preserved at the top of bootstrap.min.css.
+
+Do not edit bootstrap.min.css by hand; replace it wholesale when bumping the
+pinned version and update the SHA256 above.

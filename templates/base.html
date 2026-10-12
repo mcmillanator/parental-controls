@@ -1,0 +1,48 @@
+{# ==========================================================================
+   base.html — shared shell for the redesigned panel (UI_UX_PLAN.md §7.1 Phase 1)
+
+   No page uses this yet: the conversion of index/user/admin_audit to
+   `{% extends "base.html" %}` is the next phase, after the multi-device merge.
+   Nothing about the current pages (ids, classes, inline CSS) is moved by
+   adding this file.
+
+   Assets are linked with url_for('static', ...) — locally vendored Bootstrap
+   plus app.css, in that order so our tokens win. A Bazzite panel on an offline
+   home LAN must render with zero external requests.
+   ==========================================================================
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="dark light">
+    {% if g is defined and g.csrf_token is defined %}
+    <meta name="csrf-token" content="{{ g.csrf_token }}">
+    {% endif %}
+    <title>{% block title %}Parental Controls{% endblock %}</title>
+    {# Local only: static/vendor/bootstrap/bootstrap.min.css (pinned 5.3.3) and
+       static/css/app.css. No CDN, no webfont, no external JS. #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="pc-body{% block body_class %}{% endblock %}">
+    {% include '_partials/icons.html' %}
+    <a class="pc-skip-link" href="#pc-main">Skip to content</a>
+    {% include '_partials/insecure_banner.html' %}
+    {% include '_partials/appbar.html' %}
+
+    <main class="pc-main" id="pc-main" tabindex="-1">
+        <div class="pc-shell{% block shell_class %} pc-shell--narrow{% endblock %}">
+            {% include '_partials/flash.html' %}
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    {% include '_partials/tabbar.html' %}
+    {% include '_partials/toast.html' %}
+    {% include '_partials/dialog.html' %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>
