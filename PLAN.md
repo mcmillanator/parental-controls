@@ -248,7 +248,7 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 mobile-first **UI redesign** now merged (`UI_UX_PLAN.md`) and these
 documentation updates. First version this release was verified running on:
 **Bazzite 44.20261002.0 (Kinoite)**, `BUILD_ID="Stable (F44.20261002)"`.
-Test suite: **1232 tests, 14 environmental skips** (47 test files, stdlib
+Test suite: **1238 tests, 14 environmental skips** (47 test files, stdlib
 `unittest`). Parent-facing summary, deploy steps and the rollback story live in
 `RELEASE.md`.
 

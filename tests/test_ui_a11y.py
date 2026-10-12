@@ -271,6 +271,31 @@ class ContrastTokenTest(unittest.TestCase):
                         '%s on --surface fails AA in %s (%.2f)'
                         % (token, theme, ratio))
 
+    def test_primary_fill_gives_white_text_aa_in_both_themes(self):
+        # The primary buttons (.pc-btn--primary, .btn-unlock, .btn-bonus,
+        # .btn-bedtime-save, the sidebar logo tile, the checked day button) all
+        # carry white text on the primary amber. The canvas amber #c47f17 is
+        # only 3.28:1 under white (below the 4.5:1 AA minimum), so the fill was
+        # deepened to the AA-safe amber #a5650f; the hover fill must pass too.
+        for theme, tokens in (('dark', self.dark), ('light', self.light)):
+            for bg in ('--primary-bg', '--primary-hover'):
+                with self.subTest(theme=theme, bg=bg):
+                    ratio = self._check(tokens, '--primary-fg', bg)
+                    self.assertGreaterEqual(
+                        ratio, 4.5,
+                        'white text on %s fails AA in %s (%.2f)'
+                        % (bg, theme, ratio))
+
+    def test_primary_fill_keeps_the_amber_family_in_both_themes(self):
+        # Owner decision: keep amber (the canvas S6 near-black primary was
+        # rejected). Both themes use the same AA-safe amber for the fill.
+        for theme, tokens in (('dark', self.dark), ('light', self.light)):
+            with self.subTest(theme=theme):
+                self.assertEqual(
+                    _resolve(tokens, '--primary-bg').lower(), '#a5650f',
+                    'the primary fill must stay the AA-safe amber in %s'
+                    % theme)
+
     def test_muted_text_passes_on_the_second_surface_too(self):
         # zebra rows / nested panels use --surface-2.
         for theme, tokens in (('dark', self.dark), ('light', self.light)):

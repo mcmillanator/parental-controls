@@ -212,7 +212,7 @@ specifies the light (cream) theme; the dark theme is its warm counterpart.
 --focus-ring:    #e0a94a;            /* 2px + 2px offset */
 
 /* warm-palette roles the canvas introduces */
---primary-bg:#c47f17 --primary-fg:#ffffff --primary-hover:#d68c1e
+--primary-bg:#a5650f --primary-fg:#ffffff --primary-hover:#96590d  /* AA-safe amber */
 --accent-bg:#3d4a45  --accent-fg:#eaf3f0   /* sage active-nav / Protected */
 --sidebar-bg:#2a2419                       /* sidebar is a distinct surface */
 
@@ -939,7 +939,7 @@ themes) were **not** weakened — they still pass on the new palette.
 
 Full stdlib suite green via
 `TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`
-(1232 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
+(1238 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
 device/browser passes (§7.6) remain the owner's to run on the live box.
 
 ### 11.6 Canvas QA pass — palette re-sample + desktop elements
@@ -950,8 +950,9 @@ canvas. Both were confirmed against the live canvas and fixed.
 **Palette.** The branch shipped a cool navy/teal/pink theme; the canvas is warm
 cream/ivory + amber. Every token was re-pointed (§3.1) — tier-1/tier-2 names
 kept so no component or selector moved. Sampled values (light): cream page
-`#faf7f0`, white cards, tan hairline `#e4dcc9`, ink `#1f1c17`, amber primary
-`#c47f17`, sage accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas
+`#faf7f0`, white cards, tan hairline `#e4dcc9`, ink `#1f1c17`, canvas amber
+`#c47f17` (the text-bearing primary role is deepened to the AA-safe `#a5650f`,
+see "Known canvas conflicts" below), sage accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas
 Online/Unlocked pill `#d7ebd7`/`#003a05`, soft Locked pill `#fbe3e0`/`#8f1d15`,
 destructive `#d92d20`. Components that hard-coded the old family were
 re-pointed: primary buttons, the sidebar surface + logo, the nav active pill,
@@ -969,9 +970,14 @@ column and now sits beside it; the Overview shell no longer reserves `--nav-h`
 of top padding for a header that is in the flow.
 
 **Known canvas conflicts (owner decision).** (a) The canvas draws white text on
-the amber button `#c47f17`, which is 3.3:1 — below WCAG AA 4.5:1; the amber
-fill was kept canvas-exact for buttons and the text-bearing amber chips use the
-AA-safe `#a5650f`. (b) The canvas' Settings screen (S6) renders `primary` as
+the amber button `#c47f17`, which is 3.28:1 — below WCAG AA 4.5:1. The owner
+chose the AA-safe amber: the text-bearing primary roles (`--primary-bg` /
+`--primary-hover`, i.e. `.pc-btn--primary`, `.btn-unlock`, `.btn-bonus`,
+`.btn-bedtime-save`, the sidebar logo tile and the checked day button) now use
+the deepened amber `#a5650f` (4.70:1 with white) / `#96590d` (5.63:1) in both
+themes. The canvas-exact `#c47f17` is kept only on the decorative tier-1
+swatches (`--pc-green-500` / `--pc-amber-400`) that carry no text. (b) The
+canvas' Settings screen (S6) renders `primary` as
 near-black and its switches dark, while S1–S5 render amber; the amber reading
 was taken as authoritative (5 of 6 screens + the brief). (c) The canvas does
 not specify a desktop Overview, so the phone-first shell was kept unconstrained.

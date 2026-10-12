@@ -24,7 +24,8 @@
      the design is a WARM CREAM/IVORY + AMBER theme. The tier-1 *names* are the
      stable contract (tests/test_ui_assets.py CORE_TOKENS), so the warm family
      is mapped onto the original names instead of renaming them — e.g.
-     --pc-green-500 now holds the canvas amber that the "primary" role uses. */
+     --pc-green-500 now holds the canvas amber (used decoratively, e.g. the
+     online dot); the text-bearing primary role uses the AA-safe amber below. */
   --pc-ink-900: #1f1c17;   /* near-black warm ink (foreground on amber) */
   --pc-ink-800: #2a251c;
   --pc-ink-700: #241f18;   /* dark page background */
@@ -33,7 +34,7 @@
   --pc-ink-400: #4a4132;
   --pc-navy-700: #57492f;  /* deep warm brown (name kept) */
   --pc-navy-800: #3a3226;
-  --pc-green-500: #c47f17; /* canvas amber — the primary action colour */
+  --pc-green-500: #c47f17; /* canvas amber — decorative (primary role: AA-safe amber) */
   --pc-green-600: #a5650f;
   --pc-red-500: #d92d20;
   --pc-red-700: #7a1f16;
@@ -68,9 +69,13 @@
   /* Warm-palette roles introduced by the canvas translation: the amber
      primary action pair, the sage "accent" (active-nav / Protected) pair and
      the sidebar surface (the canvas sidebar is a different tone to the page). */
-  --primary-bg: #c47f17;
+  /* AA-safe amber: the canvas #c47f17 is 3.28:1 under white text (below the
+     4.5:1 AA minimum), so the text-bearing primary roles use the deepened
+     amber #a5650f (4.70:1 with white). The canvas-exact #c47f17 stays on the
+     decorative tier-1 swatches (--pc-green-500 / --pc-amber-400). */
+  --primary-bg: #a5650f;
   --primary-fg: #ffffff;
-  --primary-hover: #d68c1e;
+  --primary-hover: #96590d; /* deepened further so the hover fill also passes AA */
   --accent-bg: #3d4a45;
   --accent-fg: #eaf3f0;
   --sidebar-bg: #2a2419;
@@ -191,9 +196,9 @@
   --text-faint: #75695a;
   --link: #8a5a12;
   --focus-ring: #8a5a12;
-  --primary-bg: #c47f17;   /* canvas amber buttons */
+  --primary-bg: #a5650f;   /* AA-safe amber (white text 4.70:1) */
   --primary-fg: #ffffff;
-  --primary-hover: #b3720f;
+  --primary-hover: #96590d; /* deepened so hover also passes AA */
   --accent-bg: #cfe0da;    /* muted sage active-nav / Protected pill */
   --accent-fg: #1b4a44;
   --sidebar-bg: #f4efe4;   /* cream/beige sidebar (canvas bg-sidebar) */
@@ -242,9 +247,9 @@
     --text-faint: #75695a;
     --link: #8a5a12;
     --focus-ring: #8a5a12;
-    --primary-bg: #c47f17;
+    --primary-bg: #a5650f;   /* AA-safe amber (white text 4.70:1) */
     --primary-fg: #ffffff;
-    --primary-hover: #b3720f;
+    --primary-hover: #96590d; /* deepened so hover also passes AA */
     --accent-bg: #cfe0da;
     --accent-fg: #1b4a44;
     --sidebar-bg: #f4efe4;
