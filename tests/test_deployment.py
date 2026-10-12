@@ -951,6 +951,37 @@ class TestNextStepsOutput(unittest.TestCase):
             'ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>)',
             text)
 
+    def test_loopback_tls_direct_url_https_with_tunnel_hint(self):
+        """--tls on a loopback bind (TLS-over-tunnel) must print the https
+        URL with the same tunnel hint — not the plain http://localhost:PORT
+        the old BIND_HOST-only case statement printed."""
+        block = self._block()
+        text = self._block_text(block)
+        self.assertIn(
+            '  2. Open your panel at: https://localhost:${BIND_PORT}',
+            self._step2_line(block, 'https://localhost:${BIND_PORT}'))
+        self.assertIn(
+            '(from another machine, tunnel first: '
+            'ssh -L ${BIND_PORT}:localhost:${BIND_PORT} <user>@<host>)',
+            text)
+
+    def test_loopback_scheme_follows_mode_not_bind_host_alone(self):
+        """The https loopback URL must be reachable ONLY under MODE=tls and
+        the plain http loopback URL only otherwise: the scheme may not be
+        decided by the loopback host alone, or TLS-over-tunnel prints a
+        scheme the panel does not serve."""
+        block = self._block()
+        joined = '\n'.join(block)
+        # The loopback arm runs from the host pattern up to the LAN `*)`.
+        arm = joined.split('127.0.0.1|localhost|::1)', 1)[1].split('*)', 1)[0]
+        self.assertIn('if [ "$MODE" = "tls" ]; then', arm)
+        self.assertLess(arm.index('https://localhost:${BIND_PORT}'),
+                        arm.index('else'),
+                        'https line must sit in the MODE=tls branch')
+        self.assertGreater(arm.index('http://localhost:${BIND_PORT}'),
+                           arm.index('else'),
+                           'http line must sit in the else branch')
+
     def test_tls_direct_url_with_fingerprint_hint(self):
         block = self._block()
         text = self._block_text(block)
