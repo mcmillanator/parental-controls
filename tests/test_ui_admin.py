@@ -246,6 +246,9 @@ class AdminConsoleRenderTest(_AdminSessionMixin, _AuditEnvMixin,
         self.assertIn('badge-protected', row)
         self.assertIn('Protected', row)
         self.assertIn('pc-chip', row)
+        # The chip must carry `pc-chip--ok` so the overflow guard on
+        # `.pc-chip` applies to this long label (mobile scroll regression).
+        self.assertIn('pc-chip--ok', row)
 
     def test_admin_add_form_is_a_wheel_only_disclosure(self):
         html = self.page()

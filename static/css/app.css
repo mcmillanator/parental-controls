@@ -757,7 +757,13 @@ body.pc-body--auth {
   border-radius: var(--r-pill);
   background: var(--chip-bg);
   color: var(--chip-fg);
-  white-space: nowrap;
+  /* A chip must never force its container past the viewport: cap it at the
+     available width and let a long label wrap/shrink instead of overflowing
+     (mobile horizontal-scroll fix). Short labels still sit on one line. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .pc-chip__icon {
   width: 0.9em;
@@ -930,6 +936,9 @@ body.pc-body--auth {
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
+  /* Cells may shrink and wrap long content rather than widen the table. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pc-table thead th {
   background: var(--surface-3);
@@ -983,9 +992,14 @@ body.pc-body--auth {
   }
   .pc-table--stack td {
     display: grid;
-    grid-template-columns: 9rem 1fr;
+    /* `minmax(0, …)` lets both tracks shrink below their content's min-content
+       width, so a long value (e.g. a status chip) wraps instead of pushing the
+       card — and the page — wider than the phone (mobile overflow fix). */
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
     gap: var(--sp-3);
     align-items: center;
+    min-width: 0;
+    overflow-wrap: anywhere;
     padding: var(--sp-1) 0;
     border: 0;
   }
@@ -1515,7 +1529,11 @@ body.pc-body--auth {
   border-radius: var(--r-pill);
   background: var(--neutral-bg);
   color: var(--neutral-fg);
-  white-space: nowrap;
+  /* Bare badges get the same overflow guard as `.pc-chip`. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .badge-bedtime:not(.pc-chip) {
   background: var(--bedtime-bg);
@@ -2138,7 +2156,12 @@ body.pc-reduced-motion *::after {
   border-radius: var(--r-pill);
   font-size: var(--fs-xs);
   font-weight: 600;
-  white-space: nowrap;
+  /* Same overflow guard as `.pc-chip` — `.pc-pill` loads later, so it must
+     carry the rule itself to keep combined chip/pill labels shrinkable. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Online / Unlocked — explicit mockup colours. */
 .pc-pill--online {
