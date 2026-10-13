@@ -105,6 +105,24 @@ def _shell_context():
     return ctx
 
 
+@app.context_processor
+def _fixture_preview():
+    """Design fixtures are documentation, not product content (owner intent).
+
+    The Flowstep screens carry annotation cards, state/theme specimens and a
+    worked confirmation-dialog example. Those are implementation guidance for
+    the code agent — they must never render in the normal user experience.
+    They stay reachable for review behind a dev-only preview: `?preview=1`
+    (or `?preview=fixtures`) on any page, or PARENTAL_DEV_PREVIEW=1 in the
+    environment. Nothing here enables any privileged behaviour.
+    """
+    raw = (request.args.get('preview', '') or '').strip().lower()
+    enabled = raw in ('1', 'true', 'yes', 'on', 'dev', 'fixtures')
+    if not enabled:
+        enabled = os.environ.get('PARENTAL_DEV_PREVIEW', '') == '1'
+    return {'show_fixtures': enabled}
+
+
 MIN_UID = 1000
 MAX_UID = 60000
 

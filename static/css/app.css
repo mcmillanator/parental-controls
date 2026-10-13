@@ -1276,6 +1276,11 @@ body.pc-body--auth {
 .pc-dialog--danger .pc-dialog__header {
   color: var(--danger-text);
 }
+/* The acknowledgement checkbox keeps `.pc-switch`'s inline-flex, so the
+   `hidden` attribute needs an explicit display override to take effect. */
+.pc-dialog__check[hidden] {
+  display: none;
+}
 
 /* ------------------------------------------------------- empty / skeleton */
 .pc-empty {

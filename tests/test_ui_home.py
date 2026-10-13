@@ -61,7 +61,7 @@ def read(path):
 class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
     """The converted Home renders the card/stack layout and dialog wiring."""
 
-    def _render(self):
+    def _render(self, query=''):
         with mock.patch.object(app, 'get_human_users', return_value=USERS), \
              mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
              mock.patch.object(app, 'get_lock_status',
@@ -69,7 +69,7 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
              mock.patch.object(app, 'is_in_bedtime',
                                side_effect=lambda e: bool(e and e.get('manual_override'))), \
              mock.patch.object(app, 'bonus_state', return_value={'active': False}):
-            resp = self.client.get('/')
+            resp = self.client.get('/' + query)
         self.assertEqual(200, resp.status_code)
         return resp.get_data(as_text=True)
 
@@ -142,6 +142,12 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('id="pc-confirm"', html)
         self.assertIn('window.pcConfirm', html)
         self.assertIn('await window.pcConfirm(', html)
+        # The shared dialog is a real form with a CSRF token (the reusable
+        # confirmation-dialog pattern the canvas asks for).
+        self.assertIn('class="pc-dialog__form" method="post"', html)
+        self.assertIn('name="csrf_token"', html)
+        # The lock action uses the example's acknowledgement checkbox.
+        self.assertIn("checkbox: 'Confirm lock action'", html)
 
     def test_no_external_asset_urls(self):
         html = self._render()
@@ -235,7 +241,7 @@ class ConvertedPageStaticTest(unittest.TestCase):
 class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
     """design-exports/SPEC.md Screen 1 elements on the Overview page."""
 
-    def _render(self, wheel=()):
+    def _render(self, wheel=(), query=''):
         with mock.patch.object(app, 'get_human_users', return_value=USERS), \
              mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
              mock.patch.object(app, 'get_lock_status',
@@ -245,7 +251,7 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
              mock.patch.object(app, 'bonus_state', return_value={'active': False}), \
              mock.patch.object(app.auth, 'is_wheel_member',
                                side_effect=lambda u: u == self.ADMIN_USER or u in wheel):
-            resp = self.client.get('/')
+            resp = self.client.get('/' + query)
         self.assertEqual(200, resp.status_code)
         return resp.get_data(as_text=True)
 
@@ -296,15 +302,21 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn("'/api/lock-screen'", src)
         self.assertIn("'/api/logout'", src)
 
-    def test_specimen_cards_present(self):
-        html = self._render()
-        self.assertIn('id="overview-specimens"', html)
-        self.assertIn('Selected account: Sam', html)
-        self.assertIn('Confirm lock action', html)
-        self.assertIn('Design thesis', html)
-        self.assertIn('destructive actions separated and confirmed', html)
-        self.assertIn('No human accounts found', html)
-        self.assertIn('Check the machine connection', html)
+    def test_specimen_cards_are_dev_only(self):
+        # The "Selected account: Sam" example, the design thesis and the empty
+        # card are design fixtures: they render only behind ?preview=1.
+        normal = self._render()
+        self.assertNotIn('id="overview-specimens"', normal)
+        self.assertNotIn('Selected account: Sam', normal)
+        self.assertNotIn('Design thesis', normal)
+        preview = self._render(query='?preview=1')
+        self.assertIn('id="overview-specimens"', preview)
+        self.assertIn('Selected account: Sam', preview)
+        self.assertIn('Confirm lock action', preview)
+        self.assertIn('Design thesis', preview)
+        self.assertIn('destructive actions separated and confirmed', preview)
+        self.assertIn('No human accounts found', preview)
+        self.assertIn('Check the machine connection', preview)
 
 
 if __name__ == '__main__':

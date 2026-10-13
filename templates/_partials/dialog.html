@@ -2,50 +2,61 @@
    (UI_UX_PLAN.md Q4). No Bootstrap JS: the native element gives focus
    trapping, Esc-to-close and inert background for free.
 
-   * `pc_confirm_dialog(...)` is the reusable macro a page can render inline
-     for a specific destructive action.
+   ONE shared confirmation-dialog pattern for every destructive or
+   access-changing action (Flowstep S1/S2/S3/S4/S5 notes; owner intent
+   message 32): title, description, action URL, method, CSRF token, submit
+   label, danger state and an optional typed confirmation (plus an optional
+   acknowledgement checkbox). Pages render a dialog from the macro, or drive
+   the generic ``#pc-confirm`` dialog through ``window.pcConfirm(opts)``.
+
+   * `pc_confirm_dialog(...)` is the reusable macro. Pass `action` (and
+     `csrf_token`) to get a real, no-JS-required `<form method="post">`; omit
+     it for a JS-driven dialog that resolves a Promise.
    * `#pc-confirm` is the generic dialog used by `window.pcConfirm(opts)`,
-     which returns a Promise<boolean>.
+     which returns a Promise<boolean>. It is itself rendered by the macro so
+     every destructive action in the app shares the same markup.
 
    Irreversible actions (Lock, Emergency logout, Remove admin, Clear schedule)
    use `danger=True` and may require the operator to type a name
-   (Redundant-Entry-friendly: the value is read, not questioned). #}
-{% macro pc_confirm_dialog(dialog_id, title, body, confirm_label='Confirm', cancel_label='Cancel', danger=False, require_text=None) -%}
-<dialog id="{{ dialog_id }}" class="pc-dialog{{ ' pc-dialog--danger' if danger else '' }}" aria-labelledby="{{ dialog_id }}-title">
-  <div class="pc-dialog__header" id="{{ dialog_id }}-title">{{ title }}</div>
-  <div class="pc-dialog__body">
-    <p>{{ body }}</p>
-    {% if require_text %}
-    <label class="pc-field__label" for="{{ dialog_id }}-confirm-text">{{ require_text }}</label>
-    <input class="pc-input" id="{{ dialog_id }}-confirm-text" type="text" autocomplete="off" data-pc-confirm-text>
-    {% endif %}
-  </div>
-  <div class="pc-dialog__footer">
-    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>{{ cancel_label }}</button>
-    <button type="button" class="pc-btn {{ 'pc-btn--danger' if danger else 'pc-btn--primary' }}" data-pc-dialog-confirm>{{ confirm_label }}</button>
-  </div>
+   (Redundant-Entry-friendly: the value is read, not questioned) or tick an
+   acknowledgement checkbox. #}
+{% macro pc_confirm_dialog(dialog_id, title, body, confirm_label='Confirm', cancel_label='Cancel', danger=False, require_text=None, checkbox_label=None, action=None, method='post', csrf_token=None, hidden_fields=None) -%}
+<dialog id="{{ dialog_id }}" class="pc-dialog{{ ' pc-dialog--danger' if danger else '' }}" aria-labelledby="{{ dialog_id }}-title" aria-describedby="{{ dialog_id }}-desc" aria-modal="true">
+  <form class="pc-dialog__form" method="{{ method }}"{% if action %} action="{{ action }}"{% endif %}>
+    {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+    {% for field_name, field_value in (hidden_fields or {}).items() %}<input type="hidden" name="{{ field_name }}" value="{{ field_value }}">{% endfor %}
+    <div class="pc-dialog__header" id="{{ dialog_id }}-title">{{ title }}</div>
+    <div class="pc-dialog__body">
+      <p id="{{ dialog_id }}-desc">{{ body }}</p>
+      <label class="pc-switch pc-dialog__check" data-pc-confirm-check-wrap{% if not checkbox_label %} hidden{% endif %}>
+        <input type="checkbox" data-pc-confirm-check>
+        <span data-pc-confirm-check-label>{{ checkbox_label or '' }}</span>
+      </label>
+      <label class="pc-field__label" for="{{ dialog_id }}-confirm-text" data-pc-confirm-text-label{% if not require_text %} hidden{% endif %}>{{ require_text or 'Type to confirm' }}</label>
+      <input class="pc-input" id="{{ dialog_id }}-confirm-text" type="text" autocomplete="off" data-pc-confirm-text{% if not require_text %} hidden{% endif %}>
+      <p class="pc-field__error" role="alert" aria-live="assertive" data-pc-dialog-error hidden></p>
+    </div>
+    <div class="pc-dialog__footer">
+      <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>{{ cancel_label }}</button>
+      <button type="{{ 'submit' if action else 'button' }}" class="pc-btn {{ 'pc-btn--danger' if danger else 'pc-btn--primary' }}" data-pc-dialog-confirm>{{ confirm_label }}</button>
+    </div>
+  </form>
 </dialog>
 {%- endmacro %}
 
-<dialog id="pc-confirm" class="pc-dialog" aria-labelledby="pc-confirm-title">
-  <div class="pc-dialog__header" id="pc-confirm-title">Confirm</div>
-  <div class="pc-dialog__body">
-    <p id="pc-confirm-body">Are you sure?</p>
-    <label class="pc-field__label" for="pc-confirm-text" hidden>Type to confirm</label>
-    <input class="pc-input" id="pc-confirm-text" type="text" autocomplete="off" data-pc-confirm-text hidden>
-  </div>
-  <div class="pc-dialog__footer">
-    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>Cancel</button>
-    <button type="button" class="pc-btn pc-btn--primary" data-pc-dialog-confirm>Confirm</button>
-  </div>
-</dialog>
+{# The generic dialog. `pcConfirm` reveals the checkbox / typed field it needs
+   before opening; both stay hidden otherwise. #}
+{{ pc_confirm_dialog('pc-confirm', 'Confirm', 'Are you sure?', confirm_label='Confirm', cancel_label='Cancel', checkbox_label='Confirm this action', require_text='Type to confirm', csrf_token=(g.csrf_token if g is defined and g.csrf_token is defined else None)) }}
 
 <script>
-/* window.pcConfirm({ title, body, confirmLabel, cancelLabel, danger, requireText })
+/* window.pcConfirm({ title, body, confirmLabel, cancelLabel, danger,
+                     requireText, checkbox })
    -> Promise<boolean>. A drop-in replacement for window.confirm() that is
    styleable, titled and focus-trapped. Resolves false on Esc / backdrop /
-   Cancel; only resolves true after an explicit confirm click, and only types
-   -checked when requireText matches (case-insensitive, trimmed). */
+   Cancel; only resolves true after an explicit confirm click, and only when
+   the required acknowledgement is satisfied: `checkbox` (label string) gates
+   on the acknowledgement box, `requireText` (string or true) gates on a typed
+   value (case-insensitive, trimmed). */
 (function () {
   'use strict';
   function pcConfirm(opts) {
@@ -54,12 +65,16 @@
     if (!dialog || typeof dialog.showModal !== 'function') {
       return Promise.resolve(window.confirm(opts.body || 'Are you sure?'));
     }
-    var titleEl = document.getElementById('pc-confirm-title');
-    var bodyEl = document.getElementById('pc-confirm-body');
-    var textEl = document.getElementById('pc-confirm-text');
-    var textLabel = document.querySelector('label[for="pc-confirm-text"]');
+    var titleEl = dialog.querySelector('.pc-dialog__header');
+    var bodyEl = dialog.querySelector('#' + dialog.id + '-desc');
+    var checkWrap = dialog.querySelector('[data-pc-confirm-check-wrap]');
+    var checkBox = dialog.querySelector('[data-pc-confirm-check]');
+    var checkLabel = dialog.querySelector('[data-pc-confirm-check-label]');
+    var textEl = dialog.querySelector('[data-pc-confirm-text]');
+    var textLabel = dialog.querySelector('[data-pc-confirm-text-label]');
     var confirmBtn = dialog.querySelector('[data-pc-dialog-confirm]');
     var cancelBtn = dialog.querySelector('[data-pc-dialog-cancel]');
+    var errorEl = dialog.querySelector('[data-pc-dialog-error]');
 
     titleEl.textContent = opts.title || 'Confirm';
     bodyEl.textContent = opts.body || 'Are you sure?';
@@ -67,6 +82,7 @@
     cancelBtn.textContent = opts.cancelLabel || 'Cancel';
     confirmBtn.className = 'pc-btn ' + (opts.danger ? 'pc-btn--danger' : 'pc-btn--primary');
     dialog.classList.toggle('pc-dialog--danger', !!opts.danger);
+    if (errorEl) { errorEl.hidden = true; errorEl.textContent = ''; }
 
     var required = opts.requireText || null;
     if (required) {
@@ -74,12 +90,32 @@
       textLabel.textContent = required === true ? 'Type to confirm' : required;
       textEl.hidden = false;
       textEl.value = '';
-      confirmBtn.disabled = true;
     } else {
       textLabel.hidden = true;
       textEl.hidden = true;
       textEl.value = '';
-      confirmBtn.disabled = false;
+    }
+    var wantsCheck = !!opts.checkbox;
+    if (wantsCheck) {
+      checkWrap.hidden = false;
+      checkLabel.textContent = opts.checkbox === true ? 'Confirm this action' : opts.checkbox;
+      checkBox.checked = false;
+    } else {
+      checkWrap.hidden = true;
+      checkBox.checked = false;
+    }
+    syncGate();
+
+    function textOk() {
+      if (!required) { return true; }
+      var want = (required === true ? '' : String(required)).trim().toLowerCase();
+      return want === '' || textEl.value.trim().toLowerCase() === want;
+    }
+    function checkOk() {
+      return !wantsCheck || checkBox.checked;
+    }
+    function syncGate() {
+      confirmBtn.disabled = !(textOk() && checkOk());
     }
 
     return new Promise(function (resolve) {
@@ -87,22 +123,22 @@
       function finish(value) {
         if (settled) { return; }
         settled = true;
-        textEl.removeEventListener('input', onInput);
+        textEl.removeEventListener('input', syncGate);
+        checkBox.removeEventListener('change', syncGate);
         confirmBtn.removeEventListener('click', onConfirm);
         cancelBtn.removeEventListener('click', onCancel);
         dialog.removeEventListener('close', onClose);
         if (dialog.open) { dialog.close(); }
         resolve(value);
       }
-      function onInput() {
-        if (!required) { return; }
-        var want = (required === true ? '' : String(required)).trim().toLowerCase();
-        confirmBtn.disabled = want !== '' && textEl.value.trim().toLowerCase() !== want;
+      function onConfirm() {
+        if (!(textOk() && checkOk())) { syncGate(); return; }
+        finish(true);
       }
-      function onConfirm() { finish(true); }
       function onCancel() { finish(false); }
       function onClose() { finish(false); }
-      textEl.addEventListener('input', onInput);
+      textEl.addEventListener('input', syncGate);
+      checkBox.addEventListener('change', syncGate);
       confirmBtn.addEventListener('click', onConfirm);
       cancelBtn.addEventListener('click', onCancel);
       dialog.addEventListener('close', onClose);

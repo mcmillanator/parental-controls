@@ -141,8 +141,13 @@
     </div>
 </details>
 
-{# Specimen cards (design Screen 1): the confirmation pattern, the design
-   thesis and the empty-state card. #}
+{# Design fixtures (Flowstep Screen 1 notes). These are implementation
+   guidance, NOT product content: they render only behind the dev-only
+   preview (`?preview=1`). The "Selected account: Sam" example is the reusable
+   confirmation-dialog pattern — it is now the shared `#pc-confirm` dialog
+   rendered in the shell and opened by every destructive account action
+   (lock/unlock/lock-screen/emergency logout), not an inline card. #}
+{% if show_fixtures %}
 <section id="overview-specimens" class="pc-stack" aria-label="Design specimens">
     <article class="pc-card pc-card--hero" aria-labelledby="specimen-confirm">
         <div class="pc-card__header">
@@ -168,6 +173,7 @@
         </div>
     </article>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -312,10 +318,13 @@
     }
 
     async function lockUser(username) {
+        // The "Selected account" example from the canvas is this dialog: one
+        // shared, reusable confirmation pattern (never an inline card).
         const ok = await window.pcConfirm({
-            title: 'Lock account?',
-            body: `Lock account for "${username}"? They will be unable to log in until unlocked.`,
-            confirmLabel: 'Lock',
+            title: 'Confirm lock',
+            body: `Lock ${username} now? They will be unable to log in until unlocked.`,
+            confirmLabel: `Lock ${username}`,
+            checkbox: 'Confirm lock action',
             danger: true,
         });
         if (!ok) { return; }
