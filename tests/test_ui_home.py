@@ -61,7 +61,7 @@ def read(path):
 class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
     """The converted Home renders the card/stack layout and dialog wiring."""
 
-    def _render(self):
+    def _render(self, query=''):
         with mock.patch.object(app, 'get_human_users', return_value=USERS), \
              mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
              mock.patch.object(app, 'get_lock_status',
@@ -69,7 +69,7 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
              mock.patch.object(app, 'is_in_bedtime',
                                side_effect=lambda e: bool(e and e.get('manual_override'))), \
              mock.patch.object(app, 'bonus_state', return_value={'active': False}):
-            resp = self.client.get('/')
+            resp = self.client.get('/' + query)
         self.assertEqual(200, resp.status_code)
         return resp.get_data(as_text=True)
 
@@ -81,24 +81,26 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('id="summary-locked">1<', html)
         self.assertIn('id="summary-bedtime">1<', html)
 
-    def test_user_table_is_the_stack_pattern_with_data_labels(self):
+    def test_accounts_are_cards_with_pinned_hooks(self):
+        # REVISED-SPEC.md Screen 1: accounts render as cards, not a table.
         html = self._render()
-        self.assertIn('pc-table pc-table--stack', html)
-        self.assertIn('<thead>', html)
-        for label in ('Username', 'UID', 'Status', 'Bedtime', 'Actions'):
-            self.assertIn('data-label="%s"' % label, html,
-                          'missing stacked-table data-label %r' % label)
+        self.assertIn('class="pc-stack pc-accounts" id="accounts"', html)
+        self.assertIn('class="pc-card pc-account"', html)
+        self.assertIn('data-label="Actions"', html)
+        for user in USERS:
+            with self.subTest(user=user['username']):
+                self.assertIn('id="row-%s"' % user['username'], html)
 
-    def test_every_user_renders_a_row_with_pinned_hooks(self):
+    def test_every_user_renders_a_card_with_pinned_hooks(self):
         html = self._render()
         for user in USERS:
             self.assertIn('id="row-%s"' % user['username'], html)
         self.assertIn('class="pc-btn pc-btn--ghost btn-details"', html)
-        self.assertIn('class="pc-btn pc-btn--danger btn-lock"', html)
-        self.assertIn('class="pc-btn pc-btn--primary btn-unlock"', html)
-        # status pill + the preserved status colour class
+        self.assertIn('btn-lock', html)
+        self.assertIn('btn-unlock', html)
+        # status pill + the preserved status colour class tokens
         self.assertIn('pc-status--locked', html)
-        self.assertIn('class="status-locked"', html)
+        self.assertIn('status-locked', html)
 
     def test_bedtime_is_rendered_12h(self):
         html = self._render()
@@ -140,6 +142,12 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('id="pc-confirm"', html)
         self.assertIn('window.pcConfirm', html)
         self.assertIn('await window.pcConfirm(', html)
+        # The shared dialog is a real form with a CSRF token (the reusable
+        # confirmation-dialog pattern the canvas asks for).
+        self.assertIn('class="pc-dialog__form" method="post"', html)
+        self.assertIn('name="csrf_token"', html)
+        # The lock action uses the example's acknowledgement checkbox.
+        self.assertIn("checkbox: 'Confirm lock action'", html)
 
     def test_no_external_asset_urls(self):
         html = self._render()
@@ -228,6 +236,87 @@ class ConvertedPageStaticTest(unittest.TestCase):
         for token in ('id="device-selector"', 'id="device-select"',
                       'switchDevice', 'device-error'):
             self.assertIn(token, src)
+
+
+class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
+    """design-exports/SPEC.md Screen 1 elements on the Overview page."""
+
+    def _render(self, wheel=(), query=''):
+        with mock.patch.object(app, 'get_human_users', return_value=USERS), \
+             mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
+             mock.patch.object(app, 'get_lock_status',
+                               side_effect=lambda u: LOCK[u]), \
+             mock.patch.object(app, 'is_in_bedtime',
+                               side_effect=lambda e: bool(e and e.get('manual_override'))), \
+             mock.patch.object(app, 'bonus_state', return_value={'active': False}), \
+             mock.patch.object(app.auth, 'is_wheel_member',
+                               side_effect=lambda u: u == self.ADMIN_USER or u in wheel):
+            resp = self.client.get('/' + query)
+        self.assertEqual(200, resp.status_code)
+        return resp.get_data(as_text=True)
+
+    def test_h1_is_overview_and_subtitle_keeps_login_line(self):
+        html = self._render()
+        self.assertIn('<h1 class="pc-page-title">Overview</h1>', html)
+        self.assertIn('Logged in as', html)
+
+    def test_system_summary_card_with_online_pill(self):
+        html = self._render()
+        self.assertIn('id="summary-heading">System summary<', html)
+        self.assertIn('human accounts', html)
+        # REVISED-SPEC.md: explicit green Online pill.
+        self.assertIn('pc-pill pc-pill--online', html)
+        self.assertIn('>Online<', html)
+
+    def test_offline_sync_banner_has_retry(self):
+        html = self._render()
+        self.assertIn('id="sync-banner"', html)
+        self.assertIn('#pc-i-wifi-off', html)
+        self.assertIn('Local connection healthy', html)
+        self.assertIn('onclick="refreshTable()">Retry<', html)
+
+    def test_wheel_account_is_protected_with_disabled_actions(self):
+        html = self._render(wheel=('kidfree',))
+        idx = html.index('id="row-kidfree"')
+        card = html[idx:html.index('</article>', idx)]
+        self.assertIn('badge-protected', card)
+        self.assertIn('Protected', card)
+        self.assertIn('wheel admins can never be locked or removed', card)
+        self.assertNotIn('btn-lock', card)
+        self.assertNotIn('btn-unlock', card)
+        self.assertNotIn('btn-logout', card)
+        # REVISED-SPEC.md: all three actions render disabled for a wheel admin.
+        self.assertIn('disabled aria-disabled="true"', card)
+        self.assertIn('>Lock<', card)
+        self.assertIn('>Unlock<', card)
+        # a non-wheel card still carries the pinned actions
+        idx2 = html.index('id="row-kidlocked"')
+        card2 = html[idx2:html.index('</article>', idx2)]
+        self.assertIn('btn-unlock', card2)
+        self.assertIn('btn-lockscreen', card2)
+        self.assertIn('btn-logout', card2)
+
+    def test_emergency_logout_requires_typed_confirmation(self):
+        src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        self.assertIn('requireText: username', src)
+        self.assertIn("'/api/lock-screen'", src)
+        self.assertIn("'/api/logout'", src)
+
+    def test_specimen_cards_are_dev_only(self):
+        # The "Selected account: Sam" example, the design thesis and the empty
+        # card are design fixtures: they render only behind ?preview=1.
+        normal = self._render()
+        self.assertNotIn('id="overview-specimens"', normal)
+        self.assertNotIn('Selected account: Sam', normal)
+        self.assertNotIn('Design thesis', normal)
+        preview = self._render(query='?preview=1')
+        self.assertIn('id="overview-specimens"', preview)
+        self.assertIn('Selected account: Sam', preview)
+        self.assertIn('Confirm lock action', preview)
+        self.assertIn('Design thesis', preview)
+        self.assertIn('destructive actions separated and confirmed', preview)
+        self.assertIn('No human accounts found', preview)
+        self.assertIn('Check the machine connection', preview)
 
 
 if __name__ == '__main__':

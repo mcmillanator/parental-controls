@@ -1,23 +1,30 @@
-{# Bottom tab bar — phone only, hidden >=768px by app.css.
-   Three flat destinations, 44px targets, aria-current on the active one
-   (UI_UX_PLAN.md §4.2, Q3). The Account entry is a native <details> popover so
-   the bar works without any JS framework. #}
+{# Bottom tab bar — phone only (<768px), hidden above by app.css.
+   REVISED-SPEC.md Screen 1/3: the phone navigation is a 4-tab bar
+   (Home / Time / Activity / Admin) — Settings is NOT a tab; it lives in the
+   desktop sidebar and, on phones, in the account popover below (a native
+   <details>, no JS framework). 44px targets, aria-current on the active
+   destination. #}
 {% set _active = active_nav|default('') %}
-<nav class="pc-tabbar" aria-label="Primary">
-  <a class="pc-tab" href="{{ url_for('index') }}"{% if _active == 'home' %} aria-current="page"{% endif %}>
-    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-home"/></svg>
-    <span>Home</span>
-  </a>
-  <a class="pc-tab" href="{{ url_for('admin_audit') }}"{% if _active == 'admin' %} aria-current="page"{% endif %}>
-    <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>
-    <span>Admin</span>
-  </a>
+{% from '_partials/macros.html' import pc_nav_link %}
+{% set _nav = [
+  ('overview', 'pc-i-home', 'Home', url_for('index')),
+  ('time', 'pc-i-clock', 'Time', url_for('time_rules')),
+  ('activity', 'pc-i-activity', 'Activity', url_for('processes')),
+  ('admin', 'pc-i-shield', 'Admin', url_for('admin_audit')),
+] %}
+<nav class="pc-tabbar" aria-label="Primary navigation">
+  {% for key, icon, label, href in _nav %}
+  {{ pc_nav_link(key, icon, label, href, _active, 'tab') }}
+  {% endfor %}
   <details class="pc-tabmenu">
-    <summary class="pc-tab" aria-label="Account">
+    <summary class="pc-tab" aria-label="Account menu">
       <svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#pc-i-user"/></svg>
       <span>Account</span>
     </summary>
     <div class="pc-menu__panel pc-tabmenu__panel">
+      <a class="pc-menu__item" href="{{ url_for('settings') }}"{% if _active == 'settings' %} aria-current="page"{% endif %}>
+        <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-settings"/></svg>Settings
+      </a>
       <a class="pc-menu__item" href="{{ url_for('change_password') }}">Change password</a>
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit" class="pc-menu__item pc-menu__item--button">Log out</button>

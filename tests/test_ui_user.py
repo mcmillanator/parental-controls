@@ -180,6 +180,15 @@ class UserPageSourceTest(unittest.TestCase):
         self.assertNotIn('!confirm(', self.src)
         self.assertIn('pcConfirm(', self.src)
 
+    def test_freeze_uses_the_shared_dialog(self):
+        # Freeze/thaw are access-changing, so they go through the ONE shared
+        # confirmation dialog rather than posting straight away.
+        for fn in ('freezeCategory', 'unfreezeCategory'):
+            start = self.src.index('function ' + fn + '(')
+            body = self.src[start:self.src.index('\n    }', start)]
+            with self.subTest(fn=fn):
+                self.assertIn('pcConfirm(', body)
+
     def test_defines_the_content_and_scripts_blocks(self):
         self.assertIn('{% block content %}', self.src)
         self.assertIn('{% block scripts %}', self.src)
@@ -308,6 +317,92 @@ class UserPageRenderTest(_UserPageRender):
     def test_device_selector_is_conditional(self):
         html = self.render()
         self.assertNotIn('device-selector', html)
+
+
+class TimeRulesDesignTest(_UserPageRender):
+    """design-exports/SPEC.md Screen 2 elements on the Time rules page."""
+
+    def _live_with(self, **over):
+        live = live_dict()
+        live['children'] = [KID, 'kidother']
+        for key, value in over.items():
+            live[key] = value
+        return live
+
+    def test_h1_and_eyebrow_and_child_tabs(self):
+        html = self.render(self._live_with())
+        self.assertIn('>kidaccount time rules</h1>', html)
+        self.assertIn('>Time rules</p>', html)
+        self.assertIn('class="pc-tabs"', html)
+        self.assertIn('href="/user/kidother"', html)
+        self.assertIn('aria-current="page"', html)
+
+    def test_override_card_with_revoke(self):
+        live = self._live_with()
+        live['user']['bedtime']['manual_override'] = True
+        html = self.render(live)
+        self.assertIn('id="override-card"', html)
+        self.assertIn('Manual override active', html)
+        self.assertIn('btn-revoke-override', html)
+        self.assertIn('Revoke override', html)
+
+    def test_bedtime_enable_switch_and_warning_select(self):
+        html = self.render(self._live_with())
+        self.assertIn('id="bedtime-enabled"', html)
+        self.assertIn('pc-switch', html)
+        self.assertIn('id="bedtime-warning"', html)
+        self.assertIn('Warning lead-time', html)
+        self.assertIn('schedule edits are reversible', html)
+
+    def test_day_buttons_keep_the_day_checkboxes(self):
+        html = self.render(self._live_with())
+        self.assertIn('class="pc-daybtn"', html)
+        for i in range(7):
+            with self.subTest(day=i):
+                self.assertIn('name="day_%d"' % i, html)
+        self.assertIn('Apply to all days', html)
+
+    def test_days_group_is_a_fieldset_with_aria_pressed(self):
+        # REVISED-SPEC.md Screen 2: fieldset/legend for the Days group and
+        # aria-pressed day buttons.
+        html = self.render(self._live_with())
+        self.assertIn('<fieldset class="pc-field pc-fieldset">', html)
+        self.assertIn('<legend class="pc-field__label">Custom days:</legend>', html)
+        self.assertIn('aria-pressed="true"', html)
+        self.assertIn('aria-pressed="false"', html)
+
+    def test_countdown_is_a_live_region(self):
+        html = self.render(self._live_with())
+        self.assertIn('id="bedtime-countdown" role="timer" aria-live="polite"',
+                      html)
+
+    def test_implementation_annotation(self):
+        # Developer guidance only: dev-only preview, never the product page.
+        self.assertNotIn('id="time-rules-implementation"', self.render(self._live_with()))
+        html = self.render(self._live_with(), path='/user/' + KID + '?preview=1')
+        self.assertIn('id="time-rules-implementation"', html)
+        self.assertIn('Flask + Jinja server-rendered', html)
+        self.assertIn('static/css/tokens.css', html)
+
+    def test_countdown_card(self):
+        html = self.render(self._live_with())
+        self.assertIn('id="countdown-card"', html)
+        self.assertIn('class="pc-timer"', html)
+        self.assertIn('id="bedtime-countdown"', html)
+
+    def test_state_specimen(self):
+        self.assertNotIn('id="time-rules-states"', self.render(self._live_with()))
+        html = self.render(self._live_with(), path='/user/' + KID + '?preview=1')
+        self.assertIn('id="time-rules-states"', html)
+        self.assertIn('Could not save schedule', html)
+        self.assertIn('No bedtime schedule', html)
+        self.assertIn('Machine offline, controls unavailable.', html)
+
+    def test_revoke_and_enable_scripts_are_wired(self):
+        src = read(TEMPLATE)
+        self.assertIn('function toggleBedtimeEnabled(', src)
+        self.assertIn('function revokeOverride(', src)
+        self.assertIn("'/api/lock'", src)
 
 
 if __name__ == '__main__':

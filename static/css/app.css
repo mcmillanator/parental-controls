@@ -19,73 +19,99 @@
 
 /* ------------------------------------------------------------------ tokens */
 :root {
-  /* Tier 1 — core palette. Only a theme swaps these values. */
-  --pc-ink-900: #12121f;
-  --pc-ink-800: #16213e;
-  --pc-ink-700: #1a1a2e;
-  --pc-ink-600: #1a1a3e;
-  --pc-ink-500: #1f2b50;
-  --pc-ink-400: #2a3a5e;
-  --pc-navy-700: #0f3460;
-  --pc-navy-800: #131c36;
-  --pc-green-500: #4ecca3;
-  --pc-green-600: #2f9e79;
-  --pc-red-500: #e94560;
-  --pc-red-700: #7a1f2b;
-  --pc-amber-400: #f0c040;
-  --pc-amber-700: #8a5a00;
-  --pc-violet-500: #6a4c93;
-  --pc-orange-500: #e67e22;
-  --pc-blue-500: #4a90d9;
-  --pc-slate-100: #e0e0e0;
-  --pc-slate-400: #a8c0d8;
-  --pc-slate-500: #8b8b9c;
-  --pc-slate-600: #6b6b7b;
+  /* Tier 1 — core palette. Only a theme swaps these values.
+     Re-sampled from the Flowstep canvas (fileId 216e5d0f-…, screens S1–S6),
+     which the owner re-themed to Flowstep's built-in BLUE family:
+       * dark  = `blueDark` — the colorTheme on all six canvas screens;
+       * light = `blue`     — its paired light counterpart (read non-destructively
+                              from a temporary probe file, never the owner's file).
+     The palette is NEUTRAL dark/light surfaces + a BLUE primary/accent + a red
+     destructive; the old warm cream/amber page colour is gone. The tier-1
+     *names* are the stable contract (tests/test_ui_assets.py CORE_TOKENS), so
+     the blue family is mapped onto the original names instead of renaming them
+     — e.g. --pc-green-500 now holds the canvas online-dot blue (the canvas
+     "Local / Online" dot is bg-primary); --pc-navy-* hold the deep blue. */
+  --pc-ink-900: #09090b;   /* near-black ink (page ink / primary text) */
+  --pc-ink-800: #121214;
+  --pc-ink-700: #0a0a0b;   /* dark page background (canvas bg-background) */
+  --pc-ink-600: #18181b;   /* card surface (canvas bg-card) */
+  --pc-ink-500: #1e1e22;
+  --pc-ink-400: #2a2a2f;   /* hairline border */
+  --pc-navy-700: #1e3a8a;  /* deep blue (name kept) */
+  --pc-navy-800: #172554;
+  --pc-green-500: #3b82f6; /* canvas online-dot blue — decorative */
+  --pc-green-600: #2563eb;
+  --pc-red-500: #dc2626;
+  --pc-red-700: #b91c1c;
+  --pc-amber-400: #f59e0b; /* warm warning swatch retained (canvas has none) */
+  --pc-amber-700: #b45309;
+  --pc-violet-500: #8b5cf6;
+  --pc-orange-500: #f97316;
+  --pc-blue-500: #3b82f6;  /* canvas primary / "Protected" blue family */
+  --pc-slate-100: #fafafa; /* light neutral text */
+  --pc-slate-400: #a1a1aa;
+  --pc-slate-500: #94949c;
+  --pc-slate-600: #71717a;
   --pc-white: #ffffff;
   --pc-black: #000000;
 
-  /* Tier 2 — semantic tokens (dark is the default). Components never reach
-     for a Tier 1 name; only these. */
+  /* Tier 2 — semantic tokens (dark is the default = Flowstep `blueDark`).
+     Components never reach for a Tier 1 name; only these. Surfaces are the
+     neutral dark scale (page #0a0a0b, cards #18181b, muted #26262a) with a
+     blue primary/accent, matching the canvas. */
   --bg: var(--pc-ink-700);
-  --surface: var(--pc-ink-800);
-  --surface-2: var(--pc-ink-600);
-  --surface-3: var(--pc-ink-500);
-  --surface-raised: var(--pc-ink-800);
+  --surface: var(--pc-ink-600);
+  --surface-2: #1e1e22;
+  --surface-3: #26262a;
+  --surface-raised: #1c1c20;
   --border: var(--pc-ink-400);
-  --border-strong: var(--pc-navy-700);
+  --border-strong: #3f3f46;
   --text: var(--pc-slate-100);
   --text-muted: var(--pc-slate-400);
   --text-faint: var(--pc-slate-500);
-  --link: var(--pc-green-500);
-  --focus-ring: var(--pc-green-500);
+  --link: #60a5fa;
+  --focus-ring: #60a5fa;
+
+  /* Blue roles introduced by the canvas translation: the primary/accent pair
+     (both are the canvas bg-primary/bg-accent, #2563eb, carrying white text)
+     and the sidebar surface (the canvas sidebar sits between the page and the
+     cards). */
+  --primary-bg: #2563eb;   /* canvas bg-primary; white text 5.17:1 (AA) */
+  --primary-fg: #ffffff;
+  --primary-hover: #1d4ed8; /* blue-700; white text 6.70:1 (AA) */
+  --accent-bg: #2563eb;    /* canvas bg-accent = the same blue (active nav) */
+  --accent-fg: #ffffff;
+  --sidebar-bg: #141416;
 
   /* status foregrounds chosen to pass WCAG AA on their chip background
      (fixes the four failures audited in UI_UX_PLAN.md §2.8). */
-  --ok-fg: #062b20;
-  --ok-bg: #4ecca3;
+  --ok-fg: #bbf7d0;
+  --ok-bg: #14532d;
   --danger-fg: #ffffff;
-  --danger-bg: #c62b45;
-  --warn-fg: #3a2600;
-  --warn-bg: #f0c040;
-  --info-fg: #04223f;
-  --info-bg: #7cc0f5;
-  --override-fg: #2a1200;
-  --override-bg: #f3a95c;
-  --bedtime-fg: #ffffff;
-  --bedtime-bg: #6a4c93;
-  --bonus-fg: #2a1200;
-  --bonus-bg: #f3a95c;
-  --neutral-fg: #ffffff;
-  --neutral-bg: #0f3460;
+  --danger-bg: #dc2626;
+  --danger-soft-fg: #fecaca;
+  --danger-soft-bg: #3b1518;
+  --warn-fg: #fde68a;
+  --warn-bg: #78350f;
+  --info-fg: #bfdbfe;
+  --info-bg: #172554;
+  --override-fg: #ffffff;
+  --override-bg: #2563eb;
+  --bedtime-fg: #ddd6fe;
+  --bedtime-bg: #3b2f63;
+  --bonus-fg: #ffffff;
+  --bonus-bg: #2563eb;
+  --neutral-fg: #e4e4e7;
+  --neutral-bg: #26262a;
 
   /* Status *text* foregrounds (WCAG 1.4.3 >=4.5:1 on the page/card surface,
      not on the chip fill). The legacy `.status-*` colour classes, inline
      form errors and the danger dialog header all use these instead of the
      fill colours, which are only guaranteed legible *behind* text. */
-  --ok-text: #4ecca3;
-  --warn-text: #f0c040;
-  --danger-text: #ff7a8a;
-  --info-text: #7cc0f5;
+  --ok-text: #4ade80;
+  --warn-text: #fbbf24;
+  --danger-text: #f87171;
+  --info-text: #93c5fd;
 
   /* Duration-unit foreground token (h / m labels around a number input). */
   --unit-fg: var(--text-muted);
@@ -147,10 +173,10 @@
   --chip-bg: var(--neutral-bg);
   --chip-fg: var(--neutral-fg);
   --card-radius: var(--r-md);
-  --field-bg: var(--pc-ink-900);
+  --field-bg: #0f0f11;
   --field-border: var(--border);
-  --appbar-bg: var(--pc-ink-900);
-  --tabbar-bg: var(--pc-ink-900);
+  --appbar-bg: var(--surface);
+  --tabbar-bg: var(--surface);
   color-scheme: dark;
 }
 
@@ -158,30 +184,50 @@
    (prefers-color-scheme: light), per the plan's Q1 recommendation. */
 [data-theme='light'],
 :root[data-theme='light'] {
-  --bg: #f4f5f8;
-  --surface: #ffffff;
-  --surface-2: #eef0f5;
-  --surface-3: #e4e8f0;
+  /* Light = Flowstep's built-in `blue` theme (the paired light counterpart of
+     `blueDark`; read non-destructively from a temporary probe file). White
+     page/cards, neutral greys, near-black ink and the same blue-600
+     primary/accent as the dark theme. */
+  --bg: #ffffff;           /* white page background */
+  --surface: #ffffff;      /* white cards */
+  --surface-2: #f4f4f5;    /* muted panels / table head / zebra */
+  --surface-3: #e4e4e7;
   --surface-raised: #ffffff;
-  --border: #c9cfdb;
-  --border-strong: #a9b2c4;
-  --text: #1a1c26;
-  --text-muted: #4a5568;
-  --text-faint: #5f6b7a;
-  --link: #1f7a5c;
-  --focus-ring: #1f7a5c;
-  --danger-bg: #b3203a;
-  --info-bg: #2368a8;
-  --info-fg: #ffffff;
-  --override-bg: #d9821f;
-  --override-fg: #2a1200;
-  --warn-bg: #8a5a00;
-  --warn-fg: #ffffff;
+  --border: #e4e4e7;       /* neutral hairline */
+  --border-strong: #d4d4d8;
+  --text: #09090b;         /* near-black ink */
+  --text-muted: #52525b;
+  --text-faint: #6b6b73;
+  --link: #1d4ed8;
+  --focus-ring: #2563eb;
+  --primary-bg: #2563eb;   /* white text 5.17:1 (AA) */
+  --primary-fg: #ffffff;
+  --primary-hover: #1d4ed8; /* white text 6.70:1 (AA) */
+  --accent-bg: #2563eb;    /* canvas active-nav blue */
+  --accent-fg: #ffffff;
+  --sidebar-bg: #f4f4f5;   /* light neutral sidebar (canvas bg-sidebar) */
+  --ok-bg: #dcfce7;
+  --ok-fg: #14532d;
+  --danger-bg: #dc2626;
+  --danger-soft-bg: #fee2e2; /* pale Locked pill / error banner */
+  --danger-soft-fg: #991b1b;
+  --info-bg: #dbeafe;      /* canvas primary/10 banner tint */
+  --info-fg: #1e40af;
+  --override-bg: #2563eb;
+  --override-fg: #ffffff;
+  --warn-bg: #fef3c7;
+  --warn-fg: #78350f;
+  --bedtime-bg: #ede9fe;
+  --bedtime-fg: #4c1d95;
+  --bonus-bg: #2563eb;
+  --bonus-fg: #ffffff;
+  --neutral-bg: #e4e4e7;
+  --neutral-fg: #27272a;
   /* Text-safe status foregrounds on a white/bright surface. */
-  --ok-text: #10684a;
-  --warn-text: #8a5a00;
-  --danger-text: #b3203a;
-  --info-text: #2368a8;
+  --ok-text: #15803d;
+  --warn-text: #b45309;
+  --danger-text: #b91c1c;
+  --info-text: #1d4ed8;
   --field-bg: #ffffff;
   --appbar-bg: #ffffff;
   --tabbar-bg: #ffffff;
@@ -192,29 +238,46 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    --bg: #f4f5f8;
+    /* Light = Flowstep's built-in `blue` theme (see [data-theme='light']). */
+    --bg: #ffffff;
     --surface: #ffffff;
-    --surface-2: #eef0f5;
-    --surface-3: #e4e8f0;
+    --surface-2: #f4f4f5;
+    --surface-3: #e4e4e7;
     --surface-raised: #ffffff;
-    --border: #c9cfdb;
-    --border-strong: #a9b2c4;
-    --text: #1a1c26;
-    --text-muted: #4a5568;
-    --text-faint: #5f6b7a;
-    --link: #1f7a5c;
-    --focus-ring: #1f7a5c;
-    --danger-bg: #b3203a;
-    --info-bg: #2368a8;
-    --info-fg: #ffffff;
-    --override-bg: #d9821f;
-    --override-fg: #2a1200;
-    --warn-bg: #8a5a00;
-    --warn-fg: #ffffff;
-    --ok-text: #10684a;
-    --warn-text: #8a5a00;
-    --danger-text: #b3203a;
-    --info-text: #2368a8;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --text: #09090b;
+    --text-muted: #52525b;
+    --text-faint: #6b6b73;
+    --link: #1d4ed8;
+    --focus-ring: #2563eb;
+    --primary-bg: #2563eb;   /* white text 5.17:1 (AA) */
+    --primary-fg: #ffffff;
+    --primary-hover: #1d4ed8; /* white text 6.70:1 (AA) */
+    --accent-bg: #2563eb;
+    --accent-fg: #ffffff;
+    --sidebar-bg: #f4f4f5;
+    --ok-bg: #dcfce7;
+    --ok-fg: #14532d;
+    --danger-bg: #dc2626;
+    --danger-soft-bg: #fee2e2;
+    --danger-soft-fg: #991b1b;
+    --info-bg: #dbeafe;
+    --info-fg: #1e40af;
+    --override-bg: #2563eb;
+    --override-fg: #ffffff;
+    --warn-bg: #fef3c7;
+    --warn-fg: #78350f;
+    --bedtime-bg: #ede9fe;
+    --bedtime-fg: #4c1d95;
+    --bonus-bg: #2563eb;
+    --bonus-fg: #ffffff;
+    --neutral-bg: #e4e4e7;
+    --neutral-fg: #27272a;
+    --ok-text: #15803d;
+    --warn-text: #b45309;
+    --danger-text: #b91c1c;
+    --info-text: #1d4ed8;
     --field-bg: #ffffff;
     --appbar-bg: #ffffff;
     --tabbar-bg: #ffffff;
@@ -620,21 +683,25 @@ body.pc-body--auth {
 }
 
 .pc-btn--primary {
-  background: var(--pc-green-500);
-  color: var(--pc-ink-900);
+  --pc-btn-bg: var(--primary-bg);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 .pc-btn--primary:hover {
-  background: var(--pc-green-600);
+  background: var(--primary-hover);
 }
 .pc-btn--danger {
+  --pc-btn-bg: var(--danger-bg);
   background: var(--danger-bg);
   color: var(--danger-fg);
 }
 .pc-btn--warn {
+  --pc-btn-bg: var(--warn-bg);
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
 .pc-btn--neutral {
+  --pc-btn-bg: var(--surface-3);
   background: var(--surface-3);
   color: var(--text);
   border-color: var(--border);
@@ -694,7 +761,13 @@ body.pc-body--auth {
   border-radius: var(--r-pill);
   background: var(--chip-bg);
   color: var(--chip-fg);
-  white-space: nowrap;
+  /* A chip must never force its container past the viewport: cap it at the
+     available width and let a long label wrap/shrink instead of overflowing
+     (mobile horizontal-scroll fix). Short labels still sit on one line. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .pc-chip__icon {
   width: 0.9em;
@@ -734,8 +807,8 @@ body.pc-body--auth {
   color: var(--neutral-fg);
 }
 .pc-chip--stale {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
 }
 
 /* Status pill — larger, icon + text + colour (never colour alone). */
@@ -751,20 +824,21 @@ body.pc-body--auth {
   color: var(--neutral-fg);
 }
 .pc-status--locked {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
 }
 .pc-status--unlocked {
   background: var(--ok-bg);
   color: var(--ok-fg);
 }
 .pc-status--unknown {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
 }
 /* Preserve the legacy text-colour status classes until pages are converted.
    They use the text-safe tokens so they pass AA on the page surface in both
-   themes (the raw fill colours like #4ecca3 fail on a white surface). */
+   themes (the raw status *fill* colours are only guaranteed legible behind
+   text, not as text on a white card). */
 .status-locked {
   color: var(--danger-text);
   font-weight: 600;
@@ -811,7 +885,7 @@ body.pc-body--auth {
   margin-top: var(--sp-3);
 }
 .pc-card--hero {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--primary-bg) 60%, transparent);
 }
 .pc-card--muted {
   opacity: 0.75;
@@ -866,9 +940,12 @@ body.pc-body--auth {
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
+  /* Cells may shrink and wrap long content rather than widen the table. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pc-table thead th {
-  background: var(--border-strong);
+  background: var(--surface-3);
   font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -919,9 +996,14 @@ body.pc-body--auth {
   }
   .pc-table--stack td {
     display: grid;
-    grid-template-columns: 9rem 1fr;
+    /* `minmax(0, …)` lets both tracks shrink below their content's min-content
+       width, so a long value (e.g. a status chip) wraps instead of pushing the
+       card — and the page — wider than the phone (mobile overflow fix). */
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
     gap: var(--sp-3);
     align-items: center;
+    min-width: 0;
+    overflow-wrap: anywhere;
     padding: var(--sp-1) 0;
     border: 0;
   }
@@ -1194,6 +1276,11 @@ body.pc-body--auth {
 .pc-dialog--danger .pc-dialog__header {
   color: var(--danger-text);
 }
+/* The acknowledgement checkbox keeps `.pc-switch`'s inline-flex, so the
+   `hidden` attribute needs an explicit display override to take effect. */
+.pc-dialog__check[hidden] {
+  display: none;
+}
 
 /* ------------------------------------------------------- empty / skeleton */
 .pc-empty {
@@ -1283,24 +1370,25 @@ body.pc-body--auth {
   color: var(--text);
 }
 .pc-banner--danger {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
-  border-color: var(--danger-bg);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+  border-color: color-mix(in srgb, var(--danger-bg) 40%, transparent);
 }
+/* The canvas status/offline banner is a muted panel, not a solid amber one. */
 .pc-banner--warn {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-color: var(--warn-bg);
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
 }
 .pc-banner--info {
   background: var(--info-bg);
   color: var(--info-fg);
-  border-color: var(--info-bg);
+  border-color: color-mix(in srgb, var(--primary-bg) 45%, transparent);
 }
 .pc-banner--ok {
   background: var(--ok-bg);
   color: var(--ok-fg);
-  border-color: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok-fg) 25%, transparent);
 }
 
 /* --------------------------------------------------------------- lists */
@@ -1408,8 +1496,8 @@ body.pc-body--auth {
 .btn-unlock:not(.pc-btn),
 .btn-bonus:not(.pc-btn),
 .btn-bedtime-save:not(.pc-btn) {
-  background: var(--pc-green-500);
-  color: var(--pc-ink-900);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 .btn-hide:not(.pc-btn) {
   background: var(--surface-3);
@@ -1450,7 +1538,11 @@ body.pc-body--auth {
   border-radius: var(--r-pill);
   background: var(--neutral-bg);
   color: var(--neutral-fg);
-  white-space: nowrap;
+  /* Bare badges get the same overflow guard as `.pc-chip`. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .badge-bedtime:not(.pc-chip) {
   background: var(--bedtime-bg);
@@ -1465,8 +1557,10 @@ body.pc-body--auth {
   color: var(--bonus-fg);
 }
 .badge-protected:not(.pc-chip) {
-  background: var(--bedtime-bg);
-  color: var(--bedtime-fg);
+  /* The canvas "Protected" (wheel admin) pill is a blue tint, not the violet
+     bedtime family; `.pc-pill--protected` agrees. */
+  background: var(--info-bg);
+  color: var(--info-fg);
 }
 .badge-paused:not(.pc-chip) {
   background: var(--danger-bg);
@@ -1577,7 +1671,471 @@ body.pc-body--auth {
   }
 }
 
+/* ============================================================ 5-section shell
+   design-exports/SPEC.md "Shared shell": a >=960px desktop sidebar (brand +
+   "Selected machine" card + vertical nav) beside the top header; the phone
+   keeps the bottom tab bar. Everything is additive — the pre-existing
+   app bar/tab bar and their hide rule above are untouched. */
+.pc-layout {
+  display: block;
+}
+.pc-layout__main {
+  min-width: 0;
+}
+.pc-sidebar {
+  display: none;
+}
+.pc-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+.pc-sidebar__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.pc-sidebar__logo-svg {
+  width: 20px;
+  height: 20px;
+}
+.pc-sidebar__title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+.pc-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2);
+}
+.pc-navlink {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-navlink:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.pc-navlink[aria-current='page'] {
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+.pc-navlink__icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+/* "Selected machine" card. The URL is deliberately scheme-less: rendered
+   pages must never contain an http:// literal (offline promise, test_ui_*). */
+.pc-machine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0 var(--sp-3) var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+/* "SELECTED MACHINE" eyebrow — the canvas card labels itself; the aria-label
+   alone left the visible heading missing on desktop. */
+.pc-machine__label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+}
+.pc-machine__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.pc-machine__name {
+  color: var(--text);
+}
+.pc-machine__url code {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pc-machine__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+.pc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-pill);
+  background: var(--text-faint);
+  flex: 0 0 auto;
+}
+.pc-dot--online {
+  background: var(--pc-green-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-green-500) 25%, transparent);
+}
+.pc-machine__status {
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.pc-theme-toggle {
+  min-width: var(--touch);
+}
+.pc-menu__item--label {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 0;
+  padding: var(--sp-1) var(--sp-3);
+}
+
+/* ---- Tablet and up: the sidebar shell --------------------------------
+   Canvas S3/S4 are *tablet* screens and already show the 236px sidebar with
+   the brand, the "Selected machine" card and the 5-section nav; S5/S6 widen
+   it to 280px for desktop. The top bar therefore keeps only the account /
+   theme / Help cluster (right-aligned, plain, no pill chrome) and the product
+   brand moves into the sidebar so it is never duplicated. */
+@media (min-width: 768px) {
+  .pc-sidebar {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: var(--nav-h);
+    bottom: 0;
+    left: 0;
+    width: 236px;
+    overflow-y: auto;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+  }
+  .pc-layout__main {
+    margin-left: 236px;
+  }
+  .pc-appbar__nav {
+    display: none; /* the sidebar owns the 5-section nav from tablet up */
+  }
+  .pc-appbar__brand {
+    display: none; /* the brand lives in the sidebar from tablet up */
+  }
+  .pc-appbar__actions {
+    margin-left: auto;
+    gap: var(--sp-4);
+  }
+  .pc-appbar .pc-menu > summary,
+  .pc-appbar .pc-btn--ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+  }
+  .pc-appbar .pc-menu > summary:hover,
+  .pc-appbar .pc-btn--ghost:hover {
+    color: var(--text);
+  }
+  .pc-appbar .pc-menu[open] > summary {
+    border-color: transparent;
+    color: var(--text);
+  }
+}
+
+@media (min-width: 960px) {
+  .pc-sidebar {
+    width: 280px;
+  }
+  .pc-layout__main {
+    margin-left: 280px;
+  }
+}
+.pc-body--auth .pc-sidebar {
+  display: none;
+}
+.pc-body--auth .pc-layout__main {
+  margin-left: 0;
+}
+
+/* ------------------------------------------------- new design-system pieces
+   Added by the design translation; token-driven and theme-aware. */
+
+/* Toggle switch (enable/disable, reduced motion, HTTPS, notifications). */
+.pc-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  cursor: pointer;
+}
+.pc-switch input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background var(--dur) var(--ease);
+  flex: 0 0 auto;
+}
+.pc-switch input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  transition: transform var(--dur) var(--ease);
+}
+.pc-switch input[type='checkbox']:checked {
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
+}
+.pc-switch input[type='checkbox']:checked::after {
+  transform: translateX(20px);
+  background: var(--pc-white);
+}
+
+/* Segmented control / tabs (Visible | Hidden | All, Dark | Light). */
+.pc-segmented,
+.pc-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.pc-tabbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.pc-tabbtn[aria-pressed='true'],
+.pc-tabbtn[aria-selected='true'] {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Toolbar row (page actions on the right). */
+.pc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.pc-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Two-up card grid that collapses to one column below 960px. */
+.pc-grid {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 960px) {
+  .pc-grid--2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Live countdown readout. */
+.pc-timer {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+/* Fieldset group (Settings / specimen sections). */
+.pc-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin: 0 0 var(--sp-4);
+}
+.pc-fieldset > legend,
+.pc-fieldset__legend {
+  padding: 0 var(--sp-2);
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Section heading used above a stack of cards. */
+.pc-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: var(--sp-5) 0 var(--sp-3);
+}
+.pc-section-head > h2 {
+  margin: 0;
+}
+.pc-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-faint);
+  margin: 0 0 var(--sp-1);
+}
+
+/* Stat / KPI block used in the system summary + specimens. */
+.pc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pc-stat__value {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+.pc-stat__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.pc-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+}
+
+/* A dashed placeholder card for planned / not-yet-backend features. */
+.pc-placeholder {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.pc-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-1);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Card-header icon (canvas S5 puts a FileClock / Users glyph top-right of the
+   Audit log and Admin accounts cards). Decoration only. */
+.pc-header-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+/* Canvas S5 "Component callouts": a dialog swatch (2px border) and a focus-ring
+   swatch (2px ring). Decoration only — the real dialog and focus styles live on
+   .pc-dialog and :focus-visible. */
+.pc-dialog-callout {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--sp-2);
+  border: 2px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+}
+.pc-focus-callout {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  font-size: var(--fs-xs);
+}
+
+/* Day toggle button (bedtime schedule): a checkbox styled as a pill button.
+   The checkbox keeps its name/class for the form + selector contract. */
+.pc-daybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.pc-daybtn:has(input:checked) {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: var(--primary-bg);
+  font-weight: 600;
+}
+
+/* Inline form row (filter selects). */
+/* User-toggled reduced motion (Processes switch): mirrors the OS setting. */
+body.pc-reduced-motion *,
+body.pc-reduced-motion *::before,
+body.pc-reduced-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+.pc-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-3);
+}
+.pc-inline-form .pc-field {
+  margin: 0;
+}
+
 @media print {
+  .pc-sidebar,
   .pc-appbar,
   .pc-tabbar,
   .pc-skip-link,
@@ -1587,4 +2145,156 @@ body.pc-body--auth {
   body.pc-body {
     padding: 0;
   }
+  .pc-layout__main {
+    margin-left: 0;
+  }
+}
+
+/* =========================================================================
+   REVISED-SPEC.md additions (design translation update).
+
+   * status pills driven by the blue theme's success / protected tokens.
+   * account cards, budget category cards and annotation blocks.
+   ========================================================================= */
+
+/* --- Status pills (blue-theme tokens) ------------------------------------ */
+.pc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  /* Same overflow guard as `.pc-chip` — `.pc-pill` loads later, so it must
+     carry the rule itself to keep combined chip/pill labels shrinkable. */
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Online / Unlocked — the canvas "Online"/"Unlocked" pill uses the muted
+   neutral fill; the app keeps its success token so status stays distinguishable
+   (green), re-toned for the blue theme. */
+.pc-pill--online {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+/* Locked — the canvas pill is a *soft* pale red with dark red text (not the
+   solid destructive fill, which stays for the destructive buttons). */
+.pc-pill--locked {
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+}
+.pc-pill--unknown {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+/* Protected (wheel admins) — the canvas "Protected" pill is a blue *tint* with
+   blue text, so it reads the info/primary-10 pair rather than the solid accent
+   used by the active nav. */
+.pc-pill--protected {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+/* Audit "Verified" chip: primary/10 fill, primary/40 border, 11px. */
+.pc-pill--verified {
+  background: color-mix(in srgb, var(--primary-bg) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-bg) 40%, transparent);
+  color: var(--link);
+  font-size: 11px;
+}
+
+/* --- Account cards (Screen 1) -------------------------------------------- */
+.pc-accounts__heading {
+  margin-bottom: var(--sp-3);
+}
+.pc-account__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.pc-account__id {
+  min-width: 0;
+}
+.pc-account__name {
+  margin: 0;
+  font-weight: 600;
+}
+.pc-account__meta {
+  margin: var(--sp-1) 0 0;
+}
+.pc-account__actions {
+  margin-top: var(--sp-3);
+  flex-wrap: wrap;
+}
+/* Overview now shares the wide desktop shell (sidebar + app bar), so the
+   account cards no longer span the full 1120px main column on their own. Pair
+   them into a 2-column grid once the main column is wide enough; below that
+   they stay a single column (phone/tablet canvas S1). The single card of the
+   no-accounts empty state simply occupies the first grid cell. */
+@media (min-width: 1100px) {
+  .pc-accounts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+.pc-card--secondary {
+  background: var(--surface-2);
+}
+
+/* --- Budget category cards (Screen 3) ------------------------------------ */
+.pc-catcard__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.pc-catcard__name {
+  margin: 0;
+  font-weight: 600;
+}
+.pc-catcard__dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.pc-catcard__dl dt {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-catcard__dl dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* --- Annotation / implementation blocks (Screens 2/3/6) ------------------ */
+.pc-annotation {
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+.pc-annotation__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.pc-annotation p {
+  margin: 0 0 var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.pc-annotation p:last-child {
+  margin-bottom: 0;
 }

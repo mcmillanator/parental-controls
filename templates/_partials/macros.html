@@ -1,0 +1,66 @@
+{# ==========================================================================
+   _partials/macros.html — reusable Jinja macros for the design system
+   (REVISED-SPEC.md stack directive: macros for status badges, account cards,
+   action buttons, navigation, time inputs, day toggles, alerts, toggles,
+   device cards and dialogs).
+
+   Every macro emits the same class names the pinned selector contract
+   (`tests/test_katalon_objects.py`, UI_UX_PLAN.md §7.4) expects, so pages can
+   adopt them without moving a selector. The page-local `time_select` macro
+   (templates/user.html, templates/budgets.html) keeps the 12-hour selects;
+   `pc_empty` / `pc_skeleton` / `pc_banner` live in `_partials/flash.html`;
+   the dialogs live in `_partials/dialog.html` and
+   `_partials/override_dialog.html`.
+   ========================================================================== #}
+
+{# Status pill — explicit Online/Unlocked colours, text + icon (never colour
+   alone). Keeps the legacy `pc-status--*` / `status-*` hooks. `icon` is the
+   sprite symbol name without the leading '#' (e.g. 'pc-i-lock'). #}
+{%- macro pc_status_pill(cls, label, icon) -%}
+<span class="pc-pill pc-pill--{{ cls }} pc-status pc-status--{{ cls }} status-{{ cls }}"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg> {{ label }}</span>
+{%- endmacro -%}
+
+{# A plain badge / status chip. `cls` carries any legacy badge-* hook (e.g.
+   'badge-paused') ahead of the pc-chip base so both selector sets resolve. #}
+{%- macro pc_badge(variant, label, cls='') -%}
+<span class="{% if cls %}{{ cls }} {% endif %}pc-chip pc-chip--{{ variant }}">{{ label }}</span>
+{%- endmacro -%}
+
+{# A button. `variant` is the `.pc-btn--*` suffix ('primary'|'danger'|'warn'|
+   'neutral'|'ghost'); `cls` carries legacy hooks (e.g. 'btn-lock');
+   `icon` is an optional sprite symbol name; `extra` carries onclick/disabled/
+   aria-* attributes; `block` makes it full-width. #}
+{%- macro pc_button(label, variant='primary', cls='', icon='', extra='', block=false) -%}
+<button type="button" class="pc-btn pc-btn--{{ variant }}{% if cls %} {{ cls }}{% endif %}{% if block %} pc-btn--block{% endif %}"{% if extra %} {{ extra|safe }}{% endif %}>{% if icon %}<svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>{% endif %}{{ label }}</button>
+{%- endmacro -%}
+
+{# A toggle switch (checkbox + visible label). Labels are trusted template
+   constants, so they are rendered with |safe (an apostrophe must not become
+   &#39; in the DOM text). #}
+{%- macro pc_toggle(id, label, checked=false, disabled=false, extra='') -%}
+<label class="pc-switch"><input type="checkbox" id="{{ id }}"{% if checked %} checked{% endif %}{% if disabled %} disabled{% endif %}{% if extra %} {{ extra|safe }}{% endif %}><span>{{ label|safe }}</span></label>
+{%- endmacro -%}
+
+{# A device card for the Settings screen. #}
+{%- macro pc_device_card(name, meta='', online=false, chip='', attrs='') -%}
+<article class="pc-card" data-device="{{ name }}"{% if attrs %} {{ attrs|safe }}{% endif %}>
+  <div class="pc-card__header">
+    <h3 class="pc-card__title">{{ name }}</h3>
+    {% if online %}<span class="pc-chip pc-chip--ok"><span class="pc-dot pc-dot--online" aria-hidden="true"></span>Online</span>{% elif chip %}<span class="pc-chip pc-chip--neutral">{{ chip }}</span>{% endif %}
+  </div>
+  {% if meta %}<p class="pc-meta">{{ meta }}</p>{% endif %}
+</article>
+{%- endmacro -%}
+
+{# A navigation link for the sidebar / app bar / tab bar. `style` is
+   'navlink' (sidebar) or 'appbar'/'tab'; the active destination carries
+   aria-current="page" so the runtime Katalon selector keeps resolving. #}
+{%- macro pc_nav_link(key, icon, label, href, active='', style='navlink') -%}
+{%- if style == 'navlink' -%}
+<a class="pc-navlink" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}><svg class="pc-navlink__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>
+{%- elif style == 'appbar' -%}
+<a class="pc-btn pc-btn--ghost" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg>{{ label }}</a>
+{%- else -%}
+<a class="pc-tab" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}><svg class="pc-tab__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>
+{%- endif -%}
+{%- endmacro -%}

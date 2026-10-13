@@ -1,0 +1,52 @@
+{# ==========================================================================
+   Sidebar (>=768px tablet and desktop) for the 5-section shell
+   (design-exports/SPEC.md "Shared shell"; canvas S3/S4 tablet, S5/S6 desktop).
+
+   Brand + a "Selected machine" card (with its visible uppercase eyebrow, as
+   the canvas labels it) + the primary vertical nav. Below 768px the whole
+   aside is display:none from app.css and navigation moves to the bottom tab
+   bar (templates/_partials/tabbar.html). The canvas has no sidebar footer, so
+   the signed-in identity lives only in the app-bar account chip. Context (all
+   optional, with defaults so any page can render the shell):
+     active_nav   : 'overview'|'time'|'activity'|'admin'|'settings'|''
+     machine_name : the selected box ("This box" for the local install)
+     machine_url  : host shown in the card (scheme-less: the offline promise
+                    forbids an http:// literal in rendered pages)
+   ========================================================================== #}
+{% from '_partials/macros.html' import pc_nav_link %}
+{% set _active = active_nav|default('') %}
+<aside class="pc-sidebar" aria-label="Sections">
+  <div class="pc-sidebar__brand">
+    <span class="pc-sidebar__logo" aria-hidden="true"><svg class="pc-sidebar__logo-svg" focusable="false"><use href="#pc-i-shield"/></svg></span>
+    <span class="pc-sidebar__title">{{ app_title|default('Parental Controls') }}</span>
+  </div>
+
+  <div class="pc-machine" aria-label="Selected machine">
+    <p class="pc-machine__label">Selected machine</p>
+    <span class="pc-machine__row">
+      <svg class="pc-machine__icon" aria-hidden="true" focusable="false"><use href="#pc-i-monitor"/></svg>
+      <strong class="pc-machine__name">{{ machine_name|default('This box') }}</strong>
+    </span>
+    <span class="pc-machine__row pc-machine__url">
+      <svg class="pc-machine__icon" aria-hidden="true" focusable="false"><use href="#pc-i-link"/></svg>
+      <code>{{ machine_url|default('localhost') }}</code>
+    </span>
+    <span class="pc-machine__row pc-machine__status">
+      <span class="pc-dot pc-dot--online" aria-hidden="true"></span>
+      Local / Online
+    </span>
+  </div>
+
+  <nav class="pc-sidebar__nav" aria-label="Sections">
+    {% set _nav = [
+      ('overview', 'pc-i-home', 'Overview', url_for('index')),
+      ('time', 'pc-i-clock', 'Time rules', url_for('time_rules')),
+      ('activity', 'pc-i-activity', 'Activity', url_for('processes')),
+      ('admin', 'pc-i-shield', 'Admin', url_for('admin_audit')),
+      ('settings', 'pc-i-settings', 'Settings', url_for('settings')),
+    ] %}
+    {% for key, icon, label, href in _nav %}
+    {{ pc_nav_link(key, icon, label, href, _active, 'navlink') }}
+    {% endfor %}
+  </nav>
+</aside>

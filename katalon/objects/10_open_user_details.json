@@ -23,7 +23,7 @@
       "type": "verifyText",
       "selector": "h1",
       "parentSelectors": [],
-      "value": "glob:*User:*"
+      "value": "glob:*time rules*"
     },
     {
       "type": "verifyText",

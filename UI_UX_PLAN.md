@@ -116,6 +116,8 @@ Practice surveyed and applied (named, well-established sources):
    `#4a90d9` ≈ 3.4:1 (both below 4.5 for normal text); `.refresh-info` `#666`
    on `#16213e` ≈ **2.8:1 (fails)**. Color is used alone to convey state in
    places (status text color).
+   *(Historical audit against the pre-translation palette; the shipped values
+   were re-sampled from the canvas in §11.6 — see §3.1 for the current tokens.)*
 9. **Status is mixed-language and mixed-color.** "Locked / Unlocked / Unknown"
    text color is the only signal in some cells; `Freeze`/`Unfreeze`,
    `Paused`/`Exhausted`/`Frozen`, `Window active`, `In Bedtime`, `Override`,
@@ -174,46 +176,56 @@ tokens and `prefers-color-scheme` (see open question Q1).
 ### 3.1 Tokens (3-tier)
 
 **Tier 1 — core palette** (names are stable; values are the only thing a theme
-swaps). Existing values preserved where they already pass; failures corrected.
+swaps). **Values re-sampled from the live Flowstep canvas** (§11.6): the design
+is a warm cream/ivory + amber theme, so the warm family is mapped onto the
+original names (`--pc-green-500` now holds the amber the "primary" role uses).
 
 ```
---pc-ink-900:#12121f  --pc-ink-800:#16213e  --pc-ink-700:#1a1a2e
---pc-ink-600:#1a1a3e  --pc-ink-500:#1f2b50  --pc-ink-400:#2a3a5e
---pc-navy-700:#0f3460  --pc-navy-800:#131c36
---pc-green-500:#4ecca3  --pc-green-600:#2f9e79
---pc-red-500:#e94560    --pc-red-700:#7a1f2b
---pc-amber-400:#f0c040  --pc-amber-700:#8a5a00
---pc-violet-500:#6a4c93 --pc-orange-500:#e67e22 --pc-blue-500:#4a90d9
---pc-slate-100:#e0e0e0  --pc-slate-400:#a8c0d8  --pc-slate-500:#8b8b9c
---pc-slate-600:#6b6b7b
+--pc-ink-900:#1f1c17  --pc-ink-800:#2a251c  --pc-ink-700:#241f18
+--pc-ink-600:#322c22  --pc-ink-500:#3d3628  --pc-ink-400:#4a4132
+--pc-navy-700:#57492f  --pc-navy-800:#3a3226
+--pc-green-500:#c47f17  --pc-green-600:#a5650f   /* canvas amber = primary */
+--pc-red-500:#d92d20    --pc-red-700:#7a1f16
+--pc-amber-400:#c47f17  --pc-amber-700:#8a5a12
+--pc-violet-500:#6a4c93 --pc-orange-500:#e08a2b --pc-blue-500:#4a7d8c
+--pc-slate-100:#f4efe4  --pc-slate-400:#c4b8a2  --pc-slate-500:#b3a68d
+--pc-slate-600:#6a6255
 --pc-white:#ffffff     --pc-black:#000000
 ```
 
 **Tier 2 — semantic tokens** (`:root` = dark; `[data-theme="light"]` overrides).
-These are what components use; nothing uses Tier 1 directly.
+These are what components use; nothing uses Tier 1 directly. The canvas only
+specifies the light (cream) theme; the dark theme is its warm counterpart.
 
 ```
---bg:            var(--pc-ink-700);   /* page */
---surface:       var(--pc-ink-800);   /* card / table */
---surface-2:     var(--pc-ink-600);   /* zebra, nested */
---surface-3:     var(--pc-ink-500);   /* hover */
---surface-raised:var(--pc-ink-800);   /* dialog (elevation via border/shadow) */
---border:        var(--pc-ink-400);
---border-strong: var(--pc-navy-700);
---text:          var(--pc-slate-100);
---text-muted:    var(--pc-slate-400);   /* #a8c0d8 – AA on surface */
---text-faint:    var(--pc-slate-500);   /* #8b8b9c – AA on surface */
---link:          var(--pc-green-500);
---focus-ring:    var(--pc-green-500);   /* 2px + 2px offset */
+--bg:            #241f18;            /* page */
+--surface:       #2a251c;            /* card / table */
+--surface-2:     #383126;            /* zebra, nested */
+--surface-3:     #423a2d;            /* hover */
+--surface-raised:#322c22;            /* dialog (elevation via border/shadow) */
+--border:        #4a4132;
+--border-strong: #5c5140;
+--text:          #f4efe4;
+--text-muted:    #c4b8a2;            /* AA on surface + surface-2 */
+--text-faint:    #b3a68d;            /* AA on surface + surface-2 */
+--link:          #e0a94a;
+--focus-ring:    #e0a94a;            /* 2px + 2px offset */
+
+/* warm-palette roles the canvas introduces */
+--primary-bg:#a5650f --primary-fg:#ffffff --primary-hover:#96590d  /* AA-safe amber */
+--accent-bg:#3d4a45  --accent-fg:#eaf3f0   /* sage active-nav / Protected */
+--sidebar-bg:#2a2419                       /* sidebar is a distinct surface */
 
 /* status foregrounds chosen to pass AA on their chip background */
---ok-fg:#062b20;   --ok-bg:#4ecca3;
---danger-fg:#ffffff; --danger-bg:#c62b45;   /* darkened from #e94560 (was 3.8) */
---warn-fg:#3a2600;  --warn-bg:#f0c040;
---info-fg:#04223f;  --info-bg:#7cc0f5;      /* lightened from #4a90d9 (was 3.4) */
---override-fg:#2a1200; --override-bg:#f3a95c; /* lightened from #e67e22 (was 2.8) */
---bedtime-fg:#ffffff; --bedtime-bg:#6a4c93;   /* 7:1 – keep */
---neutral-fg:#ffffff; --neutral-bg:#0f3460;
+--ok-fg:#eafaf1;   --ok-bg:#2c6e4f;
+--danger-fg:#ffffff; --danger-bg:#d92d20;
+--danger-soft-fg:#ffb3ac; --danger-soft-bg:#4a201c;  /* pale Locked pill */
+--warn-fg:#ffffff;  --warn-bg:#8a5a12;
+--info-fg:#f6dfae;  --info-bg:#4a3a1c;
+--override-fg:#ffffff; --override-bg:#a5650f;
+--bedtime-fg:#e6def7; --bedtime-bg:#4a3d63;
+--bonus-fg:#ffffff; --bonus-bg:#a5650f;
+--neutral-fg:#f4efe4; --neutral-bg:#423a2d;
 ```
 
 **Tier 3 — component tokens** derive from tier 2 (`--btn-bg`, `--chip-bg`,
@@ -237,16 +249,21 @@ Four Zero Three — never a glow on pure black):
 **Motion:** `--dur:140ms --ease:cubic-bezier(.2,.6,.2,1)`; all transitions
 wrapped in `@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}`.
 
-**Light theme** (illustrative): `--bg:#f4f5f8 --surface:#ffffff
---surface-2:#eef0f5 --surface-3:#e4e8f0 --text:#1a1c26 --text-muted:#4a5568
---border:#c9cfdb --link:#1f7a5c`, status chips darkened for white surfaces.
+**Light theme** — the canvas palette (sampled, see §11.6): `--bg:#faf7f0
+--surface:#ffffff --surface-2:#f4efe4 --surface-3:#eae3d4 --border:#e4dcc9
+--border-strong:#cec2a8 --text:#1f1c17 --text-muted:#6a6255 --text-faint:#75695a
+--link:#8a5a12 --focus-ring:#8a5a12`, amber primary `#c47f17` on white, sage
+accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas Online/Unlocked pill
+`#d7ebd7`/`#003a05`, soft Locked pill `#fbe3e0`/`#8f1d15`, destructive
+`#d92d20`, status text tokens `--ok-text:#14602f --warn-text:#8a5a12
+--danger-text:#b3261e --info-text:#7a4f0a`.
 
 ### 3.2 Component inventory
 
 | Component | Notes / current mapping |
 |---|---|
-| **App bar** | Sticky top; title + tier line; account menu (Change password / Log out) as a `<details>` popover (no JS framework) |
-| **Bottom tab bar** (phone only) | Home · Admin · Account; `--touch` 44 px; `aria-current` on active |
+| **App bar** | Sticky top; brand (below 768 px only — from tablet up the brand lives in the sidebar), account menu (Change password / Log out) and Help as `<details>` popovers, theme toggle (no JS framework) |
+| **Bottom tab bar** | 4-tab bar **Home · Time · Activity · Admin** + an **Account** `<details>` menu (Settings / Change password / Log out); `--touch` 44 px; `aria-current` on active (§11). Hidden from 768 px up — every section navigates via the sidebar |
 | **Skip link** | "Skip to content" first focusable |
 | **Button** `.pc-btn` variants `--primary` (green: Unlock, Save, Set, Add), `--danger` (Lock, Clear, Remove, Emergency logout), `--warn` (Freeze), `--neutral` (Hide, secondary), `--ghost` (Load more, Details). Sizes: default 44 px; `--sm` **min 32 px** with 8 px spacing (fixes 2.5.8); `--icon`. |
 | **Chip / badge** `.pc-chip` variants `ok/danger/warn/info/override/bedtime/neutral/bonus`. Always **icon + text + color** (never color alone). |
@@ -291,6 +308,11 @@ depend on utility classes being fetched. Content max-width `--content:880px`
 (forms/user) and `--content-wide:1120px` (home/audit).
 
 ### 4.2 Navigation model
+
+> **Superseded by §11 (design translation).** The 5-section IA replaced the
+> original 3-item phone bar: the phone bottom bar is now **Home · Time ·
+> Activity · Admin** plus an Account menu, and ≥960 px screens carry a desktop
+> sidebar. The original model is kept below for history.
 
 - **Phone (<md):** sticky **app bar** (title + account `<details>` menu) + sticky
   **bottom tab bar**: `Home` (`/`) · `Admin` (`/admin/audit`) · `Account`
@@ -836,3 +858,225 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
 - Fintech dashboard UX: Neuron UX (consistent status labels, pending states); The UXDA banking best practices; Wandr/AdminLTE dashboard pattern analyses.
 - Parental-control UX: Apple Screen Time, Google Family Link, Qustodio (atico3 case study; Qustodio product pages), Kids360.
 - IoT / home automation: Appthetics *Smart-home app UI patterns*; Home Assistant offline/unavailable-device card practice.
+
+---
+
+## 11. Design translation — Flowstep canvas alignment (`feature/design-translation`)
+
+The live Flowstep canvas is the source of truth for the six screens. The
+pasted exports were deleted; the screens were re-read from the Flowstep MCP
+(file `216e5d0f-761c-40a9-ad76-bbd4bb8b8d0d`, screens 1–6) and translated to
+this project's stack.
+
+### 11.1 Stack mapping (per the canvas prompts)
+
+- **Flask + Jinja + vanilla JS + locally vendored Bootstrap 5** — no React,
+  Vue, SPA framework or build step. No CDN, external fonts or network assets.
+- The mockup's `static/css/tokens.css` is mapped onto the existing
+  `static/css/app.css`, loaded **after** Bootstrap so our tokens win (no split).
+- `static/js/app.js` is **progressive enhancement only** (reduced-motion
+  persistence, `<details>` popover dismissal); every save is a server-rendered
+  POST/fetch path and the pages work with JS disabled.
+- `templates/_partials/macros.html` holds the shared Jinja macros (status
+  pills, badges, buttons, toggles, device cards, navigation); the
+  confirmation-dialog macro lives in `_partials/dialog.html`. Pages adopt them
+  so the markup cannot drift from the pinned selector contract.
+
+### 11.2 Shell / IA
+
+- **Overview (Screen 1) uses the shared shell** (owner decision, §11.7): the
+  same desktop sidebar (Overview / Time rules / Activity / Admin / Settings +
+  the "Selected machine" card), the same top app bar (brand, user chip, theme
+  toggle, Help) and the same phone bottom tab bar below 768 px as the other
+  five sections. The earlier phone-first shell (a simple brand header over a
+  single column, `pc-layout--phone`, `_partials/phone_header.html`) was
+  removed. Overview keeps its own content (sync banner, system summary, one
+  account card per human account, the confirmation specimen, the design thesis
+  and the empty state).
+- **Screens 3–6** use the **sidebar** (Overview / Time rules / Activity /
+  Admin / Settings) from **768 px** (canvas S3/S4 are *tablet* screens and
+  already show the 236 px sidebar), widening to 280 px at **960 px** (canvas
+  S5/S6), plus the top header with the account chip, theme toggle and Help.
+  The brand lives in the sidebar from 768 px up so it is never duplicated in
+  the top bar, which keeps only the right-aligned account / theme / Help
+  cluster (canvas S5/S6).
+- The phone bottom bar is **Home / Time / Activity / Admin** plus an
+  **Account** menu (Settings / Change password / Log out); Settings is not a
+  tab. Active destinations keep `aria-current="page"`.
+
+### 11.3 Per-screen shape
+
+| Screen | Route | Shape |
+|---|---|---|
+| 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px), confirmation specimen, design thesis, empty state |
+| 2 Time rules | `/user/<u>` | manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, live countdown (`aria-live`), clear-schedule confirm, state specimen |
+| 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
+| 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, override + visibility cards |
+| 5 Admin console | `/admin/audit` | audit log (filters, integrity, export) + admin accounts + type-`REMOVE` confirm dialog + specimens |
+| 6 Settings | `/settings` | status stack, notifications/local-access fieldsets (`col-12 col-xl-6`), devices, implementation/annotation sections |
+
+### 11.4 Selector / test changes
+
+Rendered classes, ids and `aria-*` hooks are unchanged from the pinned
+contract (§7.4). The source-level guards that asserted a literal which now
+comes from a shared macro were updated: `test_ui_shell` (sidebar/appbar/tabbar
+`aria-current` → `pc_nav_link(`), `test_ui_assets`
+(`test_appbar_and_tabbar_mark_the_active_destination`), and
+`test_ui_settings` (`test_placeholders_are_disabled` → `pc_toggle(...)`, with a
+new rendered disabled-attribute check). New `tests/test_ui_macros.py` guards
+the macro library and its adoption. **Zero** `katalon/objects/*` changes.
+
+The §11.6 QA pass re-sampled the palette, so two tests that pinned the old
+*cool* hexes were updated (values only, no selector change):
+
+- `tests/test_ui_assets.py::test_light_theme_is_an_override_not_a_rewrite`
+  (`--bg:#f4f5f8`→`#faf7f0`, `--info-bg:#2368a8`→`#f9efdc`,
+  `--warn-bg:#8a5a00`→`#8a5a12`);
+- `tests/test_ui_a11y.py::test_dark_is_the_default_and_light_is_available`
+  (`--bg:#f4f5f8`→`#faf7f0`).
+
+No id/class/attribute/`data-*` selector changed in either file, and the
+WCAG-AA contrast guardrails in `test_ui_a11y` (chip pairs + text tokens, both
+themes) were **not** weakened — they still pass on the new palette.
+
+### 11.5 Verification
+
+Full stdlib suite green via
+`TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`
+(1238 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
+device/browser passes (§7.6) remain the owner's to run on the live box.
+
+### 11.6 Canvas QA pass — palette re-sample + desktop elements
+
+Owner report: elements missing on desktop, and the palette not matching the
+canvas. Both were confirmed against the live canvas and fixed.
+
+**Palette.** The branch shipped a cool navy/teal/pink theme; the canvas is warm
+cream/ivory + amber. Every token was re-pointed (§3.1) — tier-1/tier-2 names
+kept so no component or selector moved. Sampled values (light): cream page
+`#faf7f0`, white cards, tan hairline `#e4dcc9`, ink `#1f1c17`, canvas amber
+`#c47f17` (the text-bearing primary role is deepened to the AA-safe `#a5650f`,
+see "Known canvas conflicts" below), sage accent `#cfe0da`/`#1b4a44`, sidebar `#f4efe4`, canvas
+Online/Unlocked pill `#d7ebd7`/`#003a05`, soft Locked pill `#fbe3e0`/`#8f1d15`,
+destructive `#d92d20`. Components that hard-coded the old family were
+re-pointed: primary buttons, the sidebar surface + logo, the nav active pill,
+status pills, banners, the table head, the switch and the day buttons.
+
+**Desktop elements.** Sidebar gains the canvas's visible "Selected machine"
+eyebrow and drops the footer the canvas does not have; the sidebar is now shown
+from 768 px (canvas S3/S4 tablet); the duplicated app-bar brand is removed from
+768 px up and the account/theme/Help cluster is right-aligned and plain with
+Help's visible label; `#admin-specimens` and `#settings-annotations` are plain
+visible sections again (they were collapsed `<details>`) and the missing
+"Dialog"/"Focus ring" callouts plus the Audit/Admin card-header glyphs were
+added; Settings' Local access column was nested inside the Notifications
+column and now sits beside it.
+
+**Known canvas conflicts (owner decision).** (a) The canvas draws white text on
+the amber button `#c47f17`, which is 3.28:1 — below WCAG AA 4.5:1. The owner
+chose the AA-safe amber: the text-bearing primary roles (`--primary-bg` /
+`--primary-hover`, i.e. `.pc-btn--primary`, `.btn-unlock`, `.btn-bonus`,
+`.btn-bedtime-save`, the sidebar logo tile and the checked day button) now use
+the deepened amber `#a5650f` (4.70:1 with white) / `#96590d` (5.63:1) in both
+themes. The canvas-exact `#c47f17` is kept only on the decorative tier-1
+swatches (`--pc-green-500` / `--pc-amber-400`) that carry no text. (b) The
+canvas' Settings screen (S6) renders `primary` as
+near-black and its switches dark, while S1–S5 render amber; the amber reading
+was taken as authoritative (5 of 6 screens + the brief). (c) The canvas does
+not specify a desktop Overview; the owner has since directed that Overview
+share the other five sections' shell (§11.7), so the earlier phone-first shell
+is no longer in play.
+
+### 11.7 Overview adopts the shared shell (owner request)
+
+Owner report: the Overview nav was disliked; Overview must use the **same nav
+and shell as every other page**. Implemented as a nav/shell change only —
+content is untouched.
+
+- `templates/index.html` no longer overrides `layout_class` / `sidebar` /
+  `appbar`; it inherits `base.html`'s defaults, so at ≥768 px it renders the
+  desktop sidebar (the 5-section nav with Overview marked `aria-current`, plus
+  the "Selected machine" card) and the top app bar (brand, user chip, theme
+  toggle, Help). Below 768 px it shows the phone bottom tab bar, hidden ≥768 px
+  like every other section. `active_nav` was already `'overview'` for the
+  `index` endpoint, so the sidebar marks Overview correctly with no app change.
+- **Dead code removed** (no remaining references): `_partials/phone_header.html`
+  and the `.pc-layout--phone` / `.pc-phoneheader` rules plus the
+  `@media (min-width: 768px){ .pc-layout--phone .pc-tabbar { display: flex } }`
+  re-show rule in `static/css/app.css`. The earlier tab-bar fix (the bar living
+  inside `.pc-layout` in `base.html`) is **kept**.
+- **Minimal responsive treatment** for the now-wide main column: the account
+  cards (`.pc-accounts`) pair into a 2-column grid at ≥1100 px
+  (`grid-template-columns: repeat(2, minmax(0,1fr))`); below that they stay a
+  single column. No new sections were invented.
+- **Selector contract unchanged**: every §7.4 pinned id/class (`#row-<user>`,
+  `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`/`.btn-logout`, `status-*`,
+  `pc-status--*`, `.refresh-info`, `#admin-panel`, `#admin-list`,
+  `#new-admin-username`, `#device-selector`, `#accounts`, `.pc-account`,
+  `data-label`, …) is preserved; **zero** `katalon/objects/*` changes.
+- **Test changes** (only the guards that pinned the phone-first Overview):
+  `tests/test_ui_shell.py` (shared-shell render check; the tab-bar-in-layout
+  regression retargeted to `.pc-layout`; the CSS guards now assert the
+  phone-shell selectors are gone), `tests/test_ui_a11y.py`
+  (`test_home_render_*` now asserts the sidebar + app bar and no phone shell).
+  `tests/test_ui_home.py` / `tests/test_ui_assets.py` needed no change (they
+  never pinned the phone header). Palette, AA-safe primary and shipped
+  behaviour are unchanged.
+
+### 11.8 Design-intent translation (Flowstep annotation notes)
+
+The six Flowstep canvas screens are **product designs plus implementation
+specifications**, not static pages. The owner's agent added DESIGN-INTENT
+NOTES to every screen (file `216e5d0f-761c-40a9-ad76-bbd4bb8b8d0d`) and a
+distilled starter prompt. This pass implements that intent.
+
+- **One shared confirmation-dialog pattern.**
+  `templates/_partials/dialog.html` now exposes
+  `pc_confirm_dialog(dialog_id, title, body, confirm_label, cancel_label,
+  danger, require_text, checkbox_label, action, method, csrf_token,
+  hidden_fields)` — a native `<dialog>` wrapping a real
+  `<form method="post">` with a hidden CSRF field, a description, an optional
+  typed confirmation and an optional acknowledgement checkbox, a real submit
+  label and a danger state. The generic `#pc-confirm` dialog is itself rendered
+  by that macro, so every destructive action that opens it shares the markup.
+  `window.pcConfirm(opts)` gained an optional `checkbox` gate (the primary
+  action stays disabled until it is ticked) alongside the existing
+  `requireText` gate.
+- **Overview "Selected account: Sam" → the dialog.** The example card is no
+  longer inline page content; the lock action now opens the shared dialog with
+  the canvas' example content (`Confirm lock` / `Lock Sam now?` /
+  `Confirm lock action` / `Lock Sam`).
+- **Destructive / access-changing actions all use the dialog:** lock, unlock,
+  lock-screen, emergency logout (typed confirmation), freeze/thaw,
+  remove app-only admin (typed `REMOVE`), clear schedule, revoke override and
+  remove weekly window.
+- **Fixtures are dev-only.** Annotation cards, "State specimen",
+  "Theme specimen", "Component callouts", the implementation asides and the
+  worked dialog/override examples are documentation, so they render only
+  behind a dev-only preview: `?preview=1` on any page, or
+  `PARENTAL_DEV_PREVIEW=1` in the environment (`app.py::_fixture_preview`).
+  The pinned fixture ids (`#overview-specimens`, `#specimen-confirm`,
+  `#design-thesis`, `#empty-specimen`, `#admin-specimens`,
+  `#settings-annotations`, `#budgets-implementation`,
+  `#time-rules-states`, `#time-rules-implementation`, `#proc-states-heading`)
+  stay reachable at that flag, so no selector contract moved.
+- **App override is a modal, not a section.** The budgets category card's
+  "App override" control opens the ONE shared `#pc-override` dialog
+  (populated for the selected category) instead of linking to another page;
+  the specimen card moved behind the preview.
+- **Mutually exclusive states.** With the state specimens behind the preview,
+  each region renders exactly one server-selected state (normal / empty /
+  error) — the loading skeleton and offline copy are progressive-enhancement
+  affordances, not simultaneous content.
+
+**Test changes.** The guards that asserted a now-dev-only fixture render with
+`?preview=1` and additionally assert the fixture is absent from the normal
+page: `tests/test_ui_home.py` (`test_specimen_cards_are_dev_only`, the dialog
+assertions), `tests/test_ui_admin.py` (`test_specimen_cards`),
+`tests/test_ui_budgets.py` (hours/minutes, states, override specimen,
+implementation aside, the override trigger + freeze dialog),
+`tests/test_ui_settings.py` (`test_annotation_sections`),
+`tests/test_ui_user.py` (state specimen + implementation annotation),
+`tests/test_ui_processes.py` (state cards + freeze dialog). **Zero**
+`katalon/objects/*` changes: the fixture ids were never in the Katalon
+contract, only in the stdlib suite, and they still resolve behind `?preview=1`.

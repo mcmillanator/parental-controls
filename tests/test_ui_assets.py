@@ -229,11 +229,12 @@ class AppCssTest(unittest.TestCase):
         # dark is the bare :root default; light only overrides tokens.
         self.assertIn("prefers-color-scheme: light", self.css)
         self.assertIn("[data-theme='light']", self.css)
-        self.assertIn('--bg: #f4f5f8', self.css)
+        self.assertIn('--bg: #ffffff', self.css)
         self.assertIn('--surface: #ffffff', self.css)
-        # the two chips that fail AA on white are re-tuned for the light theme
-        self.assertIn('--info-bg: #2368a8', self.css)
-        self.assertIn('--warn-bg: #8a5a00', self.css)
+        # the light blue theme's info banner tint and warning chip (both were
+        # amber in the previous cream palette)
+        self.assertIn('--info-bg: #dbeafe', self.css)
+        self.assertIn('--warn-bg: #fef3c7', self.css)
 
     def test_auth_shell_hides_the_chrome_from_the_stylesheet(self):
         self.assertIn('.pc-body--auth', self.css)
@@ -257,6 +258,86 @@ class AppCssTest(unittest.TestCase):
         self.assertIn('.pc-skeleton-rows', self.css)
         self.assertIn('.pc-chip--stale', self.css)
         self.assertIn('aria-busy', self.css)
+
+
+class MobileOverflowGuardTest(unittest.TestCase):
+    """CSS guards that stop long chip/table content forcing horizontal scroll.
+
+    Regression (Admin Console, 375px iPhone SE): the ``Protected — wheel
+    admin`` status chip was ``white-space: nowrap`` and could not shrink, so
+    its min-content width pushed the whole page 19px wider than the viewport
+    (``documentElement.scrollWidth`` 394 vs 375). The live measurement lives
+    in ``.scratch/overflow.py`` (all routes ``[ok]`` at 375 and 320); this
+    source-level guard pins the stylesheet rules that keep any long chip or
+    stacked-table cell shrinkable. No browser, no Flask.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.css = read(APP_CSS)
+
+    def _rule(self, selector):
+        """Return the declaration body of the first rule starting with selector."""
+        match = re.search(r'(?ms)^\s*' + selector + r'\s*\{(.*?)\}', self.css)
+        self.assertIsNotNone(match, 'no CSS rule found for %s' % selector)
+        return match.group(1)
+
+    def _rule_containing(self, selector, needle):
+        """First rule matching selector whose body contains needle.
+
+        `.pc-table--stack td` appears both in a grouped display:block rule and
+        in the grid rule, so callers pick the grid one by its declaration.
+        """
+        for match in re.finditer(r'(?ms)^\s*' + selector + r'\s*\{(.*?)\}',
+                                 self.css):
+            if needle in match.group(1):
+                return match.group(1)
+        self.fail('no rule for %s containing %r' % (selector, needle))
+
+    def _assert_decl(self, body, decl):
+        self.assertIn(decl, body.replace(' ', ''),
+                      'overflow guard is missing %r' % decl)
+
+    def test_chip_can_shrink_and_wrap(self):
+        body = self._rule(r'\.pc-chip')
+        self._assert_decl(body, 'max-width:100%')
+        self._assert_decl(body, 'min-width:0')
+        self._assert_decl(body, 'white-space:normal')
+        self._assert_decl(body, 'overflow-wrap:anywhere')
+        self.assertNotIn('white-space:nowrap', body.replace(' ', ''),
+                         '.pc-chip must not be forced onto one line')
+
+    def test_pill_carries_the_same_guard(self):
+        # `.pc-pill` is declared after `.pc-chip`, so a combined chip+pill
+        # label needs the guard repeated on the later rule.
+        body = self._rule(r'\.pc-pill')
+        self._assert_decl(body, 'max-width:100%')
+        self._assert_decl(body, 'min-width:0')
+        self._assert_decl(body, 'white-space:normal')
+        self._assert_decl(body, 'overflow-wrap:anywhere')
+
+    def test_bare_badge_carries_the_same_guard(self):
+        # The `.badge-*:not(.pc-chip)` fallbacks must be shrinkable too.
+        body = self._rule(r'\.badge-protected:not\(\.pc-chip\)')
+        self._assert_decl(body, 'max-width:100%')
+        self._assert_decl(body, 'white-space:normal')
+        self._assert_decl(body, 'overflow-wrap:anywhere')
+
+    def test_table_cells_can_shrink(self):
+        body = self._rule(r'\.pc-table th,\s*\.pc-table td')
+        self._assert_decl(body, 'min-width:0')
+        self._assert_decl(body, 'overflow-wrap:anywhere')
+
+    def test_stacked_table_tracks_can_shrink(self):
+        body = self._rule_containing(r'\.pc-table--stack td',
+                                     'grid-template-columns')
+        self._assert_decl(body, 'min-width:0')
+        self._assert_decl(body, 'overflow-wrap:anywhere')
+        # `minmax(0, …)` drops the auto (min-content) track floor that made a
+        # long cell value widen the card.
+        self.assertIn('minmax(0,9rem)', body.replace(' ', ''))
+        self.assertIn('minmax(0,1fr)', body.replace(' ', ''))
+        self.assertNotIn('grid-template-columns:9rem1fr', body.replace(' ', ''))
 
 
 class BaseTemplateTest(unittest.TestCase):
@@ -516,10 +597,14 @@ class PartialTest(unittest.TestCase):
         self.assertIn('{% macro pc_confirm_dialog(', body)
 
     def test_appbar_and_tabbar_mark_the_active_destination(self):
-        for name in ('appbar.html', 'tabbar.html'):
+        # The aria-current marker is emitted by the shared pc_nav_link macro
+        # (templates/_partials/macros.html); the nav partials call it.
+        macro = read(PARTIAL_DIR / 'macros.html')
+        self.assertIn('aria-current="page"', macro)
+        for name in ('appbar.html', 'tabbar.html', 'sidebar.html'):
             body = read(PARTIAL_DIR / name)
             with self.subTest(partial=name):
-                self.assertIn('aria-current="page"', body)
+                self.assertIn('pc_nav_link(', body)
 
     def test_icons_are_an_inline_svg_sprite(self):
         body = read(PARTIAL_DIR / 'icons.html')
@@ -539,7 +624,7 @@ class ConvertedPageTest(unittest.TestCase):
             'id="new-admin-username"', 'class="refresh-info"',
             'Status updates automatically every 10 seconds',
             'id="device-selector"', 'switchDevice',
-            'pc-summary', 'pc-table--stack', 'data-label="Username"',
+            'pc-summary', 'pc-account', 'pc-pill--online',
             'Parental Controls', 'Logged in as',
         ),
         'login.html': (

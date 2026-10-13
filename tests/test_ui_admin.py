@@ -246,6 +246,9 @@ class AdminConsoleRenderTest(_AdminSessionMixin, _AuditEnvMixin,
         self.assertIn('badge-protected', row)
         self.assertIn('Protected', row)
         self.assertIn('pc-chip', row)
+        # The chip must carry `pc-chip--ok` so the overflow guard on
+        # `.pc-chip` applies to this long label (mobile scroll regression).
+        self.assertIn('pc-chip--ok', row)
 
     def test_admin_add_form_is_a_wheel_only_disclosure(self):
         html = self.page()
@@ -309,6 +312,66 @@ class AdminConsoleSourceTest(unittest.TestCase):
 
     def test_audit_header_keeps_the_pinned_literal(self):
         self.assertIn('<th>Time (local)</th>', self.src)
+
+
+class AdminConsoleDesignTest(_AdminSessionMixin, _AuditEnvMixin,
+                             unittest.TestCase):
+    """design-exports/SPEC.md Screen 5 additions on the admin console."""
+
+    def page(self, query=''):
+        resp = self.client.get('/admin/audit' + query)
+        self.assertEqual(200, resp.status_code)
+        return resp.get_data(as_text=True)
+
+    def test_export_button_and_toast_specimen(self):
+        html = self.page()
+        self.assertIn('id="export-audit"', html)
+        self.assertIn('Export audit log', html)
+        self.assertIn('Audit exported', html)
+        self.assertIn('exportAudit', read(TEMPLATE))
+
+    def test_integrity_column_and_verified_chips(self):
+        audit.log(self.ADMIN_USER, 'account.lock', KID)
+        audit.log(self.ADMIN_USER, 'account.unlock', KID)
+        html = self.page()
+        self.assertIn('data-label="Integrity"', html)
+        self.assertIn('id="integrity-summary"', html)
+        self.assertIn('2 of 2 entries verified', html)
+        self.assertIn('#pc-i-badge-check', html)
+        self.assertIn('>Verified<', html)
+
+    def test_filters_present(self):
+        html = self.page()
+        self.assertIn('id="audit-filters"', html)
+        for fid in ('filter-actor', 'filter-action', 'filter-range'):
+            with self.subTest(id=fid):
+                self.assertIn('id="%s"' % fid, html)
+        self.assertIn('Last 7 days', html)
+        self.assertIn('Last 30 days', html)
+        self.assertIn('applyAuditFilters', read(TEMPLATE))
+
+    def test_admin_accounts_copy_and_add_button(self):
+        html = self.page()
+        self.assertIn('Access to this machine', html)
+        self.assertIn('Add app-only admin', html)
+        self.assertIn('#pc-i-user-plus', html)
+        self.assertIn('openAddAdmin', read(TEMPLATE))
+
+    def test_remove_confirmation_requires_typed_remove(self):
+        src = read(TEMPLATE)
+        self.assertIn('Remove app-only admin?', src)
+        self.assertIn("requireText: 'REMOVE'", src)
+
+    def test_specimen_cards(self):
+        # Design fixtures: dev-only preview, never production content.
+        normal = self.page()
+        self.assertNotIn('id="admin-specimens"', normal)
+        self.assertNotIn('Theme specimen', normal)
+        html = self.page('?preview=1')
+        self.assertIn('id="admin-specimens"', html)
+        self.assertIn('Irreversible actions', html)
+        self.assertIn('Theme specimen', html)
+        self.assertIn('Component callouts', html)
 
 
 if __name__ == '__main__':

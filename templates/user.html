@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_partials/flash.html' import pc_empty, pc_skeleton %}
 
 {% block title %}Parental Controls — {{ username }} Details{% endblock %}
 
@@ -35,7 +36,7 @@
    The selects keep `name` as the first attribute (parsed by the test suite). #}
 {% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
 <span class="pc-time">
-<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour">
+<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour, 12-hour format">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
 </select>
@@ -44,7 +45,7 @@
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 {% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
 </select>
-<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM">
+<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM, 12-hour format">
 {% if not part %}<option value="" selected disabled>--</option>{% endif %}
 <option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
 <option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
@@ -67,10 +68,21 @@
 {% set bedtime = user.bedtime %}
 {% set status_cls = 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' %}
 
+<!-- Time rules header (design Screen 2): eyebrow + child tabs + H1 -->
+<p class="pc-eyebrow">Time rules</p>
+<h1 class="pc-page-title" id="pc-user-title">{{ username }} time rules</h1>
+{% if children and children|length > 1 %}
+<nav class="pc-tabs" aria-label="Child">
+    {% for c in children %}
+    <a class="pc-tabbtn" href="/user/{{ c }}"{% if c == username %} aria-current="page"{% endif %}>{{ c }}</a>
+    {% endfor %}
+</nav>
+{% endif %}
+
 <!-- Account hero: who + live status + the one obvious safe action -->
 <section class="pc-card pc-card--hero" aria-labelledby="pc-user-title">
     <div class="pc-card__header">
-        <h1 class="pc-page-title" id="pc-user-title">User: {{ username }}</h1>
+        <h2 class="pc-card__title">Account status</h2>
         <span id="account-status" class="status-{{ status_cls }}{{ ' pc-status pc-status--' ~ status_cls }}">
             <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-{{ 'lock' if status_cls == 'locked' else 'unlock' if status_cls == 'unlocked' else 'alert' }}"/></svg>
             <span id="account-status-text">{{ user.status_detail }}</span>
@@ -90,6 +102,19 @@
     </div>
 </section>
 
+{# Manual override active (design Screen 2): primary-tinted card + Revoke.
+   Revoking re-locks at bedtime now, which clears the override flag. #}
+{% if user.in_bedtime and bedtime.manual_override %}
+<section class="pc-card pc-card--hero" id="override-card" aria-labelledby="override-heading">
+    <div class="pc-card__header">
+        <h2 class="pc-card__title" id="override-heading">Manual override active</h2>
+        <span class="pc-chip pc-chip--override">Active</span>
+    </div>
+    <p class="pc-meta">Bedtime is being bypassed until this window ends{% if bedtime.end %} ({{ bedtime.end|twelve }}){% endif %}.</p>
+    <button type="button" class="pc-btn pc-btn--primary pc-btn--block btn-revoke-override" onclick="revokeOverride('{{ username }}')">Revoke override</button>
+</section>
+{% endif %}
+
 <!-- Bedtime -->
 <details class="pc-disclosure" id="bedtime-section" open>
     <summary>
@@ -97,6 +122,23 @@
         <span class="pc-disclosure__summary-value">{% if bedtime and bedtime.start %}{{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}{% else %}No schedule set{% endif %}</span>
     </summary>
     <div class="pc-disclosure__body">
+    {# Enable switch + warning lead-time (design Screen 2). The switch is a
+       client-side affordance over the existing form; the warning lead-time is
+       fixed at 15 minutes server-side, so it renders as a labelled disabled
+       select rather than inventing a persisted setting. #}
+    <div class="pc-card__header">
+        <span class="pc-field__label">Enable bedtime schedule</span>
+        <label class="pc-switch"><input type="checkbox" id="bedtime-enabled" {% if bedtime and bedtime.start %}checked{% endif %} onchange="toggleBedtimeEnabled(this)"><span class="pc-visually-hidden">Enable bedtime schedule</span></label>
+    </div>
+    <div class="pc-field">
+        <label class="pc-field__label" for="bedtime-warning">Warning lead-time</label>
+        <select id="bedtime-warning" class="pc-input" disabled title="Fixed at 15 minutes in this version">
+            <option value="5">5 minutes before</option>
+            <option value="15" selected>15 minutes before</option>
+            <option value="30">30 minutes before</option>
+        </select>
+        <span class="pc-field__hint">Warning lead-time is fixed at 15 minutes in this version (not persisted yet).</span>
+    </div>
     {% if bedtime and bedtime.start %}
     <p class="pc-meta">Bedtime: {{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}</p>
     <p class="pc-meta">Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
@@ -111,6 +153,7 @@
             <span class="pc-field__label">End time:</span>
             {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
         </div>
+        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
         <div class="pc-field">
             {# Label + checkbox share one row (they used to sit on separate
                lines); the checkbox's id/name/behaviour are unchanged. #}
@@ -120,21 +163,21 @@
             </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Custom days:</span>
+        <fieldset class="pc-field pc-fieldset">
+            <legend class="pc-field__label">Custom days:</legend>
             <span class="pc-row">
-            <label class="pc-hint"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} class="day-checkbox"> Mon</label>
-            <label class="pc-hint"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} class="day-checkbox"> Tue</label>
-            <label class="pc-hint"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} class="day-checkbox"> Wed</label>
-            <label class="pc-hint"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} class="day-checkbox"> Thu</label>
-            <label class="pc-hint"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} class="day-checkbox"> Fri</label>
-            <label class="pc-hint"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sat</label>
-            <label class="pc-hint"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} class="day-checkbox"> Sun</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 0 in bedtime.days else 'false' }}" class="day-checkbox"> Mon</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 1 in bedtime.days else 'false' }}" class="day-checkbox"> Tue</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 2 in bedtime.days else 'false' }}" class="day-checkbox"> Wed</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 3 in bedtime.days else 'false' }}" class="day-checkbox"> Thu</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 4 in bedtime.days else 'false' }}" class="day-checkbox"> Fri</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 5 in bedtime.days else 'false' }}" class="day-checkbox"> Sat</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 6 in bedtime.days else 'false' }}" class="day-checkbox"> Sun</label>
             </span>
-        </div>
+        </fieldset>
         <div class="pc-card__footer">
-            <button type="button" name="save" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveBedtime('{{ username }}')">Save</button>
-            <button type="button" class="btn-bedtime-clear{{ ' pc-btn pc-btn--danger' }}" onclick="clearBedtime('{{ username }}')">Clear</button>
+            <button type="button" name="save" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
+            <button type="button" class="btn-bedtime-clear{{ ' pc-btn pc-btn--danger pc-btn--block' }}" onclick="clearBedtime('{{ username }}')">Clear schedule</button>
         </div>
     </form>
     {% else %}
@@ -149,6 +192,7 @@
             <span class="pc-field__label">End time:</span>
             {{ time_select('end', 'End', None) }}
         </div>
+        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
         <div class="pc-field">
             {# Label + checkbox share one row (they used to sit on separate
                lines); the checkbox's id/name/behaviour are unchanged. #}
@@ -158,20 +202,20 @@
             </span>
             <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
         </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Custom days:</span>
+        <fieldset class="pc-field pc-fieldset">
+            <legend class="pc-field__label">Custom days:</legend>
             <span class="pc-row">
-            <label class="pc-hint"><input type="checkbox" name="day_0" class="day-checkbox"> Mon</label>
-            <label class="pc-hint"><input type="checkbox" name="day_1" class="day-checkbox"> Tue</label>
-            <label class="pc-hint"><input type="checkbox" name="day_2" class="day-checkbox"> Wed</label>
-            <label class="pc-hint"><input type="checkbox" name="day_3" class="day-checkbox"> Thu</label>
-            <label class="pc-hint"><input type="checkbox" name="day_4" class="day-checkbox"> Fri</label>
-            <label class="pc-hint"><input type="checkbox" name="day_5" class="day-checkbox"> Sat</label>
-            <label class="pc-hint"><input type="checkbox" name="day_6" class="day-checkbox"> Sun</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_0" aria-pressed="false" class="day-checkbox"> Mon</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_1" aria-pressed="false" class="day-checkbox"> Tue</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_2" aria-pressed="false" class="day-checkbox"> Wed</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_3" aria-pressed="false" class="day-checkbox"> Thu</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_4" aria-pressed="false" class="day-checkbox"> Fri</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_5" aria-pressed="false" class="day-checkbox"> Sat</label>
+            <label class="pc-daybtn"><input type="checkbox" name="day_6" aria-pressed="false" class="day-checkbox"> Sun</label>
             </span>
-        </div>
+        </fieldset>
         <div class="pc-card__footer">
-            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveBedtime('{{ username }}')">Save</button>
+            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
         </div>
     </form>
     {% endif %}
@@ -194,6 +238,7 @@
             No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
             {% endif %}
         </p>
+        <p class="pc-hint">One-tap choices</p>
         <div class="pc-row">
             <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 15)">+15m</button>
             <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 30)">+30m</button>
@@ -212,6 +257,14 @@
         </div>
     </div>
 </details>
+
+{# Live countdown (design Screen 2) — muted card with a big mono readout. #}
+<section class="pc-card pc-card--muted" id="countdown-card" aria-labelledby="countdown-heading">
+    <h2 class="pc-card__title" id="countdown-heading">Live countdown</h2>
+    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="polite">{{ countdown_text }}</p>
+    <p class="pc-meta" id="countdown-note">{% if user.bonus and user.bonus.active %}Bonus time remaining{% else %}Until the next bedtime window{% endif %}{% if user.in_bedtime %} · Desktop warning sent{% endif %}</p>
+    <p class="pc-hint">The countdown respects reduced-motion preferences.</p>
+</section>
 
 <!-- Time budgets -->
 <details class="pc-disclosure" id="budgets-section" open>
@@ -515,6 +568,46 @@
         </div>
     </details>
 </section>
+{% endif %}
+
+{# State specimen + implementation annotation (Flowstep Screen 2 notes) are
+   design fixtures, not product content. They render only behind the dev-only
+   preview (`?preview=1`); the real page renders one mutually exclusive
+   loading/empty/error/offline state per region. #}
+{% if show_fixtures %}
+<details class="pc-disclosure" id="time-rules-states">
+    <summary>States</summary>
+    <div class="pc-disclosure__body">
+        <div class="pc-grid pc-grid--2">
+            <div class="pc-card">
+                <h3 class="pc-card__title">Loading</h3>
+                {{ pc_skeleton(3) }}
+            </div>
+            <div class="pc-card pc-card--error">
+                <h3 class="pc-card__title">Error</h3>
+                <p>Could not save schedule</p>
+                <button type="button" class="pc-btn pc-btn--ghost" disabled>Retry</button>
+            </div>
+            <div class="pc-card">
+                {{ pc_empty('No bedtime schedule', 'Add schedule') }}
+            </div>
+            <div class="pc-card pc-card--muted">
+                <h3 class="pc-card__title">Disabled</h3>
+                <p>Machine offline, controls unavailable.</p>
+            </div>
+        </div>
+        <p class="pc-hint">Keyboard order follows the visual order. Screen-reader labels are provided on time inputs.</p>
+        <aside class="pc-annotation" id="time-rules-implementation" aria-labelledby="time-rules-implementation-title">
+            <h3 class="pc-annotation__title" id="time-rules-implementation-title">
+                <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-code"/></svg>
+                Implementation
+            </h3>
+            <p>Flask + Jinja server-rendered, vanilla JavaScript only, with Bootstrap 5 vendored locally under <code>static/vendor/bootstrap/</code>. Product tokens/theme load from <code>static/css/app.css</code> after Bootstrap (the mockup's <code>static/css/tokens.css</code>).</p>
+            <p>Save, grant, revoke and clear POST form-encoded data to the existing Flask endpoints; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
+            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, <code>aria-live</code> countdown and status, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
+        </aside>
+    </div>
+</details>
 {% endif %}
 
 <p class="refresh-info">Status updates automatically every 10 seconds</p>
@@ -1417,9 +1510,17 @@
         }
     }
 
-    // Deliberate parent actions, instantly reversible — no confirm
-    // (same convention as one-click bonus grants and Hide/Show).
+    // Freeze/Unfreeze are access-changing, so they go through the ONE shared
+    // confirmation dialog (like lock/unlock/clear-schedule). Apps are paused,
+    // never terminated.
     async function freezeCategory(username, category) {
+        const label = CATEGORY_LABELS[category] || category;
+        const ok = await pcConfirm({
+            title: 'Freeze category?',
+            body: 'Pause ' + label + ' now? Apps are paused, never terminated.',
+            confirmLabel: 'Freeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const resp = await fetch('/api/budgets/freeze', {
                 method: 'POST',
@@ -1428,7 +1529,7 @@
             });
             const data = await resp.json();
             if (data.success) {
-                showToast('Frozen ' + category, false);
+                showToast('Frozen ' + label, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.error || 'unknown'), true);
@@ -1439,6 +1540,13 @@
     }
 
     async function unfreezeCategory(username, category) {
+        const label = CATEGORY_LABELS[category] || category;
+        const ok = await pcConfirm({
+            title: 'Unfreeze category?',
+            body: 'Resume ' + label + ' now?',
+            confirmLabel: 'Unfreeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const resp = await fetch('/api/budgets/unfreeze', {
                 method: 'POST',
@@ -1447,7 +1555,7 @@
             });
             const data = await resp.json();
             if (data.success) {
-                showToast('Resumed ' + category, false);
+                showToast('Resumed ' + label, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.error || 'unknown'), true);
@@ -1823,5 +1931,40 @@
     // server markup without waiting for the first poll.
     refreshUserLive();
     setInterval(pollTick, 10000);
+</script>
+
+<script>
+    /* Design-translation affordances (Screen 2): the bedtime enable switch and
+       the override Revoke action. Both stay over the existing endpoints. */
+    function toggleBedtimeEnabled(el) {
+        var on = el.checked;
+        document.querySelectorAll('#bedtime-section input, #bedtime-section select, #bedtime-section button.btn-bedtime-save')
+            .forEach(function (c) { c.disabled = !on; });
+    }
+    async function revokeOverride(username) {
+        const ok = await window.pcConfirm({
+            title: 'Revoke override?',
+            body: 'Re-lock "' + username + '" at bedtime now?',
+            confirmLabel: 'Revoke override',
+            danger: true,
+        });
+        if (!ok) { return; }
+        try {
+            const resp = await fetch('/api/lock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
+                body: 'username=' + encodeURIComponent(username),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                if (window.pcToast) { window.pcToast('Override revoked for ' + username, 'success'); }
+                refreshUserLive();
+            } else if (window.pcToast) {
+                window.pcToast('Error: ' + (data.message || data.error), 'error');
+            }
+        } catch (e) {
+            if (window.pcToast) { window.pcToast('Error: ' + e.message, 'error'); }
+        }
+    }
 </script>
 {% endblock %}

@@ -136,7 +136,7 @@ class AppCssThemeTest(unittest.TestCase):
         self.assertIn('color-scheme: dark', self.css)
         self.assertIn('color-scheme: light', self.css)
         # The light override actually changes the page/surface tokens.
-        self.assertIn('--bg: #f4f5f8', self.css)
+        self.assertIn('--bg: #ffffff', self.css)
         self.assertIn('--surface: #ffffff', self.css)
 
     def test_focus_visible_ring_is_defined_globally(self):
@@ -270,6 +270,32 @@ class ContrastTokenTest(unittest.TestCase):
                         ratio, 4.5,
                         '%s on --surface fails AA in %s (%.2f)'
                         % (token, theme, ratio))
+
+    def test_primary_fill_gives_white_text_aa_in_both_themes(self):
+        # The primary buttons (.pc-btn--primary, .btn-unlock, .btn-bonus,
+        # .btn-bedtime-save, the sidebar logo tile, the checked day button) all
+        # carry white text on the primary blue. The canvas blue #2563eb is
+        # 5.17:1 under white (>= the 4.5:1 AA minimum); the hover fill must
+        # pass too.
+        for theme, tokens in (('dark', self.dark), ('light', self.light)):
+            for bg in ('--primary-bg', '--primary-hover'):
+                with self.subTest(theme=theme, bg=bg):
+                    ratio = self._check(tokens, '--primary-fg', bg)
+                    self.assertGreaterEqual(
+                        ratio, 4.5,
+                        'white text on %s fails AA in %s (%.2f)'
+                        % (bg, theme, ratio))
+
+    def test_primary_fill_keeps_the_blue_family_in_both_themes(self):
+        # Owner decision: the app follows the re-themed canvas — the blue
+        # family (Flowstep `blueDark` dark / `blue` light), replacing the old
+        # amber. Both themes use the same canvas blue #2563eb for the fill.
+        for theme, tokens in (('dark', self.dark), ('light', self.light)):
+            with self.subTest(theme=theme):
+                self.assertEqual(
+                    _resolve(tokens, '--primary-bg').lower(), '#2563eb',
+                    'the primary fill must stay the canvas blue in %s'
+                    % theme)
 
     def test_muted_text_passes_on_the_second_surface_too(self):
         # zebra rows / nested panels use --surface-2.
@@ -417,12 +443,18 @@ class RenderedA11yTest(_RenderBase, unittest.TestCase):
         for field in ('current', 'new', 'confirm'):
             self.assertIn('id="%s"' % field, html)
 
-    def test_home_render_keeps_thead_and_scope_in_the_stack(self):
+    def test_home_render_uses_the_shared_shell_with_account_cards(self):
         html = self._render_home()
         self._assert_common_scaffolding(html)
-        self.assertIn('pc-table--stack', html)
-        self.assertIn('<thead>', html)
-        self.assertIn('scope="col"', html)
+        # Overview now shares the other five sections' shell: the desktop
+        # sidebar + app bar, and the phone tab bar below the breakpoint.
+        # Accounts still render as cards (no stacked table).
+        self.assertNotIn('pc-layout--phone', html)
+        self.assertNotIn('pc-phoneheader', html)
+        self.assertIn('class="pc-sidebar"', html)
+        self.assertIn('class="pc-appbar"', html)
+        self.assertIn('id="accounts"', html)
+        self.assertNotIn('pc-table--stack', html)
 
 
 if __name__ == '__main__':

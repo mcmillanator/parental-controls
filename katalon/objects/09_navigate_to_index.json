@@ -15,7 +15,7 @@
       "type": "verifyText",
       "selector": "h1",
       "parentSelectors": [],
-      "value": "Parental Controls"
+      "value": "Overview"
     },
     {
       "type": "verifyElementVisible",
