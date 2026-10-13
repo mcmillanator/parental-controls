@@ -241,9 +241,14 @@ class ShellSourceTest(unittest.TestCase):
                     '.pc-catcard__dl', '.pc-annotation'):
             with self.subTest(sel=sel):
                 self.assertIn(sel, self.css)
-        # explicit Online/Unlocked mockup colours
-        self.assertIn('#d7ebd7', self.css)
-        self.assertIn('#003a05', self.css)
+        # the Online/Unlocked pill is now driven by the blue theme's success
+        # tokens (the old explicit cream-palette hexes #d7ebd7/#003a05 are gone)
+        self.assertRegex(
+            self.css,
+            r'\.pc-pill--online\s*\{[^}]*background:\s*var\(--ok-bg\)[^}]*color:\s*var\(--ok-fg\)')
+        # ...and the palette's primary is the canvas blue, not the old amber
+        self.assertIn('#2563eb', self.css)
+        self.assertNotIn('#a5650f', self.css)
 
     def test_sidebar_has_brand_machine_and_nav(self):
         self.assertIn('pc-sidebar__brand', self.sidebar)

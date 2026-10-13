@@ -229,11 +229,12 @@ class AppCssTest(unittest.TestCase):
         # dark is the bare :root default; light only overrides tokens.
         self.assertIn("prefers-color-scheme: light", self.css)
         self.assertIn("[data-theme='light']", self.css)
-        self.assertIn('--bg: #faf7f0', self.css)
+        self.assertIn('--bg: #ffffff', self.css)
         self.assertIn('--surface: #ffffff', self.css)
-        # the two chips that fail AA on white are re-tuned for the light theme
-        self.assertIn('--info-bg: #f9efdc', self.css)
-        self.assertIn('--warn-bg: #8a5a12', self.css)
+        # the light blue theme's info banner tint and warning chip (both were
+        # amber in the previous cream palette)
+        self.assertIn('--info-bg: #dbeafe', self.css)
+        self.assertIn('--warn-bg: #fef3c7', self.css)
 
     def test_auth_shell_hides_the_chrome_from_the_stylesheet(self):
         self.assertIn('.pc-body--auth', self.css)

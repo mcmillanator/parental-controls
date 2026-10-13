@@ -20,95 +20,98 @@
 /* ------------------------------------------------------------------ tokens */
 :root {
   /* Tier 1 — core palette. Only a theme swaps these values.
-     Re-sampled from the Flowstep canvas (fileId 216e5d0f-…, screens S1–S6):
-     the design is a WARM CREAM/IVORY + AMBER theme. The tier-1 *names* are the
-     stable contract (tests/test_ui_assets.py CORE_TOKENS), so the warm family
-     is mapped onto the original names instead of renaming them — e.g.
-     --pc-green-500 now holds the canvas amber (used decoratively, e.g. the
-     online dot); the text-bearing primary role uses the AA-safe amber below. */
-  --pc-ink-900: #1f1c17;   /* near-black warm ink (foreground on amber) */
-  --pc-ink-800: #2a251c;
-  --pc-ink-700: #241f18;   /* dark page background */
-  --pc-ink-600: #322c22;
-  --pc-ink-500: #3d3628;
-  --pc-ink-400: #4a4132;
-  --pc-navy-700: #57492f;  /* deep warm brown (name kept) */
-  --pc-navy-800: #3a3226;
-  --pc-green-500: #c47f17; /* canvas amber — decorative (primary role: AA-safe amber) */
-  --pc-green-600: #a5650f;
-  --pc-red-500: #d92d20;
-  --pc-red-700: #7a1f16;
-  --pc-amber-400: #c47f17;
-  --pc-amber-700: #8a5a12;
-  --pc-violet-500: #6a4c93;
-  --pc-orange-500: #e08a2b;
-  --pc-blue-500: #4a7d8c;  /* muted sage-blue (canvas "Protected" family) */
-  --pc-slate-100: #f4efe4; /* light warm surface (was a cool grey) */
-  --pc-slate-400: #c4b8a2;
-  --pc-slate-500: #b3a68d;
-  --pc-slate-600: #6a6255;
+     Re-sampled from the Flowstep canvas (fileId 216e5d0f-…, screens S1–S6),
+     which the owner re-themed to Flowstep's built-in BLUE family:
+       * dark  = `blueDark` — the colorTheme on all six canvas screens;
+       * light = `blue`     — its paired light counterpart (read non-destructively
+                              from a temporary probe file, never the owner's file).
+     The palette is NEUTRAL dark/light surfaces + a BLUE primary/accent + a red
+     destructive; the old warm cream/amber page colour is gone. The tier-1
+     *names* are the stable contract (tests/test_ui_assets.py CORE_TOKENS), so
+     the blue family is mapped onto the original names instead of renaming them
+     — e.g. --pc-green-500 now holds the canvas online-dot blue (the canvas
+     "Local / Online" dot is bg-primary); --pc-navy-* hold the deep blue. */
+  --pc-ink-900: #09090b;   /* near-black ink (page ink / primary text) */
+  --pc-ink-800: #121214;
+  --pc-ink-700: #0a0a0b;   /* dark page background (canvas bg-background) */
+  --pc-ink-600: #18181b;   /* card surface (canvas bg-card) */
+  --pc-ink-500: #1e1e22;
+  --pc-ink-400: #2a2a2f;   /* hairline border */
+  --pc-navy-700: #1e3a8a;  /* deep blue (name kept) */
+  --pc-navy-800: #172554;
+  --pc-green-500: #3b82f6; /* canvas online-dot blue — decorative */
+  --pc-green-600: #2563eb;
+  --pc-red-500: #dc2626;
+  --pc-red-700: #b91c1c;
+  --pc-amber-400: #f59e0b; /* warm warning swatch retained (canvas has none) */
+  --pc-amber-700: #b45309;
+  --pc-violet-500: #8b5cf6;
+  --pc-orange-500: #f97316;
+  --pc-blue-500: #3b82f6;  /* canvas primary / "Protected" blue family */
+  --pc-slate-100: #fafafa; /* light neutral text */
+  --pc-slate-400: #a1a1aa;
+  --pc-slate-500: #94949c;
+  --pc-slate-600: #71717a;
   --pc-white: #ffffff;
   --pc-black: #000000;
 
-  /* Tier 2 — semantic tokens (dark is the default). Components never reach
-     for a Tier 1 name; only these. The canvas only specifies the light
-     (cream) theme; this dark theme is its warm counterpart. */
+  /* Tier 2 — semantic tokens (dark is the default = Flowstep `blueDark`).
+     Components never reach for a Tier 1 name; only these. Surfaces are the
+     neutral dark scale (page #0a0a0b, cards #18181b, muted #26262a) with a
+     blue primary/accent, matching the canvas. */
   --bg: var(--pc-ink-700);
-  --surface: var(--pc-ink-800);
-  --surface-2: #383126;
-  --surface-3: #423a2d;
-  --surface-raised: var(--pc-ink-600);
+  --surface: var(--pc-ink-600);
+  --surface-2: #1e1e22;
+  --surface-3: #26262a;
+  --surface-raised: #1c1c20;
   --border: var(--pc-ink-400);
-  --border-strong: #5c5140;
+  --border-strong: #3f3f46;
   --text: var(--pc-slate-100);
   --text-muted: var(--pc-slate-400);
   --text-faint: var(--pc-slate-500);
-  --link: #e0a94a;
-  --focus-ring: #e0a94a;
+  --link: #60a5fa;
+  --focus-ring: #60a5fa;
 
-  /* Warm-palette roles introduced by the canvas translation: the amber
-     primary action pair, the sage "accent" (active-nav / Protected) pair and
-     the sidebar surface (the canvas sidebar is a different tone to the page). */
-  /* AA-safe amber: the canvas #c47f17 is 3.28:1 under white text (below the
-     4.5:1 AA minimum), so the text-bearing primary roles use the deepened
-     amber #a5650f (4.70:1 with white). The canvas-exact #c47f17 stays on the
-     decorative tier-1 swatches (--pc-green-500 / --pc-amber-400). */
-  --primary-bg: #a5650f;
+  /* Blue roles introduced by the canvas translation: the primary/accent pair
+     (both are the canvas bg-primary/bg-accent, #2563eb, carrying white text)
+     and the sidebar surface (the canvas sidebar sits between the page and the
+     cards). */
+  --primary-bg: #2563eb;   /* canvas bg-primary; white text 5.17:1 (AA) */
   --primary-fg: #ffffff;
-  --primary-hover: #96590d; /* deepened further so the hover fill also passes AA */
-  --accent-bg: #3d4a45;
-  --accent-fg: #eaf3f0;
-  --sidebar-bg: #2a2419;
+  --primary-hover: #1d4ed8; /* blue-700; white text 6.70:1 (AA) */
+  --accent-bg: #2563eb;    /* canvas bg-accent = the same blue (active nav) */
+  --accent-fg: #ffffff;
+  --sidebar-bg: #141416;
 
   /* status foregrounds chosen to pass WCAG AA on their chip background
      (fixes the four failures audited in UI_UX_PLAN.md §2.8). */
-  --ok-fg: #eafaf1;
-  --ok-bg: #2c6e4f;
+  --ok-fg: #bbf7d0;
+  --ok-bg: #14532d;
   --danger-fg: #ffffff;
-  --danger-bg: #d92d20;
-  --danger-soft-fg: #ffb3ac;
-  --danger-soft-bg: #4a201c;
-  --warn-fg: #ffffff;
-  --warn-bg: #8a5a12;
-  --info-fg: #f6dfae;
-  --info-bg: #4a3a1c;
+  --danger-bg: #dc2626;
+  --danger-soft-fg: #fecaca;
+  --danger-soft-bg: #3b1518;
+  --warn-fg: #fde68a;
+  --warn-bg: #78350f;
+  --info-fg: #bfdbfe;
+  --info-bg: #172554;
   --override-fg: #ffffff;
-  --override-bg: #a5650f;
-  --bedtime-fg: #e6def7;
-  --bedtime-bg: #4a3d63;
+  --override-bg: #2563eb;
+  --bedtime-fg: #ddd6fe;
+  --bedtime-bg: #3b2f63;
   --bonus-fg: #ffffff;
-  --bonus-bg: #a5650f;
-  --neutral-fg: #f4efe4;
-  --neutral-bg: #423a2d;
+  --bonus-bg: #2563eb;
+  --neutral-fg: #e4e4e7;
+  --neutral-bg: #26262a;
 
   /* Status *text* foregrounds (WCAG 1.4.3 >=4.5:1 on the page/card surface,
      not on the chip fill). The legacy `.status-*` colour classes, inline
      form errors and the danger dialog header all use these instead of the
      fill colours, which are only guaranteed legible *behind* text. */
-  --ok-text: #7fd8a6;
-  --warn-text: #e0a94a;
-  --danger-text: #ff8f84;
-  --info-text: #e0a94a;
+  --ok-text: #4ade80;
+  --warn-text: #fbbf24;
+  --danger-text: #f87171;
+  --info-text: #93c5fd;
 
   /* Duration-unit foreground token (h / m labels around a number input). */
   --unit-fg: var(--text-muted);
@@ -170,7 +173,7 @@
   --chip-bg: var(--neutral-bg);
   --chip-fg: var(--neutral-fg);
   --card-radius: var(--r-md);
-  --field-bg: #1f1c17;
+  --field-bg: #0f0f11;
   --field-border: var(--border);
   --appbar-bg: var(--surface);
   --tabbar-bg: var(--surface);
@@ -181,49 +184,50 @@
    (prefers-color-scheme: light), per the plan's Q1 recommendation. */
 [data-theme='light'],
 :root[data-theme='light'] {
-  /* Light = the canvas palette, sampled from the rendered PNGs of S1–S6:
-     cream page, white cards, tan hairlines, dark-brown ink, amber primary,
-     a muted sage accent and soft pale status pills. */
-  --bg: #faf7f0;           /* cream page background */
+  /* Light = Flowstep's built-in `blue` theme (the paired light counterpart of
+     `blueDark`; read non-destructively from a temporary probe file). White
+     page/cards, neutral greys, near-black ink and the same blue-600
+     primary/accent as the dark theme. */
+  --bg: #ffffff;           /* white page background */
   --surface: #ffffff;      /* white cards */
-  --surface-2: #f4efe4;    /* muted panels / table head / zebra */
-  --surface-3: #eae3d4;
+  --surface-2: #f4f4f5;    /* muted panels / table head / zebra */
+  --surface-3: #e4e4e7;
   --surface-raised: #ffffff;
-  --border: #e4dcc9;       /* tan hairline */
-  --border-strong: #cec2a8;
-  --text: #1f1c17;         /* dark-brown / near-black ink */
-  --text-muted: #6a6255;
-  --text-faint: #75695a;
-  --link: #8a5a12;
-  --focus-ring: #8a5a12;
-  --primary-bg: #a5650f;   /* AA-safe amber (white text 4.70:1) */
+  --border: #e4e4e7;       /* neutral hairline */
+  --border-strong: #d4d4d8;
+  --text: #09090b;         /* near-black ink */
+  --text-muted: #52525b;
+  --text-faint: #6b6b73;
+  --link: #1d4ed8;
+  --focus-ring: #2563eb;
+  --primary-bg: #2563eb;   /* white text 5.17:1 (AA) */
   --primary-fg: #ffffff;
-  --primary-hover: #96590d; /* deepened so hover also passes AA */
-  --accent-bg: #cfe0da;    /* muted sage active-nav / Protected pill */
-  --accent-fg: #1b4a44;
-  --sidebar-bg: #f4efe4;   /* cream/beige sidebar (canvas bg-sidebar) */
-  --ok-bg: #d7ebd7;        /* canvas Online / Unlocked pill (literal hex) */
-  --ok-fg: #003a05;
-  --danger-bg: #d92d20;
-  --danger-soft-bg: #fbe3e0; /* pale Locked pill / error banner */
-  --danger-soft-fg: #8f1d15;
-  --info-bg: #f9efdc;      /* canvas primary/10 banner tint */
-  --info-fg: #5a3d05;
-  --override-bg: #a5650f;
+  --primary-hover: #1d4ed8; /* white text 6.70:1 (AA) */
+  --accent-bg: #2563eb;    /* canvas active-nav blue */
+  --accent-fg: #ffffff;
+  --sidebar-bg: #f4f4f5;   /* light neutral sidebar (canvas bg-sidebar) */
+  --ok-bg: #dcfce7;
+  --ok-fg: #14532d;
+  --danger-bg: #dc2626;
+  --danger-soft-bg: #fee2e2; /* pale Locked pill / error banner */
+  --danger-soft-fg: #991b1b;
+  --info-bg: #dbeafe;      /* canvas primary/10 banner tint */
+  --info-fg: #1e40af;
+  --override-bg: #2563eb;
   --override-fg: #ffffff;
-  --warn-bg: #8a5a12;
-  --warn-fg: #ffffff;
-  --bedtime-bg: #e3ddf0;
-  --bedtime-fg: #3a2b56;
-  --bonus-bg: #a5650f;
+  --warn-bg: #fef3c7;
+  --warn-fg: #78350f;
+  --bedtime-bg: #ede9fe;
+  --bedtime-fg: #4c1d95;
+  --bonus-bg: #2563eb;
   --bonus-fg: #ffffff;
-  --neutral-bg: #ece5d8;
-  --neutral-fg: #3a3325;
+  --neutral-bg: #e4e4e7;
+  --neutral-fg: #27272a;
   /* Text-safe status foregrounds on a white/bright surface. */
-  --ok-text: #14602f;
-  --warn-text: #8a5a12;
-  --danger-text: #b3261e;
-  --info-text: #7a4f0a;
+  --ok-text: #15803d;
+  --warn-text: #b45309;
+  --danger-text: #b91c1c;
+  --info-text: #1d4ed8;
   --field-bg: #ffffff;
   --appbar-bg: #ffffff;
   --tabbar-bg: #ffffff;
@@ -234,46 +238,46 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    /* Light = the canvas palette (see the [data-theme='light'] block). */
-    --bg: #faf7f0;
+    /* Light = Flowstep's built-in `blue` theme (see [data-theme='light']). */
+    --bg: #ffffff;
     --surface: #ffffff;
-    --surface-2: #f4efe4;
-    --surface-3: #eae3d4;
+    --surface-2: #f4f4f5;
+    --surface-3: #e4e4e7;
     --surface-raised: #ffffff;
-    --border: #e4dcc9;
-    --border-strong: #cec2a8;
-    --text: #1f1c17;
-    --text-muted: #6a6255;
-    --text-faint: #75695a;
-    --link: #8a5a12;
-    --focus-ring: #8a5a12;
-    --primary-bg: #a5650f;   /* AA-safe amber (white text 4.70:1) */
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --text: #09090b;
+    --text-muted: #52525b;
+    --text-faint: #6b6b73;
+    --link: #1d4ed8;
+    --focus-ring: #2563eb;
+    --primary-bg: #2563eb;   /* white text 5.17:1 (AA) */
     --primary-fg: #ffffff;
-    --primary-hover: #96590d; /* deepened so hover also passes AA */
-    --accent-bg: #cfe0da;
-    --accent-fg: #1b4a44;
-    --sidebar-bg: #f4efe4;
-    --ok-bg: #d7ebd7;
-    --ok-fg: #003a05;
-    --danger-bg: #d92d20;
-    --danger-soft-bg: #fbe3e0;
-    --danger-soft-fg: #8f1d15;
-    --info-bg: #f9efdc;
-    --info-fg: #5a3d05;
-    --override-bg: #a5650f;
+    --primary-hover: #1d4ed8; /* white text 6.70:1 (AA) */
+    --accent-bg: #2563eb;
+    --accent-fg: #ffffff;
+    --sidebar-bg: #f4f4f5;
+    --ok-bg: #dcfce7;
+    --ok-fg: #14532d;
+    --danger-bg: #dc2626;
+    --danger-soft-bg: #fee2e2;
+    --danger-soft-fg: #991b1b;
+    --info-bg: #dbeafe;
+    --info-fg: #1e40af;
+    --override-bg: #2563eb;
     --override-fg: #ffffff;
-    --warn-bg: #8a5a12;
-    --warn-fg: #ffffff;
-    --bedtime-bg: #e3ddf0;
-    --bedtime-fg: #3a2b56;
-    --bonus-bg: #a5650f;
+    --warn-bg: #fef3c7;
+    --warn-fg: #78350f;
+    --bedtime-bg: #ede9fe;
+    --bedtime-fg: #4c1d95;
+    --bonus-bg: #2563eb;
     --bonus-fg: #ffffff;
-    --neutral-bg: #ece5d8;
-    --neutral-fg: #3a3325;
-    --ok-text: #14602f;
-    --warn-text: #8a5a12;
-    --danger-text: #b3261e;
-    --info-text: #7a4f0a;
+    --neutral-bg: #e4e4e7;
+    --neutral-fg: #27272a;
+    --ok-text: #15803d;
+    --warn-text: #b45309;
+    --danger-text: #b91c1c;
+    --info-text: #1d4ed8;
     --field-bg: #ffffff;
     --appbar-bg: #ffffff;
     --tabbar-bg: #ffffff;
@@ -1548,8 +1552,10 @@ body.pc-body--auth {
   color: var(--bonus-fg);
 }
 .badge-protected:not(.pc-chip) {
-  background: var(--bedtime-bg);
-  color: var(--bedtime-fg);
+  /* The canvas "Protected" (wheel admin) pill is a blue tint, not the violet
+     bedtime family; `.pc-pill--protected` agrees. */
+  background: var(--info-bg);
+  color: var(--info-fg);
 }
 .badge-paused:not(.pc-chip) {
   background: var(--danger-bg);
@@ -2142,11 +2148,11 @@ body.pc-reduced-motion *::after {
 /* =========================================================================
    REVISED-SPEC.md additions (design translation update).
 
-   * explicit pill colours for Online / Unlocked (#d7ebd7 on #003a05).
+   * status pills driven by the blue theme's success / protected tokens.
    * account cards, budget category cards and annotation blocks.
    ========================================================================= */
 
-/* --- Explicit status pills (mockup hexes) -------------------------------- */
+/* --- Status pills (blue-theme tokens) ------------------------------------ */
 .pc-pill {
   display: inline-flex;
   align-items: center;
@@ -2163,10 +2169,12 @@ body.pc-reduced-motion *::after {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* Online / Unlocked — explicit mockup colours. */
+/* Online / Unlocked — the canvas "Online"/"Unlocked" pill uses the muted
+   neutral fill; the app keeps its success token so status stays distinguishable
+   (green), re-toned for the blue theme. */
 .pc-pill--online {
-  background: #d7ebd7;
-  color: #003a05;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
 }
 /* Locked — the canvas pill is a *soft* pale red with dark red text (not the
    solid destructive fill, which stays for the destructive buttons). */
@@ -2178,9 +2186,12 @@ body.pc-reduced-motion *::after {
   background: var(--neutral-bg);
   color: var(--neutral-fg);
 }
+/* Protected (wheel admins) — the canvas "Protected" pill is a blue *tint* with
+   blue text, so it reads the info/primary-10 pair rather than the solid accent
+   used by the active nav. */
 .pc-pill--protected {
-  background: var(--accent-bg);
-  color: var(--accent-fg);
+  background: var(--info-bg);
+  color: var(--info-fg);
 }
 /* Audit "Verified" chip: primary/10 fill, primary/40 border, 11px. */
 .pc-pill--verified {

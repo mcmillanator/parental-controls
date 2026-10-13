@@ -136,7 +136,7 @@ class AppCssThemeTest(unittest.TestCase):
         self.assertIn('color-scheme: dark', self.css)
         self.assertIn('color-scheme: light', self.css)
         # The light override actually changes the page/surface tokens.
-        self.assertIn('--bg: #faf7f0', self.css)
+        self.assertIn('--bg: #ffffff', self.css)
         self.assertIn('--surface: #ffffff', self.css)
 
     def test_focus_visible_ring_is_defined_globally(self):
@@ -274,9 +274,9 @@ class ContrastTokenTest(unittest.TestCase):
     def test_primary_fill_gives_white_text_aa_in_both_themes(self):
         # The primary buttons (.pc-btn--primary, .btn-unlock, .btn-bonus,
         # .btn-bedtime-save, the sidebar logo tile, the checked day button) all
-        # carry white text on the primary amber. The canvas amber #c47f17 is
-        # only 3.28:1 under white (below the 4.5:1 AA minimum), so the fill was
-        # deepened to the AA-safe amber #a5650f; the hover fill must pass too.
+        # carry white text on the primary blue. The canvas blue #2563eb is
+        # 5.17:1 under white (>= the 4.5:1 AA minimum); the hover fill must
+        # pass too.
         for theme, tokens in (('dark', self.dark), ('light', self.light)):
             for bg in ('--primary-bg', '--primary-hover'):
                 with self.subTest(theme=theme, bg=bg):
@@ -286,14 +286,15 @@ class ContrastTokenTest(unittest.TestCase):
                         'white text on %s fails AA in %s (%.2f)'
                         % (bg, theme, ratio))
 
-    def test_primary_fill_keeps_the_amber_family_in_both_themes(self):
-        # Owner decision: keep amber (the canvas S6 near-black primary was
-        # rejected). Both themes use the same AA-safe amber for the fill.
+    def test_primary_fill_keeps_the_blue_family_in_both_themes(self):
+        # Owner decision: the app follows the re-themed canvas — the blue
+        # family (Flowstep `blueDark` dark / `blue` light), replacing the old
+        # amber. Both themes use the same canvas blue #2563eb for the fill.
         for theme, tokens in (('dark', self.dark), ('light', self.light)):
             with self.subTest(theme=theme):
                 self.assertEqual(
-                    _resolve(tokens, '--primary-bg').lower(), '#a5650f',
-                    'the primary fill must stay the AA-safe amber in %s'
+                    _resolve(tokens, '--primary-bg').lower(), '#2563eb',
+                    'the primary fill must stay the canvas blue in %s'
                     % theme)
 
     def test_muted_text_passes_on_the_second_surface_too(self):
