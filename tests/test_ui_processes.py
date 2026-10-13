@@ -188,6 +188,12 @@ class ProcessesSourceTest(unittest.TestCase):
         self.assertIn('pcOverrideDialog', self.src)
         self.assertNotIn('window.confirm(', self.src)
 
+    def test_freeze_uses_the_shared_dialog(self):
+        # Freeze/thaw go through the ONE shared confirmation dialog.
+        start = self.src.index('function freezeProc(')
+        body = self.src[start:self.src.index('\n    }', start)]
+        self.assertIn('window.pcConfirm(', body)
+
 
 if __name__ == '__main__':
     unittest.main()

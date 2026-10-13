@@ -1510,9 +1510,17 @@
         }
     }
 
-    // Deliberate parent actions, instantly reversible — no confirm
-    // (same convention as one-click bonus grants and Hide/Show).
+    // Freeze/Unfreeze are access-changing, so they go through the ONE shared
+    // confirmation dialog (like lock/unlock/clear-schedule). Apps are paused,
+    // never terminated.
     async function freezeCategory(username, category) {
+        const label = CATEGORY_LABELS[category] || category;
+        const ok = await pcConfirm({
+            title: 'Freeze category?',
+            body: 'Pause ' + label + ' now? Apps are paused, never terminated.',
+            confirmLabel: 'Freeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const resp = await fetch('/api/budgets/freeze', {
                 method: 'POST',
@@ -1521,7 +1529,7 @@
             });
             const data = await resp.json();
             if (data.success) {
-                showToast('Frozen ' + category, false);
+                showToast('Frozen ' + label, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.error || 'unknown'), true);
@@ -1532,6 +1540,13 @@
     }
 
     async function unfreezeCategory(username, category) {
+        const label = CATEGORY_LABELS[category] || category;
+        const ok = await pcConfirm({
+            title: 'Unfreeze category?',
+            body: 'Resume ' + label + ' now?',
+            confirmLabel: 'Unfreeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const resp = await fetch('/api/budgets/unfreeze', {
                 method: 'POST',
@@ -1540,7 +1555,7 @@
             });
             const data = await resp.json();
             if (data.success) {
-                showToast('Resumed ' + category, false);
+                showToast('Resumed ' + label, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.error || 'unknown'), true);

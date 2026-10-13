@@ -230,6 +230,7 @@
 <script>
     const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
     const PROC_USER = {{ username|tojson }};
+    const CATEGORY_LABELS = {{ category_labels|tojson }};
 
     function showToast(msg, isError) {
         if (window.pcToast) { window.pcToast(msg, isError ? 'error' : 'success'); }
@@ -282,9 +283,19 @@
     }
 
     async function freezeProc(cat, action) {
+        const label = CATEGORY_LABELS[cat] || cat;
+        const verb = action === 'unfreeze' ? 'Unfreeze' : 'Freeze';
+        const ok = await window.pcConfirm({
+            title: verb + ' category?',
+            body: (action === 'unfreeze'
+                ? 'Resume ' + label + ' now?'
+                : 'Pause ' + label + ' now? Apps are paused, never terminated.'),
+            confirmLabel: verb + ' ' + label,
+        });
+        if (!ok) { return; }
         try {
             const data = await post('/api/budgets/' + action, `username=${encodeURIComponent(PROC_USER)}&category=${encodeURIComponent(cat)}`);
-            if (data.success) { showToast('Category ' + cat + ' ' + action + 'd', false); window.location.reload(); }
+            if (data.success) { showToast(label + ' ' + (action === 'unfreeze' ? 'resumed' : 'frozen'), false); window.location.reload(); }
             else { showToast('Error: ' + (data.error || 'unknown'), true); }
         } catch (e) { showToast('Error: ' + e.message, true); }
     }

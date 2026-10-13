@@ -212,6 +212,15 @@ class BudgetsSourceTest(unittest.TestCase):
         self.assertIn('window.pcOverrideDialog(', self.src)
         self.assertNotIn('id="pc-override"', self.src)
 
+    def test_freeze_and_remove_use_the_shared_dialog(self):
+        # Freeze/thaw are access-changing, so they go through the ONE shared
+        # confirmation dialog, like Remove window.
+        for fn in ('freezeCategory', 'unfreezeCategory', 'removeWindow'):
+            start = self.src.index('function ' + fn + '(')
+            body = self.src[start:self.src.index('\n    }', start)]
+            with self.subTest(fn=fn):
+                self.assertIn('window.pcConfirm(', body)
+
 
 if __name__ == '__main__':
     unittest.main()

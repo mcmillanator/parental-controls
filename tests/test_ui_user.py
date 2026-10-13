@@ -180,6 +180,15 @@ class UserPageSourceTest(unittest.TestCase):
         self.assertNotIn('!confirm(', self.src)
         self.assertIn('pcConfirm(', self.src)
 
+    def test_freeze_uses_the_shared_dialog(self):
+        # Freeze/thaw are access-changing, so they go through the ONE shared
+        # confirmation dialog rather than posting straight away.
+        for fn in ('freezeCategory', 'unfreezeCategory'):
+            start = self.src.index('function ' + fn + '(')
+            body = self.src[start:self.src.index('\n    }', start)]
+            with self.subTest(fn=fn):
+                self.assertIn('pcConfirm(', body)
+
     def test_defines_the_content_and_scripts_blocks(self):
         self.assertIn('{% block content %}', self.src)
         self.assertIn('{% block scripts %}', self.src)

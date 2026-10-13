@@ -392,18 +392,34 @@
         } catch (e) { showToast('Error: ' + e.message, true); }
     }
 
+    // Freeze/Unfreeze are access-changing: they go through the ONE shared
+    // confirmation dialog (base.html) like every other deliberate action.
     async function freezeCategory(username, cat) {
+        const label = CATEGORY_LABELS[cat] || cat;
+        const ok = await window.pcConfirm({
+            title: 'Freeze category?',
+            body: 'Pause ' + label + ' now? Apps are paused, never terminated.',
+            confirmLabel: 'Freeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const data = await post('/api/budgets/freeze', `username=${encodeURIComponent(username)}&category=${encodeURIComponent(cat)}`);
-            if (data.success) { showToast('Froze ' + cat, false); window.location.reload(); }
+            if (data.success) { showToast('Froze ' + label, false); window.location.reload(); }
             else { showToast('Error: ' + (data.error || 'unknown'), true); }
         } catch (e) { showToast('Error: ' + e.message, true); }
     }
 
     async function unfreezeCategory(username, cat) {
+        const label = CATEGORY_LABELS[cat] || cat;
+        const ok = await window.pcConfirm({
+            title: 'Unfreeze category?',
+            body: 'Resume ' + label + ' now?',
+            confirmLabel: 'Unfreeze ' + label,
+        });
+        if (!ok) { return; }
         try {
             const data = await post('/api/budgets/unfreeze', `username=${encodeURIComponent(username)}&category=${encodeURIComponent(cat)}`);
-            if (data.success) { showToast('Unfroze ' + cat, false); window.location.reload(); }
+            if (data.success) { showToast('Unfroze ' + label, false); window.location.reload(); }
             else { showToast('Error: ' + (data.error || 'unknown'), true); }
         } catch (e) { showToast('Error: ' + e.message, true); }
     }
