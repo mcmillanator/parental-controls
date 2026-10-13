@@ -1022,3 +1022,61 @@ content is untouched.
   `tests/test_ui_home.py` / `tests/test_ui_assets.py` needed no change (they
   never pinned the phone header). Palette, AA-safe primary and shipped
   behaviour are unchanged.
+
+### 11.8 Design-intent translation (Flowstep annotation notes)
+
+The six Flowstep canvas screens are **product designs plus implementation
+specifications**, not static pages. The owner's agent added DESIGN-INTENT
+NOTES to every screen (file `216e5d0f-761c-40a9-ad76-bbd4bb8b8d0d`) and a
+distilled starter prompt. This pass implements that intent.
+
+- **One shared confirmation-dialog pattern.**
+  `templates/_partials/dialog.html` now exposes
+  `pc_confirm_dialog(dialog_id, title, body, confirm_label, cancel_label,
+  danger, require_text, checkbox_label, action, method, csrf_token,
+  hidden_fields)` — a native `<dialog>` wrapping a real
+  `<form method="post">` with a hidden CSRF field, a description, an optional
+  typed confirmation and an optional acknowledgement checkbox, a real submit
+  label and a danger state. The generic `#pc-confirm` dialog is itself rendered
+  by that macro, so every destructive action that opens it shares the markup.
+  `window.pcConfirm(opts)` gained an optional `checkbox` gate (the primary
+  action stays disabled until it is ticked) alongside the existing
+  `requireText` gate.
+- **Overview "Selected account: Sam" → the dialog.** The example card is no
+  longer inline page content; the lock action now opens the shared dialog with
+  the canvas' example content (`Confirm lock` / `Lock Sam now?` /
+  `Confirm lock action` / `Lock Sam`).
+- **Destructive / access-changing actions all use the dialog:** lock, unlock,
+  lock-screen, emergency logout (typed confirmation), freeze/thaw,
+  remove app-only admin (typed `REMOVE`), clear schedule, revoke override and
+  remove weekly window.
+- **Fixtures are dev-only.** Annotation cards, "State specimen",
+  "Theme specimen", "Component callouts", the implementation asides and the
+  worked dialog/override examples are documentation, so they render only
+  behind a dev-only preview: `?preview=1` on any page, or
+  `PARENTAL_DEV_PREVIEW=1` in the environment (`app.py::_fixture_preview`).
+  The pinned fixture ids (`#overview-specimens`, `#specimen-confirm`,
+  `#design-thesis`, `#empty-specimen`, `#admin-specimens`,
+  `#settings-annotations`, `#budgets-implementation`,
+  `#time-rules-states`, `#time-rules-implementation`, `#proc-states-heading`)
+  stay reachable at that flag, so no selector contract moved.
+- **App override is a modal, not a section.** The budgets category card's
+  "App override" control opens the ONE shared `#pc-override` dialog
+  (populated for the selected category) instead of linking to another page;
+  the specimen card moved behind the preview.
+- **Mutually exclusive states.** With the state specimens behind the preview,
+  each region renders exactly one server-selected state (normal / empty /
+  error) — the loading skeleton and offline copy are progressive-enhancement
+  affordances, not simultaneous content.
+
+**Test changes.** The guards that asserted a now-dev-only fixture render with
+`?preview=1` and additionally assert the fixture is absent from the normal
+page: `tests/test_ui_home.py` (`test_specimen_cards_are_dev_only`, the dialog
+assertions), `tests/test_ui_admin.py` (`test_specimen_cards`),
+`tests/test_ui_budgets.py` (hours/minutes, states, override specimen,
+implementation aside, the override trigger + freeze dialog),
+`tests/test_ui_settings.py` (`test_annotation_sections`),
+`tests/test_ui_user.py` (state specimen + implementation annotation),
+`tests/test_ui_processes.py` (state cards + freeze dialog). **Zero**
+`katalon/objects/*` changes: the fixture ids were never in the Katalon
+contract, only in the stdlib suite, and they still resolve behind `?preview=1`.
