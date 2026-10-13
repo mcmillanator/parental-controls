@@ -97,7 +97,10 @@
             <div class="pc-catcard__head">
                 <div>
                     <h3 class="pc-catcard__name">{{ category_labels[cat] }}</h3>
-                    <a class="pc-hint" href="/processes?user={{ username }}" title="Set a per-app override on the Processes screen">App override</a>
+                    {# App override is not a page section: this trigger opens the
+                       shared #pc-override dialog, populated for the selected
+                       category (Flowstep Screen 3 note). #}
+                    <button type="button" class="pc-hint btn-override" data-category="{{ cat }}" data-label="{{ category_labels[cat] }}" data-minutes="{{ limit_min }}" onclick="openCategoryOverride(this)">App override</button>
                 </div>
                 <span id="budget-status-{{ cat }}">
                     {% if b.frozen and b.paused and b.manual_frozen %}{{ pc_badge('danger', 'Paused at limit (manual)', 'badge-paused') }}
@@ -365,6 +368,28 @@
         }
         if (failed) { showToast('Some budgets could not be saved', true); }
         else { showToast('All budgets saved', false); window.location.reload(); }
+    }
+
+    // Category override: opens the ONE shared #pc-override dialog (base.html)
+    // populated for the selected category, then saves through /api/budgets.
+    // The dialog is not a permanently visible page section.
+    async function openCategoryOverride(button) {
+        const category = button.getAttribute('data-category');
+        const label = button.getAttribute('data-label') || category;
+        const minutes = parseInt(button.getAttribute('data-minutes'), 10) || 0;
+        const current = minutes > 0
+            ? { mode: 'limit', minutes: minutes }
+            : { mode: 'none', minutes: '' };
+        const result = await window.pcOverrideDialog({
+            comm: label, mode: current.mode, minutes: current.minutes,
+        });
+        if (!result) { return; }
+        const allowance = result.mode === 'limit' ? result.minutes : 0;
+        try {
+            const data = await post('/api/budgets', `username=${encodeURIComponent(BUDGET_USER)}&category=${encodeURIComponent(category)}&minutes=${encodeURIComponent(allowance)}`);
+            if (data.success) { showToast('Override saved for ' + label, false); window.location.reload(); }
+            else { showToast('Error: ' + (data.error || 'unknown'), true); }
+        } catch (e) { showToast('Error: ' + e.message, true); }
     }
 
     async function freezeCategory(username, cat) {

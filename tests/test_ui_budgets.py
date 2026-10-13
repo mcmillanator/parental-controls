@@ -118,12 +118,15 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
                 self.assertIn('id="budget-used-%s"' % cat, html)
                 self.assertIn('id="budget-status-%s"' % cat, html)
 
-    def test_progress_meter_and_override_link(self):
+    def test_progress_meter_and_override_trigger(self):
         html = self.render()
         self.assertIn('pc-meter', html)
         self.assertIn('pc-meter__fill', html)
+        # The override example is now the shared dialog, opened per category
+        # (not an inline card, not a cross-page link).
         self.assertIn('App override', html)
-        self.assertIn('href="/processes?user=%s"' % KID, html)
+        self.assertIn('class="pc-hint btn-override"', html)
+        self.assertIn('data-category="games"', html)
 
     def test_weekly_windows_card(self):
         html = self.render()
@@ -202,6 +205,12 @@ class BudgetsSourceTest(unittest.TestCase):
     def test_no_raw_window_confirm(self):
         self.assertNotIn('window.confirm(', self.src)
         self.assertIn('pcConfirm(', self.src)
+
+    def test_override_reuses_the_shared_dialog(self):
+        # The app-override editor is the ONE shared #pc-override dialog
+        # (base.html) — the budgets page opens it, it does not duplicate it.
+        self.assertIn('window.pcOverrideDialog(', self.src)
+        self.assertNotIn('id="pc-override"', self.src)
 
 
 if __name__ == '__main__':
