@@ -136,31 +136,35 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('8:00 PM', html)
 
     def test_hours_minutes_specimen(self):
-        html = self.render()
+        html = self.render(path='/budgets?preview=1')
         self.assertIn('Hours + minutes input', html)
         self.assertIn('Hours (0–23)', html)
         self.assertIn('Minutes (0–59)', html)
+        self.assertNotIn('Hours + minutes input', self.render())
 
     def test_states_row(self):
-        html = self.render()
+        html = self.render(path='/budgets?preview=1')
         self.assertIn('No app budgets yet', html)
         self.assertIn('Unable to load budgets', html)
         self.assertIn('Last refreshed 4 min ago', html)
         self.assertIn('Offline — edits unavailable', html)
+        self.assertNotIn('Unable to load budgets', self.render())
 
     def test_app_override_modal_specimen(self):
-        html = self.render()
+        html = self.render(path='/budgets?preview=1')
         self.assertIn('Steam override', html)
         self.assertIn('45m allowance', html)
         self.assertIn('Unlimited', html)
+        self.assertNotIn('Steam override', self.render())
 
     def test_implementation_aside(self):
-        # REVISED-SPEC.md Screen 3 implementation annotation.
-        html = self.render()
+        # REVISED-SPEC.md Screen 3 implementation annotation (dev-only).
+        html = self.render(path='/budgets?preview=1')
         self.assertIn('id="budgets-implementation"', html)
         self.assertIn('Implementation', html)
         self.assertIn('Flask + Jinja + vanilla JavaScript + Bootstrap 5', html)
         self.assertIn('static/js/app.js', html)
+        self.assertNotIn('id="budgets-implementation"', self.render())
 
     def test_empty_state_when_no_user(self):
         with mock.patch.object(app, 'get_human_users', return_value=[]), \

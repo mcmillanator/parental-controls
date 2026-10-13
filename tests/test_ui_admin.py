@@ -363,7 +363,11 @@ class AdminConsoleDesignTest(_AdminSessionMixin, _AuditEnvMixin,
         self.assertIn("requireText: 'REMOVE'", src)
 
     def test_specimen_cards(self):
-        html = self.page()
+        # Design fixtures: dev-only preview, never production content.
+        normal = self.page()
+        self.assertNotIn('id="admin-specimens"', normal)
+        self.assertNotIn('Theme specimen', normal)
+        html = self.page('?preview=1')
         self.assertIn('id="admin-specimens"', html)
         self.assertIn('Irreversible actions', html)
         self.assertIn('Theme specimen', html)

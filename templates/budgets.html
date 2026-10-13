@@ -217,6 +217,12 @@
     <datalist id="installed-apps">{% for comm in app_names %}<option value="{{ comm }}">{% endfor %}</datalist>
 </section>
 
+{# Design fixtures (Flowstep Screen 3 notes): the hours+minutes specimen, the
+   app-override example, the state row and the implementation aside are
+   documentation, not product content. They render only behind the dev-only
+   preview (`?preview=1`); the real override control opens the shared
+   `#pc-override` dialog from each category card. #}
+{% if show_fixtures %}
 {# Hours + minutes input specimen (design Screen 3). #}
 <section class="pc-card" aria-labelledby="hm-specimen-heading">
     <h2 class="pc-card__title" id="hm-specimen-heading">Hours + minutes input</h2>
@@ -277,6 +283,7 @@
     <p>Bootstrap 5 is vendored locally under <code>static/vendor/bootstrap/</code>; product tokens, theme, focus and table-to-card rules live in <code>static/css/app.css</code> (the mockup's <code>static/css/tokens.css</code>). <code>static/js/app.js</code> is progressive enhancement only.</p>
     <p>The Bootstrap grid lays category rows out as labelled cards below the mobile breakpoint; the row order, labels and actions are preserved. Accessibility: labelled inputs, <code>aria-live</code> on the refresh status, text + icon (never colour alone), 44px targets, reduced motion honoured. No CDN or external assets.</p>
 </aside>
+{% endif %}
 {% else %}
 <section class="pc-card">{{ pc_empty('No app budgets yet', 'No human accounts were found on this system.') }}</section>
 {% endif %}

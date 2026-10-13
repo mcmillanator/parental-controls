@@ -123,8 +123,10 @@
     </div>
 </section>
 
-{# Annotation sections (design Screen 6) — the exact stack the mockup
-   prescribes, shown inline (the canvas renders them visible, not collapsed). #}
+{# Annotation sections (design Screen 6 notes) — developer guidance only, so
+   they must not be shown to end users. They render only behind the dev-only
+   preview (`?preview=1`). #}
+{% if show_fixtures %}
 <section id="settings-annotations" aria-label="Implementation notes">
     <div class="pc-grid pc-grid--2">
         <article class="pc-card pc-annotation">
@@ -151,6 +153,7 @@
         </article>
     </div>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

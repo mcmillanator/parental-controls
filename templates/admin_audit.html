@@ -218,8 +218,11 @@
 </section>
 </div>
 
-{# Specimen cards (design Screen 5). The canvas shows these inline in the main
-   column (not behind a collapsed disclosure), so they are plain cards here. #}
+{# Design fixtures (Flowstep Screen 5 notes): "Irreversible actions", the
+   "Theme specimen" and the "Component callouts" are documentation for the
+   implementer, not product cards. They render only behind the dev-only
+   preview (`?preview=1`). #}
+{% if show_fixtures %}
 <section id="admin-specimens" aria-label="Design notes">
     <div class="pc-grid">
         <article class="pc-card">
@@ -247,6 +250,7 @@
         </article>
     </div>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

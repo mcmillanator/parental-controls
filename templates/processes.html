@@ -198,7 +198,10 @@
     </div>
 </section>
 
-{# State cards (design Screen 4). #}
+{# State cards (design Screen 4) are design fixtures, not product content:
+   they render only behind the dev-only preview (`?preview=1`). The real page
+   renders one mutually exclusive loading/empty/error/offline state. #}
+{% if show_fixtures %}
 <section class="pc-card" aria-labelledby="proc-states-heading">
     <h2 class="pc-card__title" id="proc-states-heading">States</h2>
     <div class="pc-grid pc-grid--2">
@@ -212,6 +215,7 @@
         <div class="pc-card pc-card--muted"><h3 class="pc-card__title">Offline</h3><p>Offline mode hides live controls.</p></div>
     </div>
 </section>
+{% endif %}
 
 <p class="pc-hint">Out-of-time apps are paused, not terminated.</p>
 {% else %}

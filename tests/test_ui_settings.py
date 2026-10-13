@@ -31,10 +31,10 @@ def read(path):
 
 
 class SettingsRenderTest(_AdminSessionMixin, unittest.TestCase):
-    def render(self, devices=None):
+    def render(self, devices=None, query=''):
         with mock.patch.object(app, '_device_entries',
                                return_value=devices if devices is not None else []):
-            resp = self.client.get('/settings')
+            resp = self.client.get('/settings' + query)
         self.assertEqual(200, resp.status_code)
         return resp.get_data(as_text=True)
 
@@ -104,7 +104,9 @@ class SettingsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertNotIn('No devices connected', html)
 
     def test_annotation_sections(self):
-        html = self.render()
+        # Developer guidance only: dev-only preview, never the product page.
+        self.assertNotIn('id="settings-annotations"', self.render())
+        html = self.render(query='?preview=1')
         self.assertIn('id="settings-annotations"', html)
         self.assertIn('Flask + Jinja + vanilla JavaScript + Bootstrap 5', html)
         self.assertIn('Responsive Bootstrap pattern', html)

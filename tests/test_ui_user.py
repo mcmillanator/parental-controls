@@ -368,7 +368,9 @@ class TimeRulesDesignTest(_UserPageRender):
                       html)
 
     def test_implementation_annotation(self):
-        html = self.render(self._live_with())
+        # Developer guidance only: dev-only preview, never the product page.
+        self.assertNotIn('id="time-rules-implementation"', self.render(self._live_with()))
+        html = self.render(self._live_with(), path='/user/' + KID + '?preview=1')
         self.assertIn('id="time-rules-implementation"', html)
         self.assertIn('Flask + Jinja server-rendered', html)
         self.assertIn('static/css/tokens.css', html)
@@ -380,7 +382,8 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('id="bedtime-countdown"', html)
 
     def test_state_specimen(self):
-        html = self.render(self._live_with())
+        self.assertNotIn('id="time-rules-states"', self.render(self._live_with()))
+        html = self.render(self._live_with(), path='/user/' + KID + '?preview=1')
         self.assertIn('id="time-rules-states"', html)
         self.assertIn('Could not save schedule', html)
         self.assertIn('No bedtime schedule', html)

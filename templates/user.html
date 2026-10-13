@@ -570,7 +570,11 @@
 </section>
 {% endif %}
 
-{# State specimen (design Screen 2): loading / error / empty / disabled. #}
+{# State specimen + implementation annotation (Flowstep Screen 2 notes) are
+   design fixtures, not product content. They render only behind the dev-only
+   preview (`?preview=1`); the real page renders one mutually exclusive
+   loading/empty/error/offline state per region. #}
+{% if show_fixtures %}
 <details class="pc-disclosure" id="time-rules-states">
     <summary>States</summary>
     <div class="pc-disclosure__body">
@@ -604,6 +608,7 @@
         </aside>
     </div>
 </details>
+{% endif %}
 
 <p class="refresh-info">Status updates automatically every 10 seconds</p>
 <p class="pc-hint" id="refresh-note">

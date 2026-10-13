@@ -79,11 +79,11 @@ def live_dict():
 
 
 class ProcessesRenderTest(_AdminSessionMixin, unittest.TestCase):
-    def render(self, live=None):
+    def render(self, live=None, query=''):
         live = live_dict() if live is None else live
         with mock.patch.object(app, 'get_human_users', return_value=USERS), \
              mock.patch.object(app, 'get_user_live', return_value=live):
-            resp = self.client.get('/processes')
+            resp = self.client.get('/processes' + query)
         self.assertEqual(200, resp.status_code)
         return resp.get_data(as_text=True)
 
@@ -153,11 +153,16 @@ class ProcessesRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('Show app', html)
 
     def test_state_cards_and_footnote(self):
+        # The paused-not-killed footnote is production copy; the state cards
+        # are design fixtures behind the dev-only preview.
         html = self.render()
-        self.assertIn('Cannot reach machine', html)
-        self.assertIn('No visible apps', html)
-        self.assertIn('Offline mode hides live controls.', html)
         self.assertIn('Out-of-time apps are paused, not terminated.', html)
+        self.assertNotIn('Cannot reach machine', html)
+        preview = self.render(query='?preview=1')
+        self.assertIn('Cannot reach machine', preview)
+        self.assertIn('No visible apps', preview)
+        self.assertIn('Offline mode hides live controls.', preview)
+        self.assertIn('Out-of-time apps are paused, not terminated.', preview)
 
     def test_offline_and_no_external_assets(self):
         html = self.render()
