@@ -3,8 +3,9 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-13, after the Flowstep design translation was merged and
-deployed. Written when the project was moved to a new machine.
+Last updated: 2026-10-14, after three local workstreams were merged to `master`
+but **not yet pushed or deployed**: the tablet-band sidebar token, the
+row-launched Processes override dialog, and the Overview no-JS POST forms.
 
 ## ⚠️ Moving machines: what does NOT come with a clone
 
@@ -124,10 +125,28 @@ user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
 
 ## Open / deferred
 
-- Overview actions POST via `fetch` + CSRF header rather than a pure no-JS form
-  submit (the dialog itself is a real POST form).
-- Processes keeps an inline override card; the notes want a row-launched modal.
-- Add-app-only-admin is a `<details>` disclosure, not the shared dialog.
+- **Overview actions are a real no-JS POST path** (resolved): every account
+  action (Lock / Unlock / Lock screen / Emergency logout) and the admin
+  add/remove controls are `<form method="post">` submissions to `/overview/*`,
+  which run the same cores as the `/api/*` twins, flash and redirect (PRG); JS
+  only adds the confirm dialog. `#admin-add` / `#new-admin-username` stay
+  visible for every admin because Katalon asserts them on `/` (the endpoint
+  refuses non-wheel actors server-side). Two live-box checks: the new
+  `app.secret_key` (per-process random, `PARENTAL_SECRET_KEY` overridable) makes
+  Flask's `session` cookie appear alongside `pc_sid`, and the one-time admin
+  password rides in that signed (not encrypted) cookie until the redirect
+  renders — confirm that is acceptable or add a session-cookie policy.
+- **Processes override is a row-launched modal** (resolved): the inline editor
+  card is gone; the row's Override button opens the shared `#pc-override`
+  dialog (`_partials/override_dialog.html`).
+- Add-app-only-admin is still a `<details>` disclosure on the audit page, not
+  the shared dialog.
+- **No-JS coverage is incomplete outside the Overview:** `budgets`, `processes`
+  and `admin_audit` (and much of `user`) still post via `fetch` + a CSRF
+  header. §11.1's "server-rendered POST/fetch path" wording is weaker than the
+  claim in `static/js/app.js` ("with JavaScript disabled the pages still render,
+  navigate and submit"). Whether to converge the rest — or soften the docs — is
+  an open owner question; not started.
 - Honest placeholders: "1 active session" and specimen values are illustrative;
   per-account "using 1h 42m today" isn't in the payload; notification lead-time,
   the HTTPS toggle and multi-device are disabled.
@@ -140,8 +159,31 @@ user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
   `feature/freezer-watchdog`, `feature/mvp-auth`. `research/process-filtering`
   has a live worktree.
 
+## Agent container vs the live box
+
+When the repo is worked on from the OpenCode container it is mounted at
+`/mnt/Documents/Projects/bazzite-parental-controls-2`, while the live box sees
+`/var/home/stan/Documents/Projects/bazzite-parental-controls-2`. The worktree
+`.git` pointers are therefore kept **relative** so `git` works in both views;
+the admin `gitdir` files under `.git/worktrees/*/gitdir` are absolute, so
+**never run `git worktree prune`** — it would drop the metadata for whichever
+worktree path that view cannot see.
+
+The container has **Python 3.13.5** (no 3.14) and no `sudo`, `pexpect` or
+browser, so a full `discover` run is *not* green there: ~109 failures + 1 error
+at baseline, all environment-bound (`test_deployment`, `test_multidevice_install`,
+`test_session_agent`, `test_budgets`, `test_lock_usermod_real`). The container's
+green signal is the `test_ui_*` set plus `test_katalon_objects`, `test_ui_a11y`
+and `test_ui_assets`. Rebuild the venv with
+`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`; the
+"1247 tests, OK" figure in *Verifying work* is the **live box**, not the
+container.
+
 ## Status right now
 
-`master` = `3af46f0` (merge of `feature/design-translation`), pushed, **deployed
-and healthy** on the live box; the design-translation worktree and branch are
-deleted. Nothing is in flight.
+`master` = `bb170b4`, holding three merges on top of `3af46f0`: the tablet-band
+sidebar token, the row-launched Processes override dialog and the Overview
+no-JS POST forms. **Not pushed and not deployed** — the live box still runs
+`3af46f0`. All three feature worktrees and branches are deleted; nothing is in
+flight. Pending the owner: push + `sudo ./install.sh`, confirm the Katalon
+`ADMIN_USER` is wheel or app-only, and decide the no-JS scope question above.

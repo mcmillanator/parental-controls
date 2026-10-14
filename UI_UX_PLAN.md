@@ -540,7 +540,7 @@ inline. Keep `.error`.
 | window-add row (type, category, app, days, `time_select` from/to, allowance, Add) | `.pc-field`s in a card; keep `#window-target-type`, `#window-category-target`, `#window-app-target`, `.window-day`, `#window-allowance`, `saveWindow()`; keep `time_select('window_start'/'window_end', …)` |
 | App overrides `<ul id="app-override-list">` + Clear | `.pc-list`; keep `data-override-row`, `data-comm`, `clearOverride` |
 | override add row (comm, mode select `.override-mode`, minutes, Add) | `.pc-field` card; keep ids/`addAppOverride`; `installed-apps` datalist kept |
-| Processes `#process-section`, per-category `h3`, `.group-row`, `.btn-group-toggle[aria-expanded/aria-controls]`, `.group-chevron`, `.process-name`, `.badge-count`, `.btn-hide`, freeze/unfreeze, `.override-mode`, `.override-minutes`, `applyOverride` | `.pc-table--stack` + per-group `.pc-disclosure`; JS detail builder keeps `<thead><tr><th>PID</th>…` (pinned "PID") and `tr.group-detail .process-name`; keep category `h3` text e.g. "Games (2)" (pinned) |
+| Processes `#process-section`, per-category `h3`, `.group-row`, `.btn-group-toggle[aria-expanded/aria-controls]`, `.group-chevron`, `.process-name`, `.badge-count`, `.btn-hide`, `.btn-override`, `openOverride`, freeze/unfreeze; the override editor is the shared `#pc-override` dialog (`.override-mode`/`.override-minutes` come from `_partials/override_dialog.html`) | `.pc-table--stack` + per-group `.pc-disclosure`; JS detail builder keeps `<thead><tr><th>PID</th>…` (pinned "PID") and `tr.group-detail .process-name`; keep category `h3` text e.g. "Games (2)" (pinned) |
 | hidden processes `#hidden-procs`, `.btn-show-hidden`, `.group-row`, "Show hidden (N groups, M processes)" | kept; `.pc-disclosure`; preserve exact button string |
 | `.refresh-info`, `#toast` | as Home |
 | auto-refresh pause | visible `.pc-hint` "Updates paused while you edit" shown when a field is focused |
@@ -912,7 +912,7 @@ this project's stack.
 | 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px), confirmation specimen, design thesis, empty state |
 | 2 Time rules | `/user/<u>` | manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, live countdown (`aria-live`), clear-schedule confirm, state specimen |
 | 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
-| 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, override + visibility cards |
+| 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, row-launched override dialog + visibility card |
 | 5 Admin console | `/admin/audit` | audit log (filters, integrity, export) + admin accounts + type-`REMOVE` confirm dialog + specimens |
 | 6 Settings | `/settings` | status stack, notifications/local-access fieldsets (`col-12 col-xl-6`), devices, implementation/annotation sections |
 
@@ -1064,7 +1064,23 @@ distilled starter prompt. This pass implements that intent.
 - **App override is a modal, not a section.** The budgets category card's
   "App override" control opens the ONE shared `#pc-override` dialog
   (populated for the selected category) instead of linking to another page;
-  the specimen card moved behind the preview.
+  the specimen card moved behind the preview. The Processes screen follows the
+  same rule: the row's Override button launches that dialog from the row's
+  `data-comm`/`data-mode`/`data-minutes` and the inline Screen-4 editor card is
+  gone, so the pinned `.override-mode`/`.override-minutes` controls now resolve
+  from `_partials/override_dialog.html`.
+- **Overview actions are a real no-JS POST path.** Every account action
+  (lock / unlock / lock screen / emergency logout) and the admin add/remove
+  controls are server-rendered `<form method="post">` submissions to
+  `/overview/lock`, `/overview/lock-screen`, `/overview/unlock`,
+  `/overview/logout`, `/overview/admins` and `/overview/admins/remove`. Each
+  runs the same core as its `/api/*` twin — so the JSON contract and the audit
+  trail are unchanged — then flashes and redirects (POST/Redirect/GET).
+  `static/js/app.js` and the page script only add the shared confirmation
+  dialog on top; with JS disabled the forms still submit, act and audit.
+  `#admin-add` / `#new-admin-username` stay visible for every admin (Katalon
+  asserts them on `/`); the endpoint refuses non-wheel actors server-side, and
+  the per-row Remove buttons are wheel-actor only.
 - **Mutually exclusive states.** With the state specimens behind the preview,
   each region renders exactly one server-selected state (normal / empty /
   error) — the loading skeleton and offline copy are progressive-enhancement
