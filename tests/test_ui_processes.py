@@ -3,8 +3,9 @@
 
 Server-render checks for ``/processes``: grouped rows with per-PID detail, the
 App | Category | Time used today | State | Override columns, the Visible /
-Hidden / All tabs, the reduced-motion switch, the override + visibility cards,
-the state cards and the "paused not terminated" footnote.
+Hidden / All tabs, the reduced-motion switch, the row-launched shared override
+dialog, the visibility card, the state cards and the
+"paused not terminated" footnote.
 
 Mocks only: temp auth store, mocked human users + live payload.
 """
@@ -142,12 +143,34 @@ class ProcessesRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('btn-override', html)
         self.assertIn('id="pc-override"', html)
 
-    def test_override_and_visibility_cards(self):
+    def test_override_button_launches_the_shared_dialog_from_the_row_data(self):
         html = self.render()
-        self.assertIn('Override type', html)
-        self.assertIn('Default category budget', html)
-        self.assertIn('Custom allowance', html)
-        self.assertIn('Save override', html)
+        # The per-row button opens the ONE shared dialog, pre-populated from
+        # the row's current override carried in data-*.
+        self.assertRegex(
+            html,
+            r'btn-override[^>]*data-comm="steam"[^>]*data-mode="exempt"')
+        self.assertRegex(
+            html,
+            r'btn-override[^>]*data-comm="firefox"[^>]*data-mode="limit"'
+            r'[^>]*data-minutes="45"')
+        self.assertIn('onclick="openOverride(this)"', html)
+        # The dialog itself is in the shell; its pinned mode/allowance hooks
+        # (`.override-mode` / `.override-minutes`) resolve from the partial.
+        self.assertIn('class="override-mode"', html)
+        self.assertIn('class="override-minutes', html)
+
+    def test_visibility_card_and_no_inline_override_editor(self):
+        html = self.render()
+        # The inline override editor card is gone: the button launches the
+        # shared dialog instead.
+        for gone in ('Override type', 'Default category budget',
+                     'Custom allowance', 'Save override',
+                     'override-card-heading', 'proc-override-comm',
+                     'procOverrideModeChanged', 'saveProcOverride'):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, html)
+        # The app visibility card stays.
         self.assertIn('App visibility', html)
         self.assertIn('Hide app', html)
         self.assertIn('Show app', html)
@@ -187,6 +210,25 @@ class ProcessesSourceTest(unittest.TestCase):
     def test_uses_the_shared_override_dialog(self):
         self.assertIn('pcOverrideDialog', self.src)
         self.assertNotIn('window.confirm(', self.src)
+
+    def test_no_inline_override_editor_remains(self):
+        # The old inline card and its handlers are gone; only the shared
+        # dialog remains.
+        for gone in ('procOverrideModeChanged', 'saveProcOverride',
+                     'proc-override-comm', 'proc-override-allowance',
+                     'proc-override-hours', 'proc-override-minutes',
+                     'name="proc-override-mode"'):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, self.src)
+
+    def test_override_button_opens_the_shared_dialog(self):
+        start = self.src.index('function openOverride(')
+        body = self.src[start:self.src.index('\n    }', start)]
+        self.assertIn('window.pcOverrideDialog(', body)
+        self.assertIn("button.getAttribute('data-comm')", body)
+        self.assertIn("button.getAttribute('data-mode')", body)
+        self.assertIn("button.getAttribute('data-minutes')", body)
+        self.assertIn('postOverride(comm, choice.mode, choice.minutes)', body)
 
     def test_freeze_uses_the_shared_dialog(self):
         # Freeze/thaw go through the ONE shared confirmation dialog.

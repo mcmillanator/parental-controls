@@ -7,6 +7,10 @@
    switch and the shared per-app override dialog. Every action posts to an
    existing endpoint (hide/show via /api/process-prefs, overrides via
    /api/budgets/overrides, freeze/unfreeze via /api/budgets/*).
+
+   The per-row "Override" button launches the ONE shared ``#pc-override``
+   dialog from the shell (``_partials/override_dialog.html``), pre-populated
+   from the row's ``data-*``; there is no inline editor card.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty, pc_skeleton %}
 
@@ -162,28 +166,6 @@
     </div>
 </section>
 
-{# Override editor card (design Screen 4) — the same POST as the dialog. #}
-<section class="pc-card" aria-labelledby="override-card-heading">
-    <h2 class="pc-card__title" id="override-card-heading">Override</h2>
-    <div class="pc-field">
-        <label class="pc-field__label" for="proc-override-comm">App</label>
-        <input id="proc-override-comm" class="pc-input" list="installed-apps" placeholder="App command (e.g. steam)">
-    </div>
-    <fieldset class="pc-fieldset">
-        <legend class="pc-fieldset__legend">Override type</legend>
-        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="default" checked onchange="procOverrideModeChanged()"> Default category budget</label>
-        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="exempt" onchange="procOverrideModeChanged()"> Unlimited</label>
-        <label class="pc-hint"><input type="radio" name="proc-override-mode" value="limit" onchange="procOverrideModeChanged()"> Custom allowance</label>
-        <div class="pc-row" id="proc-override-allowance" hidden>
-            <span class="pc-duration__unit">h</span>
-            <input type="number" id="proc-override-hours" class="pc-input" style="width: 4rem;" min="0" max="99" placeholder="00" aria-label="Override hours">
-            <span class="pc-duration__unit">m</span>
-            <input type="number" id="proc-override-minutes" class="pc-input" style="width: 4rem;" min="0" max="59" placeholder="45" aria-label="Override minutes">
-        </div>
-    </fieldset>
-    <button type="button" class="pc-btn pc-btn--primary pc-btn--block" onclick="saveProcOverride()">Save override</button>
-</section>
-
 {# App visibility card (design Screen 4): hide/show, never kill. #}
 <section class="pc-card" aria-labelledby="visibility-card-heading">
     <h2 class="pc-card__title" id="visibility-card-heading">App visibility</h2>
@@ -318,25 +300,6 @@
             if (data.success) { showToast('Override saved for ' + comm, false); window.location.reload(); }
             else { showToast('Error: ' + (data.error || 'unknown'), true); }
         } catch (e) { showToast('Error: ' + e.message, true); }
-    }
-
-    function procOverrideModeChanged() {
-        const mode = document.querySelector('input[name="proc-override-mode"]:checked').value;
-        document.getElementById('proc-override-allowance').hidden = mode !== 'limit';
-    }
-
-    function saveProcOverride() {
-        const comm = document.getElementById('proc-override-comm').value.trim();
-        if (!comm) { showToast('Pick an app first', true); return; }
-        const mode = document.querySelector('input[name="proc-override-mode"]:checked').value;
-        let minutes = '';
-        if (mode === 'limit') {
-            const h = parseInt(document.getElementById('proc-override-hours').value || '0', 10);
-            const m = parseInt(document.getElementById('proc-override-minutes').value || '0', 10);
-            if (isNaN(h) || isNaN(m) || h < 0 || m < 0 || m > 59) { showToast('Enter a valid allowance', true); return; }
-            minutes = h * 60 + m;
-        }
-        postOverride(comm, mode === 'default' ? 'none' : mode, minutes);
     }
 
     async function setVisibility(action) {
