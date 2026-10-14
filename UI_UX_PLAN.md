@@ -895,11 +895,12 @@ this project's stack.
   and the empty state).
 - **Screens 3–6** use the **sidebar** (Overview / Time rules / Activity /
   Admin / Settings) from **768 px** (canvas S3/S4 are *tablet* screens and
-  already show the 236 px sidebar), widening to 280 px at **960 px** (canvas
-  S5/S6), plus the top header with the account chip, theme toggle and Help.
-  The brand lives in the sidebar from 768 px up so it is never duplicated in
-  the top bar, which keeps only the right-aligned account / theme / Help
-  cluster (canvas S5/S6).
+  already show the 236 px sidebar), holding **236 px** through the whole tablet
+  band **768–959.98 px** and widening to 280 px at **960 px** (canvas S5/S6),
+  plus the top header with the account chip, theme toggle and Help. Both widths
+  come from one token, `--sidebar-w` (§11.9). The brand lives in the sidebar
+  from 768 px up so it is never duplicated in the top bar, which keeps only the
+  right-aligned account / theme / Help cluster (canvas S5/S6).
 - The phone bottom bar is **Home / Time / Activity / Admin** plus an
   **Account** menu (Settings / Change password / Log out); Settings is not a
   tab. Active destinations keep `aria-current="page"`.
@@ -1080,3 +1081,30 @@ implementation aside, the override trigger + freeze dialog),
 `tests/test_ui_processes.py` (state cards + freeze dialog). **Zero**
 `katalon/objects/*` changes: the fixture ids were never in the Katalon
 contract, only in the stdlib suite, and they still resolve behind `?preview=1`.
+
+### 11.9 Tablet-band sidebar sizing (pinned)
+
+Resolves the deferred item *"Tablet (768–959) sidebar sizing is inferred from
+S3/S4, not specified."* The canvas S3/S4 **tablet** screens already draw a
+**236 px** sidebar; that band is now stated explicitly instead of falling out
+of the open-ended ≥768 px shell rule plus the ≥960 px widening.
+
+- `static/css/app.css` takes the shell width from one token, `--sidebar-w`,
+  read by both `.pc-sidebar { width: … }` and `.pc-layout__main
+  { margin-left: … }` — no component hardcodes 236/280 px.
+- **Tablet band** — `@media (min-width: 768px) and (max-width: 959.98px)` —
+  pins `--sidebar-w: 236px` (canvas S3/S4). The brand row and the 5-section nav
+  fit as drawn at that width, so **no nav/brand override** is needed.
+- **Desktop band** — `@media (min-width: 960px)` — widens it to
+  `--sidebar-w: 280px` (canvas S5/S6).
+- **Phone band** — below 768 px the sidebar stays `display: none` and the
+  bottom tab bar is the navigation.
+
+The 768 px split uses the documented `--bp-md` token; the 960 px widening is
+the canvas-derived desktop split (S5/S6), separate from `--bp-lg: 1024px`.
+`tests/test_ui_assets.py::TabletSidebarBandTest` pins the two bands, their
+236/280 px token values, and that no hardcoded sidebar width remains.
+
+**Verify visually** at 768–959 px that the rendered sidebar is exactly 236 px
+between the app bar and the main column — there is no browser in the repo, so
+this is a real-device/owner check, not a suite assertion.
