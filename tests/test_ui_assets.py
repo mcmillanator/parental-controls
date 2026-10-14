@@ -10,7 +10,7 @@ the foundation commit adds and nothing else:
   ``change_password.html``) extend ``base.html``, carry no external
   ``http(s)://`` asset and keep the §7.4 pinned selectors,
 * the Katalon selector contract is still intact, reusing the real validator in
-  ``tests/test_katalon_objects.py`` rather than a weaker copy (§7.4).
+  ``tests/test_katalon_suite.py`` rather than a weaker copy (§7.4).
 
 Deliberately **not** asserted here: the *rendered* behaviour of each page
 (that needs a Flask test client and lives in the per-page modules, e.g.
@@ -123,7 +123,7 @@ def read(path):
 def load_katalon_validator():
     """Import the real Katalon validator so this guardrail cannot drift from it."""
     spec = importlib.util.spec_from_file_location(
-        'pc_katalon_objects', ROOT / 'tests' / 'test_katalon_objects.py')
+        'pc_katalon_suite', ROOT / 'tests' / 'test_katalon_suite.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -679,24 +679,20 @@ class KatalonContractTest(unittest.TestCase):
 
     def test_every_katalon_selector_still_resolves(self):
         mod = self.katalon
-        if not (mod.OBJECT_DIR.is_dir() and mod.CASE_DIR.is_dir()):
-            self.skipTest('katalon objects/test-cases absent')
+        if not mod.CASES:
+            self.skipTest('katalon suite absent')
         checked = 0
-        for name, data in list(mod.load_dir(mod.OBJECT_DIR).items()) + \
-                list(mod.load_dir(mod.CASE_DIR).items()):
-            for step in mod.walk(data['steps']):
-                if step.get('type') not in ('click', 'input', 'verifyText',
-                                            'verifyElementVisible',
-                                            'dragAndDrop'):
+        for name, rows in mod.CASES.items():
+            for command, target, value in rows:
+                if command not in mod.LOCATOR_COMMANDS or not target:
                     continue
-                for selector in (step.get('selector'), step.get('target')):
-                    if not selector:
-                        continue
-                    checked += 1
-                    with self.subTest(object=name, selector=selector):
-                        self.assertEqual([], mod.selector_problems(selector),
-                                         'foundation must not break selector '
-                                         '%r' % selector)
+                if target.startswith('${'):
+                    continue
+                checked += 1
+                with self.subTest(case=name, target=target):
+                    self.assertEqual([], mod.locator_problems(target),
+                                     'foundation must not break selector '
+                                     '%r' % target)
         self.assertGreater(checked, 60, 'suspiciously few selectors checked')
 
     def test_pinned_selectors_that_have_not_moved_yet_still_exist(self):

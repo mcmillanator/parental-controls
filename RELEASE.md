@@ -232,9 +232,10 @@ stdlib `unittest`).
   (0750) at `/usr/local/bin/parental-controls`.
 
 **Quality**
-- **Katalon Recorder browser QA suite** (`katalon/`) with a CI validator
-  (`tests/test_katalon_objects.py`) that pins every selector and expected string
-  against the templates and `app.py`. See `katalon/README.md`.
+- **Katalon Recorder browser QA suite** (`katalon/`, one Selenium-IDE HTML
+  file) with a CI validator (`tests/test_katalon_suite.py`) that pins every
+  locator and expected string against the templates and `app.py`. See
+  `katalon/README.md`.
 
 ### Upgrading from 1.0
 

@@ -41,7 +41,7 @@ TEMPLATE = os.path.join(TEMPLATE_DIR, 'admin_audit.html')
 # A jsdelivr/Bootstrap CDN <link> is exactly the failure this guards against.
 EXTERNAL_ASSET = re.compile(r'''(?:href|src)\s*=\s*["']https?://''', re.I)
 
-# UI_UX_PLAN.md §7.4 + tests/test_katalon_objects.py + tests/test_admin_console.py.
+# UI_UX_PLAN.md §7.4 + tests/test_katalon_suite.py + tests/test_admin_console.py.
 PINNED_IDS = (
     'audit-section', 'chain-status', 'audit-count', 'audit-limit',
     'audit-table', 'load-more', 'admin-section', 'admin-table',

@@ -177,7 +177,7 @@ via `su -`. Creates and deletes its own throwaway account; never touches
 run. The suite has grown substantially since: current counts are **526 tests
 across 22 files, 9 environmental skips** (re-verified 2026-10-11), including the
 new `test_audit.py`, `test_sqlite.py`, `test_service_user.py`, `test_tls.py`,
-`test_health.py` and `test_katalon_objects.py` coverage.
+`test_health.py` and `test_katalon_suite.py` coverage.
 
 I confirmed the tests actually catch the bugs by reverting each fix in turn:
 
@@ -391,12 +391,12 @@ machine for the parts a browser cannot see.
 | Manual lock is sticky across changes | `24_manual_lock` + `25_manual_unlock` round trips (regression-level coverage; a bedtime-boundary variant is still a manual check) | Partly — the bedtime-boundary case. |
 | All lock paths preserve the session | Partly: the suite checks the Emergency logout button is only ever *present*, never clicked (no `.btn-logout` click); manual Lock is exercised | The session-preservation guarantee itself still needs a live session. |
 | Wheel-admin protection | Pointing the freeze/lock cases at an admin fails **loudly** (the app refuses) instead of damaging anything | No. |
-| Per-category Freeze/Unfreeze buttons | `07_time_budget_limit_freeze_toggle`, objects `16`–`18` (`budget_set_limit`, `freeze_toggle`, `clear_limit`) | The cgroup freeze/thaw on real PIDs still needs the machine's own processes. |
+| Per-category Freeze/Unfreeze buttons | `07_time_budget_limit_freeze_toggle`, object seams `16_budget_set_limit`–`18_budget_clear_limit` | The cgroup freeze/thaw on real PIDs still needs the machine's own processes. |
 | Bonus grant/revoke, login/backoff, forced password change, process grouping | Cases `01`–`06` | No. |
 | 10-second live refresh has no error toast | `23_auto_refresh_health` | No. |
 
 The suite's selectors and expected strings are pinned against the templates and
-`app.py` by `tests/test_katalon_objects.py` (CI), so it cannot silently drift.
+`app.py` by `tests/test_katalon_suite.py` (CI), so it cannot silently drift.
 It never contains real credentials — values are typed into the Recorder at run
 time, and the safety rules (test account only, never an admin as `TEST_USER`,
 each case restores state) are documented in `katalon/README.md`.

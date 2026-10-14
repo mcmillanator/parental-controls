@@ -6,12 +6,25 @@ locked account really is locked, that the Freeze button freezes, that the
 10-second auto-refresh keeps working.
 
 You never have to write any of it. You install one small free browser
-extension, import two folders, fill in four boxes (including your own admin
-password), and press **Play**.
+extension, load **one file**, fill in a handful of variables (including your own
+admin password), and press **Play**.
 
-> **Nothing here ever runs by itself.** These files are inert JSON on disk.
-> They only touch your machine when you press Play inside the Recorder, against
-> the address you type into `BASE_URL`.
+The suite is a single file:
+
+```
+katalon/parental-controls.html
+```
+
+It is **Selenium-IDE HTML** — one `<table>` per test case, one row per step —
+which is exactly the format Katalon Recorder itself writes and reads. It is not
+JSON, and Katalon Recorder has **no object repository**: the old
+`katalon/objects/*.json` + `katalon/test-cases/*.json` files could not be
+imported at all and have been removed. See §7 for how the objects were
+flattened into the cases.
+
+> **Nothing here ever runs by itself.** This file is inert HTML on disk. It only
+> touches your machine when you press Play inside the Recorder, against the
+> address you type into `BASE_URL`.
 
 ---
 
@@ -37,8 +50,8 @@ to this repository.
 ## 1. Install Katalon Recorder
 
 [Katalon Recorder](https://katalon.com/katalon-recorder-ide) is a free
-extension that records what you click and replays it. It is the closest thing
-to a macro recorder that also *checks* things ("this text must be here").
+extension that records what you click and replays it. It is the closest thing to
+a macro recorder that also *checks* things ("this text must be here").
 
 Pick your browser:
 
@@ -52,64 +65,87 @@ All three from the official download page: <https://katalon.com/download-recorde
 
 Notes:
 
+- **You must sign in with a free Katalon account** (or create one) before the
+  extension is usable — Katalon's own quickstart says to install it, "then sign
+  in with your Katalon account … and you're good to go". A local-only account is
+  not enough.
 - There is **no separate standalone app** any more — Katalon retired it; the
   browser extension *is* the product. If you see an old "Recorder desktop app"
   download, ignore it.
-- Click **Add to Chrome / Add to Firefox / Add to Edge**, then pin the icon.
-  Opening the panel: click the Katalon Recorder toolbar icon (it opens a small
-  side panel next to your page).
-- Everything is stored locally in your browser. Nothing is uploaded.
+- **The extension is no longer actively maintained** — Katalon's GitHub repo
+  carries the banner "no further feature development, updates, or security
+  patches are planned". It still works against a local panel; just do not expect
+  fixes. Pin the toolbar icon so the side panel is one click away.
+- Everything is stored locally in your browser. Nothing is uploaded (sign-in
+  aside, which is with Katalon, not this project).
 
 ---
 
 ## 2. Point it at your panel
 
-The panel listens on `127.0.0.1:5000` on the machine it runs on. Set
-`BASE_URL` to whichever of these you use:
+The panel is served over **HTTPS on the live box** at
+<https://192.168.122.201:5000> with a **self-signed certificate**. Set
+`BASE_URL` to whatever address you actually use:
 
 | Where your browser is | `BASE_URL` | How |
 |-----------------------|------------|-----|
-| On the same machine as the panel | `http://localhost:5000` | Open <http://localhost:5000> in a normal tab first. |
-| On a different computer (recommended) | `http://localhost:5000` | Open an SSH tunnel first, then use that address on this machine:<br>`ssh -L 5000:localhost:5000 <your-user>@<the-machine>`<br>Leave that window open while testing. |
+| On the same machine as the panel | `https://localhost:5000` | Open it in a normal tab first. |
+| On another machine on the LAN (the usual case) | `https://192.168.122.201:5000` | Open that URL in a normal tab first. |
+| Tunnelling instead of hitting the LAN address | `http://localhost:5000` | `ssh -L 5000:localhost:5000 <your-user>@<the-machine>` — leave that window open while testing. |
 
-Never use a `0.0.0.0` or LAN address for daily testing: the MVP has no TLS, so
-the session cookie would travel in the clear. The tunnel keeps it on
-localhost.
+**Expect a certificate warning.** The cert is self-signed, so the browser (and
+sometimes the Recorder) will warn the first time; accept it once. The live
+fingerprint is
+`5A:06:42:8E:A4:38:EA:2E:63:1B:F4:CD:AD:C9:50:A4:7A:B0:91:29:A5:44:64:51:58:F3:CB:1C:AF:B8:74:72`.
+If you are comparing builds, confirm it before accepting.
+
+The SSH tunnel is the alternative when you do not want to touch the LAN address
+at all: it keeps the session cookie on `localhost`.
 
 ### Navigating the redesigned panel
 
 The panel is mobile-first since the UI redesign (`UI_UX_PLAN.md`), so where you
-click has changed. The ids and classes the objects target are unchanged; use this
+click has changed. The ids and classes the suite targets are unchanged; use this
 map to find the controls by hand:
 
 | What | Where it is now |
 |------|-----------------|
-| **Home** (user list) | Sticky **app bar** link on tablet/desktop; **Home** tab in the bottom bar on a phone. This is the `/` index page. |
-| **Admin console** | The **Admin** link (app bar) / **Admin** tab (bottom bar) → `/admin/audit`. |
-| **Change password**, **Log out** | Inside the **Account** menu (top-right of the app bar, or the **Account** tab on a phone): open it first, then click. They are a link and a form button — not the old top-right text links. |
-| **A child's page** | Click **Details** on the child's row (or their username). The page keeps a **← Back to Parental Controls** link. |
-| Tables | On a phone the wide tables (budgets, processes, audit) render as one labeled card per row; the same ids/classes are still in the page, and a real `<thead>` stays in the DOM. |
+| **Home** (account list) | The **Overview** nav link (sidebar/app bar) or the **Home** tab in the phone **bottom bar**. This is the `/` index page, and the accounts are now **cards**, not a table. |
+| **Admin console** | The **Admin** link (app bar/sidebar) → `/admin/audit`. |
+| **Change password**, **Log out** | Inside the **Account** menu in the app bar (top-right): open it first, then click. The suite clicks the menu summary (`Account menu`) and then **Log out**. |
+| **A child's page** | Click **Details** on the child's card (or their username). The page keeps a **← Back to Parental Controls** link. |
+| Tables | On a phone the remaining wide tables render as labelled cards; the same ids/classes are still in the page. |
 
 The 10-second status refresh and the toast messages behave as before. The
-destructive actions (Lock/Unlock, Remove admin, Clear schedule, custom bonus)
-now confirm in a **native `<dialog>`** element rather than a browser
-`confirm()` popup — a dialog with a visible **Confirm** button rather than a
-system alert.
+destructive actions (Lock/Unlock, Freeze/Unfreeze, Revoke bonus, grant custom
+bonus, Remove admin, Clear schedule) now confirm in a **native `<dialog>`**
+element rather than a browser `confirm()` popup — a dialog with a visible
+**Confirm** button rather than a system alert. The suite clicks that button at
+`#pc-confirm [data-pc-dialog-confirm]`; it never uses `closeAlert`.
 
 ---
 
-## 3. Fill in the Variables
+## 3. Set the Variables
 
 The suite never hardcodes anything. Every value you need is a **variable** you
 set once in the Recorder.
 
-**Where:** Recorder panel → **Variables** (in the sidebar list under the test
-grid). Add one row per name below, then press **Save**. In the JSON the values
-are written `${NAME}`; in the Recorder's UI they are just `NAME`.
+**Where:** Test Explorer → **Profiles (Global Variables)**. Click **+** to
+create a profile, add one global variable per name below, then
+**right-click the profile** and choose **"Use this in a test case"** so the
+profile is applied to the case you are about to run.
+
+There is **no separate "save" step for variables** and **no Objects section** in
+Katalon Recorder. The only place variables live is the Profiles (Global
+Variables) panel described above.
+
+In the suite file a step writes a variable as `${NAME}` (for example
+`${ADMIN_PASSWORD}`, `${BASE_URL}`); in the Recorder's UI you just name it
+`ADMIN_PASSWORD`. The `${…}` form is how the step knows to substitute.
 
 | Variable | Meaning | Suggested value |
 |----------|---------|-----------------|
-| `BASE_URL` | Where the panel lives | `http://localhost:5000` |
+| `BASE_URL` | Where the panel lives | `https://192.168.122.201:5000` (or your tunnel/localhost URL) |
 | `ADMIN_USER` | Your admin username (app account, **not** your Linux password) | your admin name |
 | `ADMIN_PASSWORD` | Your admin app password | your admin password |
 | `WRONG_PASSWORD` | A deliberately wrong password (used by the negative login test) | `not-the-password` |
@@ -121,199 +157,222 @@ are written `${NAME}`; in the Recorder's UI they are just `NAME`.
 | `BONUS_HOURS` | Hours for the custom bonus grant | `1` |
 | `BONUS_MINUTES` | Minutes for the custom bonus grant (0–59) | `5` |
 
-Two rules about these values:
+Three rules about these values:
 
-- They live in your browser, not in this repository. Do not paste a real
-  password into a JSON file and commit it.
-- `TEST_USER` and `TEST_CATEGORY` are also set by the object
-  `01_set_test_config` at the start of every case, using the placeholder
-  `<TEST_USER>`. Edit that object's value (in the Recorder, not in git) or,
-  better, set your own `TEST_USER` **after** importing — otherwise the case
-  overwrites it with the placeholder.
+- They live in your browser, not in this repository. The placeholders in the
+  table above (`<ADMIN_USER>`, `<ADMIN_PASSWORD>`, `<WRONG_PASSWORD>`,
+  `<TEST_USER>`) are documentation only — do not paste a real password into a
+  file and commit it.
+- **`TEST_USER` must be a real account name you set yourself.** Every case
+  targets `/user/${TEST_USER}` and the `#row-${TEST_USER}` card on the Overview.
+  The suite deliberately does *not* set `TEST_USER` for you (an earlier version
+  did, which overwrote your value with the placeholder and broke the run).
+- A few variables are **seeded by the suite** at the start of each case so it is
+  self-contained: `TEST_CATEGORY`, `BUDGET_HOURS`/`BUDGET_MINUTES`,
+  `BONUS_HOURS`/`BONUS_MINUTES`, and `WRONG_PASSWORD` (stored as the literal
+  `<WRONG_PASSWORD>`, which is guaranteed wrong). You can leave those out of
+  your profile.
 
-If a variable is missing, the page will simply navigate to a blank/odd URL and
-the run fails at the first step. That is the safe failure mode: nothing is
-clicked.
+If a variable is missing, the page will navigate to a blank/odd URL (or a
+`/user/${TEST_USER}` 404) and the run fails at the first step. That is the safe
+failure mode: nothing is clicked.
 
 ---
 
-## 4. Import the suite
-
-Both folders are plain JSON, one file per test object / test case.
+## 4. Load the suite
 
 1. Open the Recorder panel (toolbar icon).
-2. Go to the **Objects** section (the object repository — the list of reusable
-   step sequences; older/newer Recorder builds call it *Objects* or *Object
-   Repository* in the sidebar).
-3. Open its menu — the **⋮ / gear icon** at the top of that list — and choose
-   **Import**.
-4. Select **all** the `.json` files in `katalon/objects/` (multi-select them in
-   the file dialog) and import them.
-   Some Recorder builds accept a whole folder, and you can also drag the files
-   from your file manager onto the Recorder panel. Use whichever your build
-   offers.
-5. Switch to **Test Cases** and repeat: menu → **Import** → all files in
-   `katalon/test-cases/`.
-6. You should now see 29 objects and 8 test cases, numbered in the order they
-   are meant to run (`00_…` first, `05_logout` last).
+2. In the **Actions sidebar**, click **Open Test Suite** (there is also a
+   sidebar menu entry for it). Alternatively, **drag and drop** the file onto
+   the test-case container.
+3. Pick `katalon/parental-controls.html`.
 
-If your Recorder build looks different (no *Objects* list, a different import
-dialog), the ground truth is the Recorder's own **Export**: record any tiny
-throwaway object, export it as JSON, and compare its field names with these
-files. Recorder renames a few fields between major versions; if a field differs,
-rename it in your imported copy — or export the whole suite back out and commit
-that instead (see §5).
+**Only file names containing `.html` or `.krecorder` are accepted.** The
+Recorder's loader returns immediately for anything else —
+`if (!f.name.includes(".krecorder") && !f.name.includes(".html")) return;` — so a
+`.json` file is silently ignored. If you renamed the file, keep one of those two
+suffixes.
+
+You should now see **8 test cases**, numbered in the order they are meant to run
+(`01_…` first, `08_…` last). Each case is self-contained: it clears cookies,
+logs in, does its checks, and logs out.
+
+This suite is one file, so there is nothing else to import — no objects, no
+folders of JSON. See §7 for what happened to the old object files.
 
 ---
 
-## 5. Run it — and export it back
+## 5. Run it — and export it
 
-- **Run a whole case:** pick the test case in the list, press **Play** (▶).
-  The log shows each step: pass = green tick, fail = red, with the expected
-  text next to it.
-- **Run a single object:** pick the object, press **Play**. Objects assume the
-  page they need; run them from a session the case set up (easiest: run
-  `00_setup_reset_session`, then `01_set_test_config`, then `02_open_login_page`,
-  then the object you are poking at).
-- **Run from the middle:** click a step and press *Play from here* — handy when
-  a case failed and you only want the tail.
-- **Export back:** with the case/object selected, menu → **Export** → JSON. Drop
-  the file into the matching folder in this repository and commit it. That is
-  how a recording you make by hand becomes part of the suite.
+- **Run a whole case:** pick the test case in the list, press **Play** (▶). The
+  log shows each step: pass = green tick, fail = red, with the expected text
+  next to it.
+- **Run from the middle:** click a step and press **Play from here** — handy when
+  a case failed and you only want the tail. (There is no "run a single object"
+  any more: objects no longer exist.)
+- **Export** (the toolbar button, and the same entry in the Actions sidebar) is
+  **code export**: it turns the case/suite into Katalon Studio, Selenium
+  WebDriver, and other frameworks' source. It is *not* a JSON round-trip, and
+  exporting is not how you save the suite.
+- **Saving** a suite (the save/backup path) writes the same Selenium-IDE HTML
+  with a **`.krecorder`** extension. If you want to commit a change you made by
+  hand, export/record it, then save it and drop the resulting file in as
+  `parental-controls.html`.
 
 ---
 
 ## 6. What each test case covers — and what to watch for
 
-Every case is self-contained: it starts by clearing cookies and logging in,
-ends by logging out, and never chains into another case's state changes.
+Every case is self-contained: it starts by clearing cookies and logging in, ends
+by logging out, and never chains into another case's state changes.
 
 | # | Test case | What it proves | Watch for |
 |---|-----------|----------------|-----------|
 | 1 | `01_login_wrong_password_then_success` | A wrong password shows *Invalid username or password.*; the right one reaches the index page with the admin panel and "Logged in as …". | Repeated failures trigger a **login backoff** ("Too many failed attempts") for a few minutes. Do not loop this case. |
-| 2 | `02_change_password_first_login` | On first login the app forces a change: the "You must change your password before continuing" banner, a wrong "current" password is rejected, then the new password is accepted and the index page loads. | **One-shot per admin.** Run it once on a freshly created admin (`sudo parental-controls reset-password <admin>` or a new admin row). Afterwards it takes the "already changed" branch and just verifies you are logged in. If it fails at the minimum-length check, `NEW_ADMIN_PASSWORD` must be ≥ 12 characters and identical in both boxes. |
+| 2 | `02_change_password_first_login` | On first login the app forces a change: the "You must change your password before continuing" banner, a wrong "current" password is rejected, then the new password is accepted and the index page loads. | **One-shot per admin.** Run it once on a freshly created admin (`sudo parental-controls reset-password <admin>` or a new admin row). Afterwards it takes the "already changed" branch and just verifies you are logged in. `NEW_ADMIN_PASSWORD` must be ≥ 12 characters and identical in both boxes — otherwise the password becomes the literal `${NEW_ADMIN_PASSWORD}`. |
 | 3 | `03_user_details_page_smoke` | Read-only pass of the per-user page: account status text matches the Lock/Unlock button that is offered, the process section renders grouped rows (or the honest "No processes found" message), all five budget rows exist, and the 10-second live refresh completes **without a red error toast**. | Fails if the target has no processes *and* you expected groups — that is the honest message, and it still passes. The 11-second wait is the auto-refresh actually firing. |
-| 4 | `04_process_groups_expand_hide_show` | A multi-instance process group expands to a PID detail row and collapses again (`aria-expanded` flips); Hide moves a group to *Show hidden*, Show brings it back. | Needs a test account with **two windows of the same app** open (otherwise the expand step aborts with a clear message — single-instance rows are deliberately not expandable). |
-| 5 | `05_bonus_time_shortcut_buttons` | Each shortcut (+15m, +30m, +1h, +1h30, +2h) actually grants bonus time: the status line shows *Bonus active … left* (in hours + minutes) and the badge appears next to the account status. Then Revoke clears it. | Ends with no bonus active. If a bonus was already running before the case, revoke it by hand first — the case starts by requiring a clean slate. |
-| 6 | `06_bonus_time_custom_grant_and_revoke` | The custom hours + minutes entry confirms, grants, and the badge/status update; Revoke clears it. | The confirm dialog is accepted automatically by the case (`closeAlert`). `BONUS_HOURS`/`BONUS_MINUTES` must total at least 5 minutes or the app refuses. |
+| 4 | `04_process_groups_expand_hide_show` | A multi-instance process group expands to a PID detail row and collapses again (`aria-expanded` flips); Hide moves a group to *Show hidden*, Show brings it back. | Needs a test account with **two windows of the same app** open (otherwise the expand step fails with a clear message — single-instance rows are deliberately not expandable). |
+| 5 | `05_bonus_time_shortcut_buttons` | Each shortcut (+15m, +30m, +1h, +1h30, +2h) actually grants bonus time: the status line shows *Bonus active … left* and the badge appears next to the account status. Then Revoke clears it. | Ends with no bonus active. If a bonus was already running before the case, revoke it by hand first — the case starts by requiring a clean slate. |
+| 6 | `06_bonus_time_custom_grant_and_revoke` | The custom hours + minutes entry confirms in the native dialog, grants, and the badge/status update; Revoke clears it. | The confirm is the **Confirm** button in the shared dialog (`#pc-confirm`), not a browser alert. `BONUS_HOURS`/`BONUS_MINUTES` must total at least 5 minutes or the app refuses. |
 | 7 | `07_time_budget_limit_freeze_toggle` | Setting a limit (hours + minutes) adds a **Freeze** button; Freeze shows a *Frozen* badge and an **Unfreeze** button; Unfreeze returns to *OK*; then the limit is cleared so the row goes back to a bare *OK*. | Enter `BUDGET_HOURS`/`BUDGET_MINUTES` **above** what the account has already used today, otherwise the row says *Exhausted* instead of *OK* and the last check fails. Ends with the limit cleared. |
 | 8 | `08_manual_unlock_round_trip` | The manual **Lock** button on the details page really locks (status flips to `Locked`, Unlock appears), and **Unlock** really unlocks. This is the automated twin of QA_LOCK_UNLOCK items 2–4. | This locks a real account for a few seconds. Point it at `TEST_USER` only. |
+
+Step counts (for review): 01 = 68, 02 = 74, 03 = 127, 04 = 126, 05 = 134,
+06 = 118, 07 = 149, 08 = 136 — **932 steps across 8 cases**.
 
 ### How this maps to the manual list in `QA_LOCK_UNLOCK.md`
 
 | Manual item | Covered by |
 |-------------|-----------|
-| 1. Screen lock | **Not automatable in a browser** — it locks the child's screen on the machine. Use `24_manual_lock` (button + confirm + toast) and confirm the screen by eye. |
+| 1. Screen lock | **Not automatable in a browser** — it locks the child's screen on the machine. Lock the screen by hand and confirm by eye. |
 | 2. Locked account cannot log back in | `08_manual_unlock_round_trip` proves the button path; the PAM/greeter half still needs you at the physical machine. |
-| 3. Manual lock survives bedtime | `24_manual_lock`/`25_manual_unlock` plus `11_verify_account_status` (status text ↔ button). |
-| 4. All lock paths preserve the session | Partly: `24_manual_lock` never uses Emergency logout (`.btn-logout` is only *checked for presence*, never clicked). |
+| 3. Manual lock survives bedtime | `08_manual_unlock_round_trip` plus `11_verify_account_status` (status text ↔ button). |
+| 4. All lock paths preserve the session | Partly: the suite never clicks Emergency logout (`.btn-logout` is only *checked for presence*). |
 | 5. Wheel-admin protection | The app refuses to freeze an admin, so pointing case 7/8 at an admin fails loudly instead of damaging anything. |
 
 ---
 
-## 7. The object repository — one file per flow
+## 7. How the suite is built (flattening + command mapping)
 
-Objects are the reusable pieces the cases assemble. Running order is the file
-name order.
+Katalon Recorder has **no object repository**, so the old 29 reusable objects
+were **flattened**: each case is one `<table>`, with the referenced objects'
+steps expanded in order, and a `#` comment row naming the original object at
+every seam. For example, the start of case 01 is:
 
-| Object | What it does |
-|--------|--------------|
-| `00_setup_reset_session` | Deletes cookies, opens `BASE_URL`, asserts we land on the login page. The safety net: if setup fails, nothing else runs. |
-| `01_set_test_config` | Sets the non-secret per-run context (`TEST_USER`, `TEST_CATEGORY`, `BUDGET_HOURS`, `BUDGET_MINUTES`, `BONUS_HOURS`, `BONUS_MINUTES`, `WRONG_PASSWORD`). |
-| `01b_set_admin_credentials` | Optional helper that sets `ADMIN_USER`/`ADMIN_PASSWORD` from placeholders. Not used by any case — edit it locally if you prefer to store them here. |
-| `02_open_login_page` | Opens `/login`; checks username, password and the *Log in* button. |
-| `03_login_wrong_password` | Types the deliberately wrong password; expects the error banner. |
-| `04_login_good_password` | Logs in and asserts the index page (aborts with a hint if the account must change its password). |
-| `04b_login_tolerate_must_change` | Same login, but accepts either landing on the index or on the change-password page. |
-| `05_logout` | Clicks *Log out* and asserts we are back at the login form. Every case ends here. |
-| `06_change_password_verify_form` | Checks the three password fields, the submit button, and the forced-change banner. |
-| `07_change_password_wrong_current` | Wrong "current" password → *Current password is incorrect.* |
-| `08_change_password_set_new` | Sets the new password (min 12 chars, both boxes) and lands on the index. |
-| `09_navigate_to_index` | Loads `/` and checks the table, the admin panel, the 10-second refresh note and the target's row. |
-| `10_open_user_details` | Clicks *Details* on the target's row and checks every region of the page exists. |
-| `11_verify_account_status` | Cross-checks the status **text** against the status **class** and the Lock/Unlock button that is offered. |
-| `12_verify_process_groups` | Grouped process rows render (or the honest "no processes" message). |
-| `13_expand_group_detail` | Expands a multi-instance group to its PID detail row, then collapses it. |
-| `14_hide_and_show_process` | Hide → *Show hidden* section → Show again (round trip, prefs restored). |
-| `15_verify_budget_rows` | All five categories: limit hours + minutes inputs, used, left and status cells. |
-| `16_budget_set_limit` | Sets the daily limit (hours + minutes) and checks the Freeze button appears. |
-| `17_budget_freeze_toggle` | Freeze → *Frozen* badge + Unfreeze → Unfreeze → *OK*. |
-| `18_budget_clear_limit` | Clears the limit (empty/zero minutes) and asserts the Freeze button is gone. |
-| `19_bonus_verify_status` | Checks the five shortcut buttons and either the active bonus (badge + Revoke) or the "no bonus" line. |
-| `20_bonus_grant_shortcuts` | Clicks each of the five shortcuts, verifying the bonus goes active after each. |
-| `21_bonus_grant_custom` | Fills hours + minutes, accepts the confirm, verifies the grant. |
-| `22_bonus_revoke` | Revokes and verifies the bonus is gone. |
-| `23_auto_refresh_health` | Waits 11 seconds, fails if an error toast is on screen, then re-checks the live regions. |
-| `24_manual_lock` | Clicks *Lock*, accepts the confirm, verifies the locked status and the Unlock button. |
-| `25_manual_unlock` | Clicks *Unlock*, accepts the confirm, verifies the unlocked status and the Lock button. |
-| `90_example_drag_and_drop` | A `dragAndDrop` template, not used by any case — copy it if a future screen needs a drag. |
+```
+#                  == 00_setup_reset_session ==
+deleteAllVisibleCookies
+open               ${BASE_URL}/
+pause              800
+if                 document.getElementById('password') === null
+#                  Setup failed: after clearing cookies, …
+assertElementPresent  css=#password
+endIf
+verifyElementPresent  css=#login …
+```
+
+Two objects from the old repository are **not** in any case and were dropped:
+`01b_set_admin_credentials` (an opt-in helper) and `90_example_drag_and_drop`
+(a `dragAndDrop` template for a future screen). They no longer exist as files.
+
+### Custom step → real Selenese
+
+| Old custom step | Selenese | Note |
+|-----------------|----------|------|
+| `navigate` / `goToUrl` | `open` | target starts with `${BASE_URL}` |
+| `deleteCookies` | `deleteAllVisibleCookies` | **not** `deleteAllCookies` — that command does not exist in Katalon Recorder (`content/selenium-api.js` only defines `doDeleteCookie` and `doDeleteAllVisibleCookies`) |
+| `waitFor` (ms) | `pause` | target is the millisecond count |
+| `verifyElementVisible` | `verifyElementPresent` | presence, not visibility |
+| `input` | `type` | |
+| `click` | `click` | |
+| `setContext` | `store` | target = value, value-column = variable name |
+| `getContext` | `echo` | prints the variable |
+| `if` / `elseIf` / `else` / `endIf` | `if` / `elseIf` / `else` / `endIf` | natively supported |
+| `closeAlert` | `click` on `#pc-confirm [data-pc-dialog-confirm]` | there is no browser alert any more |
+| `abortTest` | a `#` comment carrying the message + the nearest failing assertion (`assertElementPresent` / `assertElementNotPresent`) | there is no `abortTest`/`fail` command |
+| `objectReference` | the object's steps inlined | no object repository |
+| `dragAndDrop` | *unused* | its example object was dropped |
+
+Locators are written as `css=…` (or `xpath=…`), matching Katalon's
+Selenese locator syntax; the ids/classes they name are the ones pinned by
+`UI_UX_PLAN.md` §7.4 and the stdlib tests.
+
+The **destructive-action dialog** is now a native `<dialog>`: after clicking
+Lock / Unlock / Freeze / Unfreeze / Revoke / Grant custom the suite clicks
+`#pc-confirm [data-pc-dialog-confirm]`. `chooseOkOnNextConfirmation`,
+`closeAlert` and `waitForAlert` are gone for good.
 
 ---
 
-## 8. Record your own test (primer)
+## 8. The CI check (no browser needed)
 
-You do not need to edit JSON by hand to add coverage. Record it:
+A stdlib-only unit test keeps the suite honest without running any of it:
 
-1. Open the panel in a tab: <http://localhost:5000>.
+```bash
+.venv/bin/python -m unittest discover -s tests -p 'test_katalon_suite.py' -v
+```
+
+`tests/test_katalon_suite.py` parses the HTML suite and fails when:
+
+- the file is not the Recorder's XHTML suite, or a case is missing/renamed;
+- a command is not a real Selenese command, `if`/`endIf` do not balance, a
+  `pause` is not milliseconds, or an `open` does not come from `${BASE_URL}`;
+- a step still expects a browser alert (`closeAlert` etc.), or a case clicks a
+  destructive action without confirming in `#pc-confirm`;
+- **a locator no longer matches the page** — every `css=` id, class, tag and
+  attribute, plus `xpath=` literals, is looked up in `templates/*.html`
+  (Jinja-templated ids like `#budget-games-hours` resolve against
+  `id="budget-{{ cat }}-hours"`);
+- **an expected string no longer exists** — login/change-password error text,
+  button labels, toast messages, the 10-second refresh note, status words — in
+  `templates/*.html` + `app.py`;
+- a budget category is not in `budgets.py`'s `CATEGORIES`;
+- an object seam names a missing object, a case does not start with the setup or
+  end with the logout, logs in twice, or a state-changing object runs in a smoke
+  case;
+- the suite mentions a protected account, a checkout path, or a literal password
+  instead of a `${VARIABLE}`/placeholder;
+- `katalon/README.md` stops describing the suite (or resurrects the removed
+  object-repository / variables-table workflow that Katalon never had).
+
+That is what makes the suite self-updating: rename an id in `templates/` and CI
+fails immediately, instead of the run failing on the parent's desktop.
+
+---
+
+## 9. Record your own test (primer)
+
+You do not need to edit HTML by hand to add coverage. Record it, then flatten it
+into the file:
+
+1. Open the panel in a tab (`BASE_URL`).
 2. In the Recorder panel press **Record**, then do the thing by hand (log in,
    click around). Do **not** press the Lock/Emergency-logout buttons unless
    `TEST_USER` is really a test account.
 3. Press **Stop**.
 4. Name the recording something like `26_verify_bedtime_summary`, and use
-   *Group steps into object* (the Recorder's object-repository command) so the
-   recording becomes a reusable object rather than a case.
-5. Export that object as JSON (menu → **Export**), drop it into
-   `katalon/objects/`, and commit it.
-6. Create a new test case: start from `00_setup_reset_session`, add your
-   object, end with `05_logout`. Export it into `katalon/test-cases/` and
-   commit it.
-7. Run the CI check (§9). It will tell you if you referenced a missing object,
-   used an object twice, or forgot the logout — and if a selector you picked
-   no longer exists in the page's HTML.
+   **Play from here / Export** to review it.
+5. Save the suite (**`.krecorder`**) and replace `katalon/parental-controls.html`
+   with it (adding your new `<table>` case), or hand-add the new `<table>` in the
+   same shape as the others.
+6. **Open Test Suite** in a fresh session to confirm it loads, then run the CI
+   check (§8). It will tell you if a locator or expected string no longer exists,
+   if the `if`/`endIf`s do not balance, or if the case breaks the setup/logout
+   convention — and it will tell you if you forgot to document the new case in
+   this README.
 
-Rules of thumb for the JSON:
+Rules of thumb:
 
-- Every step carries `type`, and the fields the Recorder exports:
-  `selector` + `parentSelectors` (empty list when not nested) + `value`.
+- One `<table>` per case; the case name lives in the `<thead>` cell.
+- A plain comment is command `#` with the text as the target.
 - Text checks use `glob:` when the exact string has a variable part, e.g.
   `glob:*left*`.
 - Use `${VARIABLE}` for anything that differs per machine, and a `${BASE_URL}`
-  prefix on every `navigate`/`goToUrl` — the CI check enforces both.
+  prefix on every `open`.
 - Never write a real password, a real account name or an absolute path.
-
----
-
-## 9. The CI check (no browser needed)
-
-A stdlib-only unit test keeps the suite honest without running any of it:
-
-```bash
-.venv/bin/python -m unittest discover -s tests -p 'test_katalon_objects.py' -v
-```
-
-`tests/test_katalon_objects.py` parses every JSON file and fails when:
-
-- a file is not valid JSON, or is missing `name` / `steps` / `uuid`;
-- two files share a `uuid`, or a `uuid` is malformed;
-- a step type is unknown or is missing one of its fields;
-- **a selector no longer matches the page** — every `#id`, `.class`, tag and
-  attribute, plus XPath text literals, is looked up in `templates/*.html`
-  (Jinja-templated ids like `#budget-games-hours` resolve against `id="budget-{{ cat }}-hours"`);
-- **an expected string no longer exists** — login/change-password error text,
-  button labels, toast messages, the 10-second refresh note, status words — in
-  `templates/*.html` + `app.py`;
-- a budget category is not in `budgets.py`'s `CATEGORIES`;
-- a test case calls a missing object, calls it with a stale `uuid`, does not
-  start with the setup object, does not end with the logout, or logs in twice;
-- an object is never used (except the two documented helpers);
-- a smoke case runs a state-changing object (lock/unlock/freeze/grant only run
-  in the case that exists for them);
-- the JSON mentions a protected account, a home/checkout path, or a literal
-  password instead of a `${VARIABLE}`/placeholder;
-- this README stops describing the suite.
-
-That is what makes the suite self-updating: rename an id in `templates/` and CI
-fails immediately, instead of the run failing on the parent's desktop.
+- Anything you cannot check by reading the DOM (a toast that has already
+  auto-hidden, a native OS prompt) is **verify on the live box**, not a claim in
+  the suite.
 
 ---
 
@@ -321,12 +380,29 @@ fails immediately, instead of the run failing on the parent's desktop.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| The run navigates to a blank or odd URL | `BASE_URL` is not set (or is set in a different place than you think). Set it in **Variables**. |
-| Every step fails with "element not found" | You are on `/login` when the case expected `/user/…`, usually because the login object was skipped. Always run a whole case. |
+| **Open Test Suite** shows nothing after you pick the file | The file name does not contain `.html` or `.krecorder`. Rename it and try again — the loader ignores anything else. |
+| The run navigates to a blank or odd URL | `BASE_URL` is not set (or the profile is not applied — right-click the profile → **Use this in a test case**). |
+| Certificate error / the page never loads | The live box's cert is self-signed; accept it once in a normal tab first, then re-run. |
+| Every step fails with "element not found" | You are on `/login` when the case expected `/user/…`, usually because the login steps were skipped. Always run a whole case. |
+| Case fails at `#row-${TEST_USER}` or `/user/…` | `TEST_USER` is unset or is not a real account. Set it in Profiles. |
 | Login case fails with *Too many failed attempts* | Backoff after repeated failures. Wait a few minutes before re-running. |
 | Change-password case does nothing | That admin already changed its password (the flag is one-shot). Create a fresh admin row to re-test. |
-| Expand step aborts | The test account has no app running twice. Open two windows of the same app. |
+| Expand step fails at the guard | The test account has no app running twice. Open two windows of the same app. |
 | Budget case ends at *Exhausted* | `BUDGET_HOURS`/`BUDGET_MINUTES` is below what the account already used today. |
-| Recorder version has different field names | Recorder renamed some step fields between major versions. Export one of your own objects, compare, and rename in your imported copy (or export the suite back to JSON and commit that). |
-| A check on toast text passes when it should not | Toasts keep their last text for a few seconds after hiding. The cases check toasts right after the click, but a red toast from an earlier step could linger — look at the actual page if a toast check surprises you. |
-| A step stops right after a Lock / Unlock / bonus / log-out click | Since the UI redesign the destructive actions confirm in a native `<dialog>` (a visible **Confirm** button, no browser alert), and **Log out** moved into the **Account** menu. Update the recorded step (open the menu / click **Confirm**) and re-export it (§8). |
+| A step stops right after a Lock / Unlock / bonus / log-out click | There is no browser alert any more: the destructive actions confirm in the native `<dialog>`, and **Log out** moved into the **Account** menu. The suite already clicks **Confirm** / opens the menu; if you recorded your own step, add the same clicks. |
+| A check on toast text passes when it should not | Toasts keep their last text for a few seconds after hiding and success toasts auto-remove after 6s. The cases check toasts right after the click, but a red toast from an earlier step could linger — look at the actual page if a toast check surprises you. |
+
+### What has *not* been verified
+
+There is **no browser and no Katalon Recorder extension in this environment**, so
+the suite has only been validated **statically** (the §8 checks) and by
+inspection against the templates. Nobody has pressed Play against the live box.
+Specifically **verify on the live box**:
+
+- that the file imports cleanly ("Open Test Suite" → 8 cases, no
+  "Unknown command" in the log);
+- that clicking the app-bar **Account menu** summary then **Log out** really
+  logs out;
+- that the `#pc-confirm` **Confirm** click lands after Lock/Unlock/Freeze/
+  Revoke/Grant custom (and that the little `pause` before it is enough);
+- that `deleteAllVisibleCookies` clears the session on the HTTPS origin.

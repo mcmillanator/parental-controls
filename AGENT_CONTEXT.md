@@ -90,8 +90,10 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests
 ```
 All scratch stays **inside** the worktree (`.scratch/` is gitignored); never
-`/tmp`. Last known: **1247 tests, OK, 14 skips**. `tests/test_katalon_objects.py`
-is the selector contract — keep it green and avoid changing `katalon/objects/*`.
+`/tmp`. Last known: **1247 tests, OK, 14 skips**. The Katalon selector contract
+is `tests/test_katalon_suite.py` over `katalon/parental-controls.html` (a
+Selenium-IDE HTML suite) — keep it green and avoid changing that file's pinned
+ids/classes/text.
 
 There is **no browser installed**. A Playwright screenshot harness was used for
 the design work and was deleted with its worktree; to rebuild it in `.scratch/`:
@@ -131,7 +133,10 @@ user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
   which run the same cores as the `/api/*` twins, flash and redirect (PRG); JS
   only adds the confirm dialog. `#admin-add` / `#new-admin-username` stay
   visible for every admin because Katalon asserts them on `/` (the endpoint
-  refuses non-wheel actors server-side). Two live-box checks: the new
+  refuses non-wheel actors server-side). **Resolved:** the owner confirmed the
+  Katalon `ADMIN_USER` is an **app-only** admin (not a wheel account), which is
+  exactly why the Overview admin add-form has to render for every admin rather
+  than only for wheel actors. Two live-box checks: the new
   `app.secret_key` (per-process random, `PARENTAL_SECRET_KEY` overridable) makes
   Flask's `session` cookie appear alongside `pc_sid`, and the one-time admin
   password rides in that signed (not encrypted) cookie until the redirect
@@ -178,7 +183,7 @@ Do **not** push to `origin` from either side without the owner's say-so.
   error at baseline, all environment-bound: `test_deployment`,
   `test_multidevice_install`, `test_session_agent`, `test_budgets`,
   `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
-  set plus `test_katalon_objects`, `test_ui_a11y`, `test_ui_assets`.
+  set plus `test_katalon_suite`, `test_ui_a11y`, `test_ui_assets`.
 - The VM is the authoritative environment: **1278 tests, OK, 14 skips** at
   `25342c6` (Python 3.14.8, live PAM/usermod included). Run it there with
   `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
@@ -211,6 +216,6 @@ danger flash; non-wheel add-admin refused; missing-CSRF 403).
 `GET /` → 302, health probe OK; proceedings documented in the
 `parental-controls-deploy` skill). **Not pushed** to `origin`. All three feature
 worktrees and branches are deleted; nothing is in flight. Pending the owner:
-push, confirm the Katalon `ADMIN_USER` is wheel or app-only, and decide the
-no-JS scope question above. Still unverified (needs a browser): the no-JS toggle
+push and decide the no-JS scope question above. (The Katalon `ADMIN_USER`
+question is resolved: it is an app-only admin.) Still unverified (needs a browser): the no-JS toggle
 in a real browser and the 236px tablet sidebar at 768–959px.
