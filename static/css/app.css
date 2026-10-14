@@ -1817,7 +1817,12 @@ body.pc-body--auth {
    the brand, the "Selected machine" card and the 5-section nav; S5/S6 widen
    it to 280px for desktop. The top bar therefore keeps only the account /
    theme / Help cluster (right-aligned, plain, no pill chrome) and the product
-   brand moves into the sidebar so it is never duplicated. */
+   brand moves into the sidebar so it is never duplicated.
+
+   The width itself is the `--sidebar-w` token, set by the two scoped bands at
+   the foot of this section (tablet 768–959.98px → 236px, desktop ≥960px →
+   280px), so the tablet sizing is a stated decision rather than something
+   inferred from this open-ended ≥768px shell rule. */
 @media (min-width: 768px) {
   .pc-sidebar {
     display: flex;
@@ -1826,13 +1831,13 @@ body.pc-body--auth {
     top: var(--nav-h);
     bottom: 0;
     left: 0;
-    width: 236px;
+    width: var(--sidebar-w);
     overflow-y: auto;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--border);
   }
   .pc-layout__main {
-    margin-left: 236px;
+    margin-left: var(--sidebar-w);
   }
   .pc-appbar__nav {
     display: none; /* the sidebar owns the 5-section nav from tablet up */
@@ -1860,12 +1865,20 @@ body.pc-body--auth {
   }
 }
 
-@media (min-width: 960px) {
-  .pc-sidebar {
-    width: 280px;
+/* Tablet band — the canvas S3/S4 tablet screens pin the sidebar at 236px and
+   fit the brand row + 5-section nav as drawn, so no nav/brand override is
+   needed. Stated as its own band so the tablet sizing is an intentional
+   decision, not a side-effect of the open-ended ≥768px rule above. */
+@media (min-width: 768px) and (max-width: 959.98px) {
+  :root {
+    --sidebar-w: 236px;
   }
-  .pc-layout__main {
-    margin-left: 280px;
+}
+
+/* Desktop band — the canvas S5/S6 desktop screens widen the sidebar to 280px. */
+@media (min-width: 960px) {
+  :root {
+    --sidebar-w: 280px;
   }
 }
 .pc-body--auth .pc-sidebar {

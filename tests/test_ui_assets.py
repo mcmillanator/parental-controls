@@ -741,5 +741,81 @@ class KatalonContractTest(unittest.TestCase):
                               'pinned text %r vanished' % text)
 
 
+class TabletSidebarBandTest(unittest.TestCase):
+    """The 768–959.98px tablet band pins the sidebar sizing explicitly.
+
+    Deferred item: "Tablet (768–959) sidebar sizing is inferred from S3/S4, not
+    specified." The canvas S3/S4 tablet screens show a 236px sidebar; that
+    width used to fall out of the open-ended ``@media (min-width: 768px)`` shell
+    rule and the ``@media (min-width: 960px)`` desktop override. It is now a
+    stated decision: a scoped ``@media (min-width: 768px) and (max-width:
+    959.98px)`` band sets the ``--sidebar-w`` token to 236px, the desktop band
+    sets it to 280px, and both the sidebar and the main column read the token
+    (no hardcoded pixel width left). No browser, no Flask.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.css = read(APP_CSS)
+
+    def _media_block(self, prelude):
+        """Body of the ``@media`` block whose prelude matches *prelude*.
+
+        Whitespace-normalised comparison, and a brace count so nested rules are
+        included. ``self.fail`` keeps the message useful when a band is renamed.
+        """
+        wanted = ' '.join(prelude.split())
+        for match in re.finditer(r'@media\s*([^{]+)\{', self.css):
+            if ' '.join(match.group(1).split()) != wanted:
+                continue
+            depth, i = 1, match.end()
+            start = i
+            while i < len(self.css) and depth:
+                if self.css[i] == '{':
+                    depth += 1
+                elif self.css[i] == '}':
+                    depth -= 1
+                i += 1
+            return self.css[start:i - 1]
+        self.fail('no @media block with prelude %r' % wanted)
+
+    def _bodies(self, selector):
+        """Every rule body for *selector* at the start of a line."""
+        return re.findall(r'(?ms)^\s*' + selector + r'\s*\{([^}]*)\}', self.css)
+
+    def _normalise(self, text):
+        return ' '.join(text.split())
+
+    def test_tablet_band_is_scoped_and_pins_236px(self):
+        body = self._normalise(self._media_block(
+            '(min-width: 768px) and (max-width: 959.98px)'))
+        self.assertIn('--sidebar-w: 236px', body,
+                      'tablet band must pin the canvas S3/S4 236px sidebar')
+
+    def test_desktop_band_widens_to_280px(self):
+        body = self._normalise(self._media_block('(min-width: 960px)'))
+        self.assertIn('--sidebar-w: 280px', body,
+                      'desktop band must widen the sidebar to 280px')
+
+    def test_sidebar_and_main_column_read_the_token(self):
+        side = ' '.join(b for b in self._bodies(r'\.pc-sidebar') if 'width' in b)
+        self.assertIn('width: var(--sidebar-w)', self._normalise(side),
+                      'sidebar width must come from --sidebar-w')
+        main = ' '.join(b for b in self._bodies(r'\.pc-layout__main')
+                        if 'margin-left' in b)
+        self.assertIn('margin-left: var(--sidebar-w)', self._normalise(main),
+                      'main-column offset must come from --sidebar-w')
+
+    def test_no_hardcoded_sidebar_width_remains(self):
+        for body in self._bodies(r'\.pc-sidebar'):
+            with self.subTest(rule='.pc-sidebar'):
+                self.assertNotRegex(body, r'width:\s*(?:236|280)px',
+                                    'sidebar width must be the --sidebar-w token')
+        for body in self._bodies(r'\.pc-layout__main'):
+            with self.subTest(rule='.pc-layout__main'):
+                self.assertNotRegex(body, r'margin-left:\s*(?:236|280)px',
+                                    'main offset must be the --sidebar-w token')
+
+
 if __name__ == '__main__':
     unittest.main()

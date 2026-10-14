@@ -131,7 +131,8 @@ user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
 - Honest placeholders: "1 active session" and specimen values are illustrative;
   per-account "using 1h 42m today" isn't in the payload; notification lead-time,
   the HTTPS toggle and multi-device are disabled.
-- Tablet (768–959) sidebar sizing is inferred from S3/S4, not specified.
+- Tablet (768–959) sidebar sizing is **resolved** — `app.css` pins the tablet
+  band to `--sidebar-w: 236px` (canvas S3/S4); see `UI_UX_PLAN.md` §11.9.
 - Multi-device implementation is parked (owner: not soon). The session agent is
   installed per child only with `--session-user`; the remote agent needs
   `--enable-agent`.
