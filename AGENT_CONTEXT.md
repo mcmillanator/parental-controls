@@ -198,12 +198,19 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `25342c6`, holding three merges on top of `3af46f0`: the tablet-band
+`master` = `80a99fd`, holding three merges on top of `3af46f0`: the tablet-band
 sidebar token, the row-launched Processes override dialog and the Overview
 no-JS POST forms. Verified on the VM: full suite **1278 tests, OK, 14 skips**,
 and the no-JS Overview path over real HTTP (`POST /overview/lock` → 302 →
-danger flash; non-wheel add-admin refused; missing-CSRF 403). **Not pushed and
-not deployed** — the live panel still serves the pre-merge code. All three
-feature worktrees and branches are deleted; nothing is in flight. Pending the
-owner: push + `sudo ./install.sh`, confirm the Katalon `ADMIN_USER` is wheel or
-app-only, and decide the no-JS scope question above.
+danger flash; non-wheel add-admin refused; missing-CSRF 403).
+
+**Deployed on the live box** on 2026-10-14 with
+`sudo ./install.sh --port 5000 --bind 192.168.122.201 --tls --open-firewall`
+(LAN HTTPS; self-signed cert fingerprint
+`5A:06:42:8E:A4:38:EA:2E:63:1B:F4:CD:AD:C9:50:A4:7A:B0:91:29:A5:44:64:51:58:F3:CB:1C:AF:B8:74:72`;
+`GET /` → 302, health probe OK; proceedings documented in the
+`parental-controls-deploy` skill). **Not pushed** to `origin`. All three feature
+worktrees and branches are deleted; nothing is in flight. Pending the owner:
+push, confirm the Katalon `ADMIN_USER` is wheel or app-only, and decide the
+no-JS scope question above. Still unverified (needs a browser): the no-JS toggle
+in a real browser and the 236px tablet sidebar at 768–959px.
