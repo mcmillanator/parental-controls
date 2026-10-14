@@ -37,8 +37,25 @@ def _load():
 
 
 def _save(store):
+    path = auth.auth_file_path()
     try:
-        auth.save_store(store)
+        # The CLI is root-only, and it is *the* thing that ran on
+        # 2026-10-14 and left /etc/parental-controls/auth.json as
+        # root:root 0600, after which the service failed closed on every
+        # request. So here we do not merely preserve the current owner: we
+        # hand the store to the state directory's owner, which install.sh
+        # sets (and renders the unit's User= from) to the service user.
+        # Inheriting it repairs a store an earlier run mis-owned, instead
+        # of faithfully preserving the breakage.
+        #
+        # A root-owned state directory means install.sh's ownership
+        # migration never ran, so we cannot derive the service user from
+        # it: leave the store with the owner it already has rather than
+        # guessing and possibly locking the service out.
+        owner = auth.state_dir_owner(path)
+        if owner is not None and owner[0] == 0:
+            owner = None
+        auth.save_store(store, path, owner=owner)
     except auth.AuthStoreError as e:
         print(f'ERROR: {e}', file=sys.stderr)
         raise SystemExit(1)

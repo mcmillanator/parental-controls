@@ -6,11 +6,13 @@ and mocked wheel membership — no real users, locks, or sessions touched.
 The only real crypto is argon2 hashing (placeholders, never real secrets).
 """
 
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -405,6 +407,95 @@ class TestStoreFailClosed(unittest.TestCase):
         self.assertEqual(oct(os.stat(path).st_mode & 0o777), '0o600')
 
 
+# ---------------------------------------------------------------------------
+# Ownership across the atomic replace.
+#
+# Regression (live, 2026-10-14): the root-only recovery CLI rewrote the store
+# and left /etc/parental-controls/auth.json as root:root 0600. The service
+# (user `parental-controls`) then could not read it and answered *every*
+# request with HTTP 500 "Authentication unavailable" -- nobody could log in
+# until the file was chowned back by hand.
+# ---------------------------------------------------------------------------
+
+# Unprivileged account borrowed by the chown-based tests. `nobody` exists on
+# the target box and in the container and owns nothing of ours: only files
+# inside a test-private temp dir are ever re-owned.
+_FOREIGN_UID = 65534
+_FOREIGN_GID = 65534
+
+
+def _owner_of(path):
+    st = os.stat(path)
+    return (st.st_uid, st.st_gid)
+
+
+class TestStoreOwnership(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, 'auth.json')
+
+    def test_existing_owner_is_kept(self):
+        """The atomic replace must not change who owns the file."""
+        auth.save_store(auth.blank_store(), self.path)
+        before = _owner_of(self.path)
+        auth.save_store({'users': {}}, self.path)
+        self.assertEqual(_owner_of(self.path), before)
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), '0o600')
+
+    def test_failed_chown_warns_but_never_loses_the_write(self):
+        """Best effort: a chown we cannot make must not block the write (the
+        recovery CLI is the escape hatch), but it must not be silent either
+        -- a store the service cannot read fails closed on every request."""
+        err = io.StringIO()
+        with mock.patch.object(auth.os, 'chown',
+                               side_effect=PermissionError(1, 'not permitted')):
+            with redirect_stderr(err):
+                auth.save_store(auth.blank_store(), self.path,
+                                owner=(_FOREIGN_UID, _FOREIGN_GID))
+        with open(self.path) as f:
+            self.assertEqual(json.load(f), {'users': {}})
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), '0o600')
+        self.assertIn('AUTH WARNING', err.getvalue())
+        self.assertIn(self.path, err.getvalue())
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_foreign_owner_survives_the_replace(self):
+        """A store already owned by someone else keeps that owner."""
+        auth.save_store(auth.blank_store(), self.path)
+        os.chown(self.path, _FOREIGN_UID, _FOREIGN_GID)
+        auth.save_store({'users': {'boss': _row('h')}}, self.path)
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_new_store_inherits_state_dir_owner(self):
+        """A root-created store (first `add-admin` on a fresh box) lands
+        owned by the state directory's owner -- the service user, as
+        install.sh chowns /etc/parental-controls -- not by root."""
+        os.chown(self.tmp.name, _FOREIGN_UID, _FOREIGN_GID)
+        auth.save_store(auth.blank_store(), self.path)
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), '0o600')
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_explicit_owner_wins(self):
+        """A caller that knows the intended owner (the root-only CLI) can
+        hand the store over instead of preserving a mis-owner."""
+        auth.save_store(auth.blank_store(), self.path)
+        auth.save_store(auth.blank_store(), self.path,
+                        owner=(_FOREIGN_UID, _FOREIGN_GID))
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_root_owned_state_dir_does_not_guess(self):
+        """No install.sh ownership migration: don't invent an owner."""
+        auth.save_store(auth.blank_store(), self.path)
+        self.assertEqual(_owner_of(self.path), (0, 0))
+        os.chown(self.path, _FOREIGN_UID, _FOREIGN_GID)
+        auth.save_store(auth.blank_store(), self.path)
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
+
+
 class TestCli(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -479,6 +570,53 @@ class TestCli(unittest.TestCase):
                     self.cli.cmd_add_admin(argparse_ns('fresh'))
         with open(self.auth_path) as f:
             self.assertEqual(f.read(), 'garbage')
+
+
+class TestCliStoreOwnership(unittest.TestCase):
+    """The root-only recovery CLI must leave the store readable by the
+    service user even when it finds it mis-owned (2026-10-14 regression)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, 'auth.json')
+        os.environ['PARENTAL_CONTROLS_AUTH'] = self.path
+        self.addCleanup(os.environ.pop, 'PARENTAL_CONTROLS_AUTH', None)
+        # Keep the audit chain out of the checkout.
+        os.environ['PARENTAL_CONTROLS_AUDIT'] = os.path.join(
+            self.tmp.name, 'audit.jsonl')
+        self.addCleanup(os.environ.pop, 'PARENTAL_CONTROLS_AUDIT', None)
+        import cli
+        self.cli = cli
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_cli_repairs_a_root_owned_store(self):
+        """Replay the outage: the state dir belongs to the service user and
+        the store is the root-owned wreckage of an earlier CLI run. After
+        the CLI writes again the store must belong to the service user."""
+        store = {'users': {
+            'boss': _row(auth.hash_password('Boss-Test-Pass-123'))}}
+        auth.save_store(store, self.path)
+        os.chown(self.tmp.name, _FOREIGN_UID, _FOREIGN_GID)
+        os.chown(self.path, 0, 0)
+        with mock.patch.object(auth, 'is_wheel_member', return_value=False):
+            self.cli.cmd_lock_admin(argparse_ns('boss', field='admin'))
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
+        self.assertTrue(auth.load_store(self.path)['users']['boss']['locked'])
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), '0o600')
+
+    @unittest.skipUnless(os.geteuid() == 0, 'needs root to chown')
+    def test_cli_keeps_owner_when_state_dir_is_root_owned(self):
+        """A root-owned state dir means install.sh's ownership migration
+        never ran, so the service user cannot be derived from it: the CLI
+        must keep the store's working owner, not force root onto it."""
+        store = {'users': {
+            'boss': _row(auth.hash_password('Boss-Test-Pass-123'))}}
+        auth.save_store(store, self.path)
+        os.chown(self.path, _FOREIGN_UID, _FOREIGN_GID)
+        with mock.patch.object(auth, 'is_wheel_member', return_value=False):
+            self.cli.cmd_lock_admin(argparse_ns('boss', field='admin'))
+        self.assertEqual(_owner_of(self.path), (_FOREIGN_UID, _FOREIGN_GID))
 
 
 class _NS:
