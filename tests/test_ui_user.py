@@ -37,7 +37,7 @@ TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
 # A jsdelivr/Bootstrap CDN <link> is exactly the failure this guards against.
 EXTERNAL_ASSET = re.compile(r'''(?:href|src)\s*=\s*["']https?://''', re.I)
 
-# UI_UX_PLAN.md §7.4 + tests/test_katalon_objects.py + the stdlib suite.
+# UI_UX_PLAN.md §7.4 + tests/test_katalon_suite.py + the stdlib suite.
 PINNED_IDS = (
     'account-status', 'account-status-text', 'account-badges',
     'account-actions', 'bonus-status', 'bonus-hours', 'bonus-minutes',

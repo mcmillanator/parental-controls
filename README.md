@@ -360,9 +360,9 @@ Notes:
 - They're slow on purpose (every live test locks/unlocks the throwaway account
   through the real stack).
 - Browser-level QA is a separate, self-contained Katalon Recorder suite — see
-  `katalon/README.md`. Its JSON is validated in CI by
-  `tests/test_katalon_objects.py`, which pins every selector and expected
-  string against `templates/` and `app.py`.
+  `katalon/README.md`. Its Selenium-IDE HTML (`katalon/parental-controls.html`)
+  is validated in CI by `tests/test_katalon_suite.py`, which pins every locator
+  and expected string against `templates/` and `app.py`.
 
 ## License
 

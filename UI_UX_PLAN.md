@@ -32,8 +32,9 @@ Three words drive every decision below: **glanceable, thumb-friendly, offline-sa
 
 Ground truth read in full: `templates/{login,change_password,index,user,admin_audit,_insecure_banner}.html`,
 `app.py` (routing/auth/CSRF/refresh), `budgets.py` (category + status model),
-`tests/test_katalon_objects.py` and `katalon/{objects,test-cases}` (the pinned
-selector/expected-text contract), `PLAN.md`, `README.md`. Constraints honored:
+`tests/test_katalon_suite.py` and `katalon/parental-controls.html` (the pinned
+selector/expected-text contract — a Selenium-IDE HTML suite since the Katalon
+object/JSON files proved un-importable), `PLAN.md`, `README.md`. Constraints honored:
 Flask + Jinja + vanilla JS + Bootstrap, **no build step / no SPA / no bundler**,
 stdlib-only tests, fail-closed, localhost-first, TLS opt-in, children never
 authenticate.
@@ -688,11 +689,15 @@ stale/last-updated, reduced-motion, light-theme tokens, update `README.md`
 (assets note) and add a row for `UI_UX_PLAN.md` to `PLAN.md`'s Files table.
 
 **Phase 6 — QA suite reconciliation. — ✅ done (`feature/ui-docs`, docs + QA
-assets only).** Ran `tests/test_katalon_objects.py` after the full redesign:
-**green, zero selector changes** (the validator corpus now also covers
+assets only).** Ran the Katalon validator after the full redesign: **green,
+zero selector changes** (the validator corpus now also covers
 `templates/_partials/`, so a selector that moved into the shell — e.g. `#toast`
-— still resolves). No `katalon/objects` selector needed updating;
-`katalon/README.md` gained the new navigation instructions.
+— still resolves). No selector needed updating; `katalon/README.md` gained the
+new navigation instructions. *Later (`feature/katalon-selenese-html`) the
+validator was renamed to `tests/test_katalon_suite.py` and the suite was
+regenerated as one Selenium-IDE HTML file, `katalon/parental-controls.html`,
+with the old `katalon/{objects,test-cases}` JSON removed (Katalon Recorder
+cannot import it); the pinned inventory below is unchanged.*
 
 ### 7.2 File-level change list
 
@@ -710,7 +715,7 @@ assets only).** Ran `tests/test_katalon_objects.py` after the full redesign:
 | `templates/login.html`, `change_password.html` | edit — auth shell + inline errors + tokens |
 | `tests/test_ui_assets.py` | **new** |
 | `tests/test_durations.py`, `test_time12h.py`, `test_process_grouping.py`, `test_overrides.py`, `test_admin_console.py`, `test_auto_hide_names.py`, `test_freeze_buttons.py` | edit **only if** a pinned literal moves (§7.4) |
-| `katalon/objects/*`, `katalon/README.md` | edit **only if** a selector must change |
+| `katalon/parental-controls.html`, `katalon/README.md` | edit **only if** a selector must change |
 | `README.md`, `PLAN.md` | docs — assets note + Files-table row |
 
 **No** changes to `app.py` routes/contracts, `budgets.py`, `install.sh`,
@@ -740,7 +745,8 @@ The suite is stdlib `unittest`; several tests assert **exact markup substrings**
   `data-group-comm="firefox"`, `data-comm="firefox" onclick="hideGroup(this)">`.
 - `test_freeze_buttons.py`: `data-group-comm="steam"`.
 - `test_admin_console.py`: `id="admin-add"` conditional presence by tier.
-- `test_katalon_objects.py`: the whole selector/expected-text validator.
+- `test_katalon_suite.py`: the whole selector/expected-text validator (parses
+  `katalon/parental-controls.html`).
 
 Strategy: implement in base + CSS + additive wrappers; where markup must be
 reordered, keep the exact substrings and attributes intact. Run
@@ -748,9 +754,10 @@ reordered, keep the exact substrings and attributes intact. Run
 
 ### 7.4 Selector / contract compatibility (Katalon)
 
-The validator (`tests/test_katalon_objects.py`) resolves every selector against
-`templates/` (and expected text against templates + `app.py`). **Target: change
-zero selectors.** Pinned inventory the redesign must keep literally present:
+The validator (`tests/test_katalon_suite.py`, over `katalon/parental-controls.html`)
+resolves every locator against `templates/` (and expected text against templates
++ `app.py`). **Target: change zero selectors.** Pinned inventory the redesign
+must keep literally present:
 
 - ids: `#username #password #current #new #confirm #row-<user> #row-<user>
   .btn-details #admin-panel #admin-list #new-admin-username #toast`
@@ -788,7 +795,8 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
   styles defined in `app.css`.
 - Update the markup-substring tests **only** where Phase 2–4 legitimately move
   a literal, keeping the assertion (not deleting it).
-- Katalon: no object change expected; if any, update object JSON **and**
+- Katalon: no selector change expected; if any, edit
+  `katalon/parental-controls.html` (the flattened HTML suite) **and**
   `katalon/README.md`, then rerun the validator.
 
 ### 7.6 Manual QA / device matrix
@@ -829,7 +837,7 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
 
 > Ticked where the in-tree tests cover it (`test_ui_assets.py`,
 > `test_ui_user.py`, `test_ui_admin.py`, `test_ui_a11y.py`,
-> `test_katalon_objects.py`). The unchecked items are the **manual** device /
+> `test_katalon_suite.py`). The unchecked items are the **manual** device /
 > browser passes the owner runs on the live box (§7.6).
 
 - [x] No template references an external `http(s)://` asset; Bootstrap + CSS are local.
@@ -840,7 +848,7 @@ Note the validator is prefix-lenient for templated ids (`budget-` matches
 - [x] Destructive actions confirmed via `<dialog>`; locked/danger paths unchanged in behaviour.
 - [x] Empty / loading (skeleton) / error / stale states exist on Home, user, audit.
 - [x] `<html lang>`, skip link, focus-visible ring, `aria-live` toast, reduced-motion honored.
-- [x] `tests/test_katalon_objects.py` green with **zero** selector changes.
+- [x] `tests/test_katalon_suite.py` green with **zero** selector changes.
 - [x] Full stdlib suite green; new `test_ui_assets.py` + `test_ui_a11y.py` pass.
 - [ ] Keyboard-only, 200 % zoom, light/dark, and network-off manual passes done.
 - [x] `README.md` assets note + `PLAN.md` Files row updated.
@@ -925,7 +933,7 @@ comes from a shared macro were updated: `test_ui_shell` (sidebar/appbar/tabbar
 (`test_appbar_and_tabbar_mark_the_active_destination`), and
 `test_ui_settings` (`test_placeholders_are_disabled` → `pc_toggle(...)`, with a
 new rendered disabled-attribute check). New `tests/test_ui_macros.py` guards
-the macro library and its adoption. **Zero** `katalon/objects/*` changes.
+the macro library and its adoption. **Zero** `katalon/parental-controls.html` changes.
 
 The §11.6 QA pass re-sampled the palette, so two tests that pinned the old
 *cool* hexes were updated (values only, no selector change):
@@ -944,7 +952,7 @@ themes) were **not** weakened — they still pass on the new palette.
 
 Full stdlib suite green via
 `TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`
-(1238 tests, 14 skips); `tests/test_katalon_objects.py` green. The manual
+(1238 tests, 14 skips); `tests/test_katalon_suite.py` green. The manual
 device/browser passes (§7.6) remain the owner's to run on the live box.
 
 ### 11.6 Canvas QA pass — palette re-sample + desktop elements
@@ -1014,7 +1022,7 @@ content is untouched.
   `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`/`.btn-logout`, `status-*`,
   `pc-status--*`, `.refresh-info`, `#admin-panel`, `#admin-list`,
   `#new-admin-username`, `#device-selector`, `#accounts`, `.pc-account`,
-  `data-label`, …) is preserved; **zero** `katalon/objects/*` changes.
+  `data-label`, …) is preserved; **zero** `katalon/parental-controls.html` changes.
 - **Test changes** (only the guards that pinned the phone-first Overview):
   `tests/test_ui_shell.py` (shared-shell render check; the tab-bar-in-layout
   regression retargeted to `.pc-layout`; the CSS guards now assert the
@@ -1095,7 +1103,7 @@ implementation aside, the override trigger + freeze dialog),
 `tests/test_ui_settings.py` (`test_annotation_sections`),
 `tests/test_ui_user.py` (state specimen + implementation annotation),
 `tests/test_ui_processes.py` (state cards + freeze dialog). **Zero**
-`katalon/objects/*` changes: the fixture ids were never in the Katalon
+`katalon/parental-controls.html` changes: the fixture ids were never in the Katalon
 contract, only in the stdlib suite, and they still resolve behind `?preview=1`.
 
 ### 11.9 Tablet-band sidebar sizing (pinned)
