@@ -159,31 +159,51 @@ user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
   `feature/freezer-watchdog`, `feature/mvp-auth`. `research/process-filtering`
   has a live worktree.
 
-## Agent container vs the live box
+## Agent container vs the live box (two separate checkouts)
 
-When the repo is worked on from the OpenCode container it is mounted at
-`/mnt/Documents/Projects/bazzite-parental-controls-2`, while the live box sees
-`/var/home/stan/Documents/Projects/bazzite-parental-controls-2`. The worktree
-`.git` pointers are therefore kept **relative** so `git` works in both views;
-the admin `gitdir` files under `.git/worktrees/*/gitdir` are absolute, so
-**never run `git worktree prune`** — it would drop the metadata for whichever
-worktree path that view cannot see.
+There are **two separate checkouts** of this repo — it is not a bind mount:
 
-The container has **Python 3.13.5** (no 3.14) and no `sudo`, `pexpect` or
-browser, so a full `discover` run is *not* green there: ~109 failures + 1 error
-at baseline, all environment-bound (`test_deployment`, `test_multidevice_install`,
-`test_session_agent`, `test_budgets`, `test_lock_usermod_real`). The container's
-green signal is the `test_ui_*` set plus `test_katalon_objects`, `test_ui_a11y`
-and `test_ui_assets`. Rebuild the venv with
-`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`; the
-"1247 tests, OK" figure in *Verifying work* is the **live box**, not the
-container.
+| Where | Path | Notes |
+|---|---|---|
+| OpenCode container | `/mnt/Documents/Projects/bazzite-parental-controls-2` | its own repo + `.venv`; Python **3.13.5**; no `sudo`, `pexpect` or browser |
+| The original VM | `stan@opencode-vm:/var/home/stan/Documents/Projects/bazzite-parental-controls-2` | separate repo + worktrees; its own `.venv` on Python **3.14.8**; passwordless `sudo`; `pcagent`/`pcverify` present; **no browser** |
+
+SSH to the VM works (`ssh stan@opencode-vm`). Sync with a bundle (no remote-side
+ref churn): on the container `git bundle create .scratch/w.bundle <old>..master`
+then `scp` it over, and on the VM
+`git -C master fetch <bundle> master && git -C master merge --ff-only FETCH_HEAD`.
+Do **not** push to `origin` from either side without the owner's say-so.
+
+- A full `discover` run is **not** green in the container (~109 failures + 1
+  error at baseline, all environment-bound: `test_deployment`,
+  `test_multidevice_install`, `test_session_agent`, `test_budgets`,
+  `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
+  set plus `test_katalon_objects`, `test_ui_a11y`, `test_ui_assets`.
+- The VM is the authoritative environment: **1278 tests, OK, 14 skips** at
+  `25342c6` (Python 3.14.8, live PAM/usermod included). Run it there with
+  `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
+- Each side's worktree `.git` pointers are kept **relative** so `git` works
+  regardless of mount path; the admin `gitdir` files under
+  `.git/worktrees/*/gitdir` are absolute, so **never run `git worktree prune`**
+  — it would drop the metadata for whichever worktree path that view cannot see.
+
+**Never boot `app.py` on the live box.** `app.py`'s `__main__` starts
+`bedtime_loop` (bedtime enforcement + `budgets.tick_budgets`), which reads the
+checkout's `bedtime.json`/`budgets.json` and can lock accounts and thaw
+`parental-*` cgroups — its watchdog thaws a frozen group it sees no paused
+budget for. Production separates the two: `parental-controls.service` runs
+`waitress-serve wsgi:application` (loop-free) and
+`parental-controls-enforce.timer` runs the loop. Any throwaway/preview instance
+must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `bb170b4`, holding three merges on top of `3af46f0`: the tablet-band
+`master` = `25342c6`, holding three merges on top of `3af46f0`: the tablet-band
 sidebar token, the row-launched Processes override dialog and the Overview
-no-JS POST forms. **Not pushed and not deployed** — the live box still runs
-`3af46f0`. All three feature worktrees and branches are deleted; nothing is in
-flight. Pending the owner: push + `sudo ./install.sh`, confirm the Katalon
-`ADMIN_USER` is wheel or app-only, and decide the no-JS scope question above.
+no-JS POST forms. Verified on the VM: full suite **1278 tests, OK, 14 skips**,
+and the no-JS Overview path over real HTTP (`POST /overview/lock` → 302 →
+danger flash; non-wheel add-admin refused; missing-CSRF 403). **Not pushed and
+not deployed** — the live panel still serves the pre-merge code. All three
+feature worktrees and branches are deleted; nothing is in flight. Pending the
+owner: push + `sudo ./install.sh`, confirm the Katalon `ADMIN_USER` is wheel or
+app-only, and decide the no-JS scope question above.
