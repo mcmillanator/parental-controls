@@ -140,8 +140,10 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         html = self._render()
         # the shared confirm dialog + helper are pulled in from base.html
         self.assertIn('id="pc-confirm"', html)
-        self.assertIn('window.pcConfirm', html)
-        self.assertIn('await window.pcConfirm(', html)
+        self.assertIn('window.pcConfirm(', html)
+        # Progressive enhancement only: the dialog gates a real POST form,
+        # it never replaces the server round-trip.
+        self.assertIn('form.submit()', html)
         # The shared dialog is a real form with a CSRF token (the reusable
         # confirmation-dialog pattern the canvas asks for).
         self.assertIn('class="pc-dialog__form" method="post"', html)
@@ -297,10 +299,18 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('btn-logout', card2)
 
     def test_emergency_logout_requires_typed_confirmation(self):
+        # Overview actions are plain POST forms (progressive enhancement):
+        # the page script only gates them behind the shared confirm dialog.
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
         self.assertIn('requireText: username', src)
-        self.assertIn("'/api/lock-screen'", src)
-        self.assertIn("'/api/logout'", src)
+        self.assertIn("url_for('overview_lock_screen')", src)
+        self.assertIn("url_for('overview_logout')", src)
+        # ...and every action posts to its own no-JS form endpoint.
+        html = self._render()
+        for action in ('/overview/lock', '/overview/lock-screen',
+                       '/overview/unlock', '/overview/logout'):
+            with self.subTest(action=action):
+                self.assertIn('action="%s"' % action, html)
 
     def test_specimen_cards_are_dev_only(self):
         # The "Selected account: Sam" example, the design thesis and the empty

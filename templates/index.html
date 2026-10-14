@@ -12,14 +12,36 @@
    phone bottom tab bar below 768px (hidden >=768px like every sidebar screen).
    It no longer overrides layout_class / sidebar / appbar.
 
+   NO-JS ACTIONS: every account action (Lock / Unlock / Lock screen / Emergency
+   logout) and the admin add/remove controls are real <form method="post">
+   submissions to /overview/*, which run the same core as the /api/* twins,
+   flash the outcome and redirect back here (POST/Redirect/GET). The page script
+   only adds the shared confirmation dialog on top (the dialog is itself a real
+   POST form); with JavaScript disabled the forms still submit and the server
+   still acts and audits. See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must
+   work as a plain server-rendered POST".
+
    Every selector pinned by the Katalon contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
    .btn-lockscreen, .btn-logout, .refresh-info, #admin-panel, #admin-list,
-   #new-admin-username, #toast (base), plus the multi-device
+   #new-admin-username, #admin-add, #toast (base), plus the multi-device
    #device-selector/switchDevice JS.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty %}
 {% from '_partials/macros.html' import pc_status_pill, pc_button %}
+
+{# One account action as a real POST form. `handler` names the page-script
+   function that adds the confirmation dialog; with JS disabled the browser
+   ignores onsubmit and submits the form directly. The CSRF token rides in the
+   form (auth.validate_csrf accepts the `csrf_token` field or X-CSRF-Token). #}
+{% macro account_action(action, username, label, handler, variant='primary', cls='', title='') -%}
+<form class="pc-inline-form" method="post" action="{{ action }}" onsubmit="return {{ handler }}(this)">
+    <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
+    <input type="hidden" name="username" value="{{ username }}">
+    {% if selected_device %}<input type="hidden" name="device" value="{{ selected_device }}">{% endif %}
+    <button type="submit" class="pc-btn pc-btn--{{ variant }}{% if cls %} {{ cls }}{% endif %}"{% if title %} title="{{ title }}"{% endif %}>{{ label }}</button>
+</form>
+{%- endmacro %}
 
 {% block title %}Parental Controls — Overview{% endblock %}
 {# Overview is the wide screen (audit + user are narrow). #}
@@ -75,7 +97,8 @@
 {# Accounts: one card per human account (design Screen 1). The whole card's
    name links to the child's Time screen; the primary safe action is Unlock
    (when locked) or Lock (when unlocked); destructive actions are separated
-   and confirmed. Wheel admins are system-protected: all actions disabled. #}
+   and confirmed. Wheel admins are system-protected: all actions disabled and
+   the endpoints refuse them anyway. #}
 <h2 class="pc-card__title pc-accounts__heading">Accounts</h2>
 <div class="pc-stack pc-accounts" id="accounts">
     {% for user in users %}
@@ -103,18 +126,18 @@
             {{ pc_button('Lock', 'neutral', extra='disabled aria-disabled="true"') }}
             {{ pc_button('Unlock', 'neutral', extra='disabled aria-disabled="true"') }}
             {{ pc_button('Emergency logout', 'neutral', extra='disabled aria-disabled="true"') }}
-            <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
+            {{ pc_button('Details', 'ghost', cls='btn-details', extra="onclick=\"window.location='/user/" ~ user.username ~ "'\"") }}
             <span class="pc-meta">wheel admins can never be locked or removed.</span>
             {% else %}
             {% if user.locked != True %}
-            <button type="button" class="pc-btn pc-btn--primary btn-lock" onclick="lockUser('{{ user.username }}')">Lock</button>
+            {{ account_action(url_for('overview_lock'), user.username, 'Lock', 'lockUser', cls='btn-lock') }}
             {% endif %}
             {% if user.locked == True %}
-            <button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="unlockUser('{{ user.username }}')">Unlock</button>
+            {{ account_action(url_for('overview_unlock'), user.username, 'Unlock', 'unlockUser', cls='btn-unlock') }}
             {% endif %}
-            <button type="button" class="btn-lockscreen pc-btn pc-btn--neutral" onclick="lockScreen('{{ user.username }}')" title="Locks the screen without terminating the session">Lock screen</button>
-            <button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('{{ user.username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
-            <button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/{{ user.username }}'">Details</button>
+            {{ account_action(url_for('overview_lock_screen'), user.username, 'Lock screen', 'lockScreen', variant='neutral', cls='btn-lockscreen', title='Locks the screen without terminating the session') }}
+            {{ account_action(url_for('overview_logout'), user.username, 'Emergency logout', 'logoutUser', variant='danger', cls='btn-logout', title='Terminates ALL sessions for this user immediately') }}
+            {{ pc_button('Details', 'ghost', cls='btn-details', extra="onclick=\"window.location='/user/" ~ user.username ~ "'\"") }}
             {% endif %}
         </div>
     </article>
@@ -128,16 +151,38 @@
 <p class="refresh-info">Status updates automatically every 10 seconds</p>
 
 {# Admin list — INSIDE the page container. Kept `open` so a runtime
-   verifyElementVisible('#admin-panel') still resolves. #}
+   verifyElementVisible('#admin-panel') still resolves. Server-rendered so
+   add/remove work without JavaScript. `#admin-add` / `#new-admin-username`
+   render for EVERY admin (the Katalon index contract asserts their
+   visibility); the endpoint refuses non-wheel actors server-side, and the
+   per-row Remove buttons are wheel-actor only. #}
 <details class="pc-disclosure" id="admin-panel" open>
-    <summary>Admins <span class="pc-disclosure__summary-value" id="admin-count"></span></summary>
+    <summary>Admins <span class="pc-disclosure__summary-value" id="admin-count">({{ admins|default([], true)|length }})</span></summary>
     <div class="pc-disclosure__body">
-        <div id="admin-list" class="pc-stack"></div>
-        <div id="admin-add" class="pc-row">
-            <input type="text" id="new-admin-username" class="pc-input" placeholder="new admin username" aria-label="new admin username">
-            {{ pc_button('Add admin', 'primary', cls='btn-unlock', extra='onclick="addAdmin()"') }}
-            <span class="pc-hint">Wheel admins only. System accounts (except wheel) can never be added.</span>
+        <div id="admin-list" class="pc-stack">
+            {% for a in admins|default([], true) %}
+            <div class="pc-row" data-username="{{ a.username }}">
+                <span>{{ a.username }} <span class="pc-meta">({{ a.tier or 'revoked' }}{% if a.locked %}, locked{% endif %}{% if a.must_change %}, must change password{% endif %})</span></span>
+                {% if g.tier == 'wheel' and a.username != (admin_self|default('', true)) %}
+                <form class="pc-inline-form" method="post" action="{{ url_for('overview_admin_remove') }}" onsubmit="return removeAdmin(this)">
+                    <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
+                    <input type="hidden" name="username" value="{{ a.username }}">
+                    <button type="submit" class="pc-btn pc-btn--sm pc-btn--danger">Remove</button>
+                </form>
+                {% elif a.username == (admin_self|default('', true)) %}
+                <span class="pc-meta">(you)</span>
+                {% endif %}
+            </div>
+            {% else %}
+            <span class="pc-meta">No admins</span>
+            {% endfor %}
         </div>
+        <form id="admin-add" class="pc-inline-form" method="post" action="{{ url_for('overview_admin_add') }}">
+            <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
+            <input type="text" id="new-admin-username" name="username" class="pc-input" placeholder="new admin username" aria-label="new admin username">
+            <button type="submit" class="pc-btn pc-btn--primary btn-unlock">Add admin</button>
+            <span class="pc-hint">Wheel admins only. System accounts (except wheel) can never be added.</span>
+        </form>
     </div>
 </details>
 
@@ -180,11 +225,14 @@
 <script>
     const DAY_LABELS = {{ day_labels|tojson }};
     const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+    // Selected remote device ('' for this box). The action forms carry it as a
+    // hidden field, so the no-JS POST path reaches the same box as the fetch
+    // path did (the /overview/* routes proxy to the device agent).
+    const DEVICE = {{ selected_device|tojson }};
 {% if devices_enabled %}
     // Device selector: when a remote box is selected, every /api/*
     // fetch is rewritten to the authenticated hub proxy, which holds
     // the per-box bearer token. No token ever reaches the browser.
-    const DEVICE = {{ selected_device|tojson }};
     const API_PREFIX = DEVICE ? ('/api/device/' + encodeURIComponent(DEVICE) + '/v1') : '';
     if (API_PREFIX) {
         const _nativeFetch = window.fetch.bind(window);
@@ -240,6 +288,85 @@
         set('summary-bedtime', users.filter(u => u.in_bedtime).length);
     }
 
+    // --- Progressive enhancement: confirm, then let the real POST form submit.
+    // confirmThenSubmit() always returns false so the unconfirmed submit is
+    // stopped; on an explicit confirm we call form.submit(), which posts to
+    // /overview/* (redirect + flash). With JavaScript disabled none of this
+    // runs and the browser submits the form directly.
+    function confirmThenSubmit(form, opts) {
+        window.pcConfirm(opts).then(function (ok) { if (ok) { form.submit(); } });
+        return false;
+    }
+
+    function formUsername(form) {
+        const field = form.elements ? form.elements['username'] : null;
+        return field ? field.value : '';
+    }
+
+    function lockUser(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
+            title: 'Confirm lock',
+            body: `Lock ${username} now? They will be unable to log in until unlocked.`,
+            confirmLabel: `Lock ${username}`,
+            checkbox: 'Confirm lock action',
+            danger: true,
+        });
+    }
+
+    function unlockUser(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
+            title: 'Unlock account?',
+            body: `Unlock account for "${username}"?`,
+            confirmLabel: 'Unlock',
+        });
+    }
+
+    function lockScreen(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
+            title: 'Lock screen?',
+            body: `Lock the screen for "${username}"? The session stays alive.`,
+            confirmLabel: 'Lock screen',
+        });
+    }
+
+    function logoutUser(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
+            title: 'Emergency logout?',
+            body: `Terminate ALL sessions for "${username}" immediately?`,
+            confirmLabel: 'Log out',
+            danger: true,
+            requireText: username,
+        });
+    }
+
+    function removeAdmin(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
+            title: 'Remove admin?',
+            body: `Remove admin "${username}"? They lose access immediately.`,
+            confirmLabel: 'Remove',
+            danger: true,
+        });
+    }
+
+    // One action as a real POST form, mirroring the server-rendered markup
+    // (used when the 10s refresh rebuilds an account card from /api/users).
+    function accountActionForm(action, username, label, handler, variant, cls, title) {
+        const hidden =
+            `<input type="hidden" name="csrf_token" value="${esc(CSRF)}">` +
+            `<input type="hidden" name="username" value="${esc(username)}">` +
+            (DEVICE ? `<input type="hidden" name="device" value="${esc(DEVICE)}">` : '');
+        const titleAttr = title ? ` title="${esc(title)}"` : '';
+        return `<form class="pc-inline-form" method="post" action="${action}" onsubmit="return ${handler}(this)">` +
+            hidden +
+            `<button type="submit" class="pc-btn pc-btn--${variant}${cls ? ' ' + cls : ''}"${titleAttr}>${label}</button>` +
+            '</form>';
+    }
+
     function accountHtml(u) {
         const cls = statusClass(u.locked);
         let badges = `<span class="pc-pill pc-pill--${cls} pc-status pc-status--${cls} status-${cls}">` +
@@ -273,13 +400,13 @@
                 '<span class="pc-meta">wheel admins can never be locked or removed.</span>';
         } else {
             if (u.locked !== true) {
-                actions += `<button type="button" class="pc-btn pc-btn--primary btn-lock" onclick="lockUser('${esc(u.username)}')">Lock</button>`;
+                actions += accountActionForm('/overview/lock', u.username, 'Lock', 'lockUser', 'primary', 'btn-lock', '');
             }
             if (u.locked === true) {
-                actions += `<button type="button" class="pc-btn pc-btn--primary btn-unlock" onclick="unlockUser('${esc(u.username)}')">Unlock</button>`;
+                actions += accountActionForm('/overview/unlock', u.username, 'Unlock', 'unlockUser', 'primary', 'btn-unlock', '');
             }
-            actions += `<button type="button" class="btn-lockscreen pc-btn pc-btn--neutral" onclick="lockScreen('${esc(u.username)}')">Lock screen</button>`;
-            actions += `<button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('${esc(u.username)}')">Emergency logout</button>`;
+            actions += accountActionForm('/overview/lock-screen', u.username, 'Lock screen', 'lockScreen', 'neutral', 'btn-lockscreen', 'Locks the screen without terminating the session');
+            actions += accountActionForm('/overview/logout', u.username, 'Emergency logout', 'logoutUser', 'danger', 'btn-logout', 'Terminates ALL sessions for this user immediately');
             actions += `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
         }
         return `<article class="pc-card pc-account" id="row-${esc(u.username)}">` +
@@ -304,6 +431,13 @@
     }
 
     async function refreshTable() {
+        // Never rebuild the account cards while a modal confirm dialog is
+        // open: every action now submits its own <form> node, and an
+        // Emergency logout needs the operator to type the username (well past
+        // the 10s tick). Swapping the DOM would detach the form under the
+        // dialog and disturb the typed gate. The next tick picks the refresh
+        // up once the dialog closes.
+        if (document.querySelector('dialog[open]')) { return; }
         const list = document.getElementById('accounts');
         try {
             const resp = await fetch('/api/users');
@@ -317,139 +451,7 @@
         }
     }
 
-    async function lockUser(username) {
-        // The "Selected account" example from the canvas is this dialog: one
-        // shared, reusable confirmation pattern (never an inline card).
-        const ok = await window.pcConfirm({
-            title: 'Confirm lock',
-            body: `Lock ${username} now? They will be unable to log in until unlocked.`,
-            confirmLabel: `Lock ${username}`,
-            checkbox: 'Confirm lock action',
-            danger: true,
-        });
-        if (!ok) { return; }
-        await postAction('/api/lock', username, `Locked ${username}`);
-    }
-
-    async function unlockUser(username) {
-        const ok = await window.pcConfirm({
-            title: 'Unlock account?',
-            body: `Unlock account for "${username}"?`,
-            confirmLabel: 'Unlock',
-        });
-        if (!ok) { return; }
-        await postAction('/api/unlock', username, `Unlocked ${username}`);
-    }
-
-    async function lockScreen(username) {
-        const ok = await window.pcConfirm({
-            title: 'Lock screen?',
-            body: `Lock the screen for "${username}"? The session stays alive.`,
-            confirmLabel: 'Lock screen',
-        });
-        if (!ok) { return; }
-        await postAction('/api/lock-screen', username, `Screen locked for ${username}`);
-    }
-
-    async function logoutUser(username) {
-        const ok = await window.pcConfirm({
-            title: 'Emergency logout?',
-            body: `Terminate ALL sessions for "${username}" immediately?`,
-            confirmLabel: 'Log out',
-            danger: true,
-            requireText: username,
-        });
-        if (!ok) { return; }
-        await postAction('/api/logout', username, `Logged out ${username}`);
-    }
-
-    async function postAction(path, username, okMessage) {
-        try {
-            const resp = await fetch(path, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: `username=${encodeURIComponent(username)}`
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast(okMessage, false);
-                refreshTable();
-            } else {
-                showToast(`Error: ${data.message || data.error}`, true);
-            }
-        } catch (e) {
-            showToast(`Error: ${e.message}`, true);
-        }
-    }
-
     // Targeted refresh: only the account list is re-rendered, every 10s.
     setInterval(refreshTable, 10000);
-
-    async function refreshAdmins() {
-        try {
-            const resp = await fetch('/api/admins');
-            const data = await resp.json();
-            if (!data.success) return;
-            const el = document.getElementById('admin-list');
-            const count = document.getElementById('admin-count');
-            if (count) { count.textContent = `(${data.admins.length})`; }
-            el.innerHTML = data.admins.map(a =>
-                `<span class="pc-row"><span>${esc(a.username)} <span class="pc-meta">(${esc(a.tier || 'revoked')}${a.locked ? ', locked' : ''}${a.must_change ? ', must change password' : ''})</span></span>` +
-                (a.username !== data.self ? ` <button type="button" class="pc-btn pc-btn--sm pc-btn--danger" onclick="removeAdmin('${esc(a.username)}')">Remove</button>` : ' <span class="pc-meta">(you)</span>') +
-                '</span>'
-            ).join('') || '<span class="pc-meta">No admins</span>';
-        } catch (e) { /* leave panel as-is on failure */ }
-    }
-
-    async function addAdmin() {
-        const input = document.getElementById('new-admin-username');
-        const username = input.value.trim();
-        if (!username) return;
-        try {
-            const resp = await fetch('/api/admins', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: `username=${encodeURIComponent(username)}`
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast(`Admin ${username} created. Password (shown ONCE): ${data.password}`, false);
-                input.value = '';
-                refreshAdmins();
-            } else {
-                showToast(`Error: ${data.error}`, true);
-            }
-        } catch (e) {
-            showToast(`Error: ${e.message}`, true);
-        }
-    }
-
-    async function removeAdmin(username) {
-        const ok = await window.pcConfirm({
-            title: 'Remove admin?',
-            body: `Remove admin "${username}"? They lose access immediately.`,
-            confirmLabel: 'Remove',
-            danger: true,
-        });
-        if (!ok) { return; }
-        try {
-            const resp = await fetch('/api/admins/remove', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: `username=${encodeURIComponent(username)}`
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast(`Removed ${username}`, false);
-                refreshAdmins();
-            } else {
-                showToast(`Error: ${data.error}`, true);
-            }
-        } catch (e) {
-            showToast(`Error: ${e.message}`, true);
-        }
-    }
-
-    refreshAdmins();
 </script>
 {% endblock %}
