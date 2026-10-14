@@ -21,6 +21,7 @@ import json
 import os
 import pwd
 import secrets
+import sys
 import tempfile
 import threading
 import time
@@ -102,18 +103,118 @@ def load_store(path=None):
     return data
 
 
-def save_store(store, path=None):
-    """Atomic write (temp + rename), mode 0600. Raises AuthStoreError."""
+def state_dir_owner(path=None):
+    """(uid, gid) of the directory that holds the store, or None.
+
+    install.sh renders the state directory (``/etc/parental-controls``) and
+    the service unit's ``User=`` from the same ``SERVICE_USER`` and chowns
+    the directory to it, so on a deployed box the directory owner *is* the
+    account that must be able to read ``auth.json``. That makes it the only
+    ownership hint available to a root-only writer such as the recovery CLI.
+    """
+    path = path or auth_file_path()
+    parent = os.path.dirname(path) or '.'
+    try:
+        st = os.stat(parent)
+    except OSError:
+        return None
+    return (st.st_uid, st.st_gid)
+
+
+def store_owner(path=None):
+    """(uid, gid) a writer should give the store when nothing else is said.
+
+    Preserve the owner of an existing store -- the atomic replace must never
+    change *who can read the credentials*. For a brand-new store there is
+    nothing to preserve, so inherit the state directory's owner: that is the
+    service user on an installed box, which keeps a store created by root
+    (e.g. the first ``add-admin``) readable by the service instead of
+    leaving it root-only and fail-closed.
+    """
+    path = path or auth_file_path()
+    try:
+        st = os.stat(path)
+    except OSError:
+        return state_dir_owner(path)
+    return (st.st_uid, st.st_gid)
+
+
+def _owner_name(uid, gid):
+    try:
+        user = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        user = str(uid)
+    try:
+        group = grp.getgrgid(gid).gr_name
+    except KeyError:
+        group = str(gid)
+    return f'{user}:{group}'
+
+
+def _apply_owner(tmp, owner, path):
+    """Give the temp file the intended owner before the atomic replace.
+
+    Best-effort by design, and deliberately *not* fail-closed:
+
+    - A non-root writer (the service rewriting its own store, an unpackaged
+      run) simply cannot chown; failing the write would then make password
+      changes, lockouts and revocations impossible, which is its own denial
+      of service.
+    - The recovery CLI is the documented last-resort escape hatch
+      ("can't-lock-yourself-out"); refusing to persist a reset password
+      because of an ownership repair would strand the operator.
+
+    But a mis-owned store is *not* a cosmetic problem: it makes every
+    request fail closed with "Authentication unavailable", which is exactly
+    the 2026-10-14 outage. So a failed chown is reported loudly on stderr
+    (under systemd it lands in the unit's journal) with the remedy, rather
+    than being swallowed.
+    """
+    if not owner:
+        return
+    try:
+        owner = (int(owner[0]), int(owner[1]))
+    except (TypeError, ValueError, IndexError):
+        return
+    try:
+        st = os.stat(tmp)
+    except OSError:
+        return
+    if (st.st_uid, st.st_gid) == owner:
+        return
+    try:
+        os.chown(tmp, owner[0], owner[1])
+    except OSError as e:
+        print(f'AUTH WARNING: {path} could not be handed to '
+              f'{_owner_name(*owner)} ({e}); the service may be unable to '
+              f'read the auth store and answer every request with an '
+              f'authentication error. Fix with: '
+              f'sudo chown {_owner_name(*owner)} {path}', file=sys.stderr,
+              flush=True)
+
+
+def save_store(store, path=None, owner=None):
+    """Atomic write (temp + rename), mode 0600. Raises AuthStoreError.
+
+    ``owner`` is an optional ``(uid, gid)`` for the resulting file; when it
+    is omitted the store keeps the owner it already had, or -- for a new
+    store -- inherits the state directory's (see ``store_owner``). Ownership
+    is applied to the temp file before the replace so there is no window in
+    which the store exists with the wrong owner.
+    """
     path = path or auth_file_path()
     try:
         parent = os.path.dirname(path)
         if parent:
             os.makedirs(parent, exist_ok=True)
+        if owner is None:
+            owner = store_owner(path)
         fd, tmp = tempfile.mkstemp(dir=parent or '.', prefix='.auth-')
         try:
             with os.fdopen(fd, 'w') as f:
                 json.dump(store, f, indent=2)
             os.chmod(tmp, 0o600)
+            _apply_owner(tmp, owner, path)
             os.replace(tmp, path)
         except BaseException:
             try:
