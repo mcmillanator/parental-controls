@@ -152,9 +152,10 @@
 
 {# Admin list — INSIDE the page container. Kept `open` so a runtime
    verifyElementVisible('#admin-panel') still resolves. Server-rendered so
-   add/remove work without JavaScript; the whole panel is visible to every
-   admin, but the add form is wheel-only (the endpoint refuses non-wheel
-   actors anyway). #}
+   add/remove work without JavaScript. `#admin-add` / `#new-admin-username`
+   render for EVERY admin (the Katalon index contract asserts their
+   visibility); the endpoint refuses non-wheel actors server-side, and the
+   per-row Remove buttons are wheel-actor only. #}
 <details class="pc-disclosure" id="admin-panel" open>
     <summary>Admins <span class="pc-disclosure__summary-value" id="admin-count">({{ admins|default([], true)|length }})</span></summary>
     <div class="pc-disclosure__body">
@@ -176,14 +177,12 @@
             <span class="pc-meta">No admins</span>
             {% endfor %}
         </div>
-        {% if g.tier == 'wheel' %}
         <form id="admin-add" class="pc-inline-form" method="post" action="{{ url_for('overview_admin_add') }}">
             <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
             <input type="text" id="new-admin-username" name="username" class="pc-input" placeholder="new admin username" aria-label="new admin username">
             <button type="submit" class="pc-btn pc-btn--primary btn-unlock">Add admin</button>
             <span class="pc-hint">Wheel admins only. System accounts (except wheel) can never be added.</span>
         </form>
-        {% endif %}
     </div>
 </details>
 
@@ -432,6 +431,13 @@
     }
 
     async function refreshTable() {
+        // Never rebuild the account cards while a modal confirm dialog is
+        // open: every action now submits its own <form> node, and an
+        // Emergency logout needs the operator to type the username (well past
+        // the 10s tick). Swapping the DOM would detach the form under the
+        // dialog and disturb the typed gate. The next tick picks the refresh
+        // up once the dialog closes.
+        if (document.querySelector('dialog[open]')) { return; }
         const list = document.getElementById('accounts');
         try {
             const resp = await fetch('/api/users');

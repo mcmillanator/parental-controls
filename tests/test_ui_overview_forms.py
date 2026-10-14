@@ -270,25 +270,30 @@ class TestAdminForms(_OverviewFormsBase):
         self.assertEqual(302, resp.status_code)
         self.assertNotIn('helper', auth.load_store()['users'])
 
-    def test_admin_control_markup_is_wheel_only(self):
+    def test_admin_panel_markup_present_for_wheel_actor(self):
         wheel_html = self._render_home()
         self.assertIn('id="admin-add"', wheel_html)
         self.assertIn('id="admin-list"', wheel_html)
         self.assertIn('id="admin-panel"', wheel_html)
 
-    def test_admin_add_absent_for_non_wheel_actor(self):
+    def test_admin_add_visible_for_non_wheel_actor_but_post_refused(self):
         self._login_app_only()
         mocks = self._home_mocks(users=[])
         with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
             resp = self.client.get('/')
         self.assertEqual(200, resp.status_code)
         html = resp.get_data(as_text=True)
-        # The add-form container and its input are wheel-actor only; the
-        # read-only panel stays (a runtime verifyElementVisible resolves).
-        self.assertNotIn('id="admin-add"', html)
-        self.assertNotIn('id="new-admin-username"', html)
+        # Katalon asserts these on the index page for every admin (04/09);
+        # they must stay visible even though the endpoint refuses non-wheel
+        # actors. The refusal is covered by
+        # test_non_wheel_actor_cannot_add_or_remove above.
+        self.assertIn('id="admin-add"', html)
+        self.assertIn('id="new-admin-username"', html)
         self.assertIn('id="admin-panel"', html)
         self.assertIn('id="admin-list"', html)
+        # ...and the add form is a real POST form.
+        self.assertIn('action="/overview/admins"', html)
+        self.assertIn('name="csrf_token"', html)
 
 
 class TestServerRenderedForms(_OverviewFormsBase):
@@ -306,6 +311,18 @@ class TestServerRenderedForms(_OverviewFormsBase):
         self.assertIn('class="pc-btn pc-btn--primary btn-unlock"', html)
         self.assertIn('class="pc-btn pc-btn--neutral btn-lockscreen"', html)
         self.assertIn('class="pc-btn pc-btn--danger btn-logout"', html)
+
+    def test_refresh_is_skipped_while_a_confirm_dialog_is_open(self):
+        with open(os.path.join(TEMPLATE_DIR, 'index.html'), encoding='utf-8') as fh:
+            src = fh.read()
+        # The guard must exist inside refreshTable and run before the account
+        # list is rebuilt, so an open #pc-confirm dialog never has its form
+        # node swapped out (the whole reason actions carry their own form).
+        fn = src.index('async function refreshTable')
+        self.assertIn("document.querySelector('dialog[open]')", src[fn:])
+        guard = src.index("document.querySelector('dialog[open]')", fn)
+        rebuild = src.index('list.innerHTML = users.map(accountHtml)', fn)
+        self.assertLess(guard, rebuild)
 
     def test_wheel_card_offers_no_action_forms(self):
         html = self._render_home(users=USERS, lock=LOCK, wheel=('kidfree',))
