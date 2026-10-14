@@ -90,23 +90,29 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests
 ```
 All scratch stays **inside** the worktree (`.scratch/` is gitignored); never
-`/tmp`. Last known: **1247 tests, OK, 14 skips**. The Katalon selector contract
+`/tmp`. Last known: **1284 tests, OK, 20 skips** (the 20 are live-env and
+root-gated skips). The Katalon selector contract
 is `tests/test_katalon_suite.py` over `katalon/parental-controls.html` (a
 Selenium-IDE HTML suite) — keep it green and avoid changing that file's pinned
 ids/classes/text.
 
-There is **no browser installed**. A Playwright screenshot harness was used for
-the design work and was deleted with its worktree; to rebuild it in `.scratch/`:
+Neither box has a browser by default, but the container now has Playwright +
+Chromium **installed** under `.scratch/` (gitignored) with a working harness:
+`.scratch/shoot.py` shoots all six routes × phone/tablet/desktop × light/dark into
+`.scratch/screens/` (PNGs + `INDEX.md` + `measurements.json`). Rebuild only on a
+fresh container:
 
 ```sh
 python3 -m venv .scratch/qa-venv && .scratch/qa-venv/bin/pip install playwright pillow
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.scratch/pw-browsers" .scratch/qa-venv/bin/python -m playwright install chromium
+.scratch/qa-venv/bin/python -m playwright install-deps chromium   # apt, as root
 ```
-…then boot a throwaway instance against an isolated auth store and shoot every
-route at phone/tablet/desktop, light and dark:
+Shoot against an **isolated copy** run through the loop-free entrypoint (see
+"Never boot `app.py`" below) — blank the runtime JSON first, then:
 
 ```sh
-PARENTAL_CONTROLS_AUTH=$PWD/.scratch/preview-auth.json .venv/bin/python app.py --port 5050
+cd .scratch/app && PARENTAL_CONTROLS_AUTH=$PWD/auth.json PARENTAL_CONTROLS_AUDIT=$PWD/audit.jsonl \
+  ../../.venv/bin/waitress-serve --host=127.0.0.1 --port=5055 wsgi:application
 ```
 `PARENTAL_CONTROLS_AUTH` overrides the auth-store path (`auth.py`), so a preview
 never touches `/etc/parental-controls/auth.json`. Seed it with
@@ -118,11 +124,22 @@ owner's preferred review artifact (they browse remotely; no port forwarding).
 
 Merge to `master`, then `sudo ./install.sh` from the master worktree: stages code
 to `/opt/parental-controls`, preserves runtime state, renders units, validates
-sudoers with `visudo -c`, restarts the service. Smoke-test `curl localhost:5000/`
-→ expect **302** to `/login`. Never restart `parental-controls.service` by hand;
-never serve the panel from a checkout or as `stan`. Runtime state is SQLite
-`state.db` (+ JSON mirrors); the service runs as the `parental-controls` system
-user; a healthcheck timer probes every 5 min. Recovery CLI on `PATH`:
+sudoers with `visudo -c`, restarts the service. Smoke-test `curl -sk
+https://192.168.122.201:5000/` → expect **302** to `/login` (the live install is
+TLS on that address). Never restart `parental-controls.service` by hand; never
+serve the panel from a checkout or as `stan`. Runtime state is SQLite `state.db`
+(+ JSON mirrors); the service runs as the `parental-controls` system user; a
+healthcheck timer probes every 5 min.
+
+**If the panel answers "Authentication unavailable" (HTTP 500), check the auth
+store's owner first:** `sudo stat -c '%U:%G %a' /etc/parental-controls/auth.json`
+must read `parental-controls:parental-controls 600`. A root-side write used to
+leave it `root:root`, which fails closed on *every* request — `auth.save_store()`
+now preserves/inherits the owner and warns loudly when it cannot (fixed in
+`e9bb2ef`), and `sudo chown parental-controls:parental-controls <file>` repairs it
+live (no restart needed: the store is re-read per request).
+
+Recovery CLI on `PATH`:
 `sudo parental-controls {unlock,unfreeze-all,reset-password,add-admin,remove-admin,lock-admin}`.
 
 ## Open / deferred
@@ -184,8 +201,8 @@ Do **not** push to `origin` from either side without the owner's say-so.
   `test_multidevice_install`, `test_session_agent`, `test_budgets`,
   `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
   set plus `test_katalon_suite`, `test_ui_a11y`, `test_ui_assets`.
-- The VM is the authoritative environment: **1278 tests, OK, 14 skips** at
-  `25342c6` (Python 3.14.8, live PAM/usermod included). Run it there with
+- The VM is the authoritative environment: **1284 tests, OK, 20 skips** at
+  `9fe72ee` (Python 3.14.8, live PAM/usermod included). Run it there with
   `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
 - Each side's worktree `.git` pointers are kept **relative** so `git` works
   regardless of mount path; the admin `gitdir` files under
@@ -203,19 +220,24 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `80a99fd`, holding three merges on top of `3af46f0`: the tablet-band
-sidebar token, the row-launched Processes override dialog and the Overview
-no-JS POST forms. Verified on the VM: full suite **1278 tests, OK, 14 skips**,
-and the no-JS Overview path over real HTTP (`POST /overview/lock` → 302 →
-danger flash; non-wheel add-admin refused; missing-CSRF 403).
+`master` = `9fe72ee`, on top of `3af46f0`: the tablet-band sidebar token, the
+row-launched Processes override dialog, the Overview no-JS POST forms, the auth
+store ownership fix and the reworked Katalon suite. Verified on the VM: full
+suite **1284 tests, OK, 20 skips**, the no-JS Overview path over real HTTP
+(`POST /overview/lock` → 302 → danger flash; non-wheel add-admin refused;
+missing-CSRF 403), and an outage replay of the store-ownership fix
+(`root:root 600` → `parental-controls:parental-controls 600`).
 
-**Deployed on the live box** on 2026-10-14 with
+**Pushed** to `origin/master` and **deployed on the live box** (2026-10-14) with
 `sudo ./install.sh --port 5000 --bind 192.168.122.201 --tls --open-firewall`
-(LAN HTTPS; self-signed cert fingerprint
+(LAN HTTPS, self-signed cert fingerprint
 `5A:06:42:8E:A4:38:EA:2E:63:1B:F4:CD:AD:C9:50:A4:7A:B0:91:29:A5:44:64:51:58:F3:CB:1C:AF:B8:74:72`;
-`GET /` → 302, health probe OK; proceedings documented in the
-`parental-controls-deploy` skill). **Not pushed** to `origin`. All three feature
-worktrees and branches are deleted; nothing is in flight. Pending the owner:
-push and decide the no-JS scope question above. (The Katalon `ADMIN_USER`
-question is resolved: it is an app-only admin.) Still unverified (needs a browser): the no-JS toggle
-in a real browser and the 236px tablet sidebar at 768–959px.
+`GET /` → 302, health probe OK; proceedings in the `parental-controls-deploy`
+skill). Outbound SSH port 22 is filtered from **both** boxes — push over
+`ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
+in flight.
+
+Still unverified: the no-JS toggle in a real browser, the 236px tablet sidebar at
+768–959px (measured correct by the harness, never eyeballed), and the **Katalon
+suite has never been imported or played** — it is statically validated only. Open
+owner question: the no-JS scope above.
