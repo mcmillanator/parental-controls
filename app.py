@@ -17,7 +17,7 @@ import traceback
 import functools
 from datetime import datetime, timedelta
 from flask import (Flask, render_template, request, jsonify, redirect,
-                   url_for, g, make_response)
+                   url_for, g, make_response, flash)
 
 import adminstore
 import auth
@@ -28,6 +28,14 @@ import remote
 import store
 
 app = Flask(__name__)
+
+# Flask's flash() pipeline (POST/Redirect/GET feedback for the no-JS Overview
+# forms) rides on the signed session cookie; the app's own auth cookie
+# (auth.SESSION_COOKIE) is separate. A per-process random key is enough — a
+# flash only has to survive one redirect — and there is no secret to manage.
+# PARENTAL_SECRET_KEY lets a multi-worker deploy pin the key if it ever needs
+# to (single waitress process today).
+app.secret_key = os.environ.get('PARENTAL_SECRET_KEY') or os.urandom(32)
 
 # Detail-row id sanitizer used by the server-rendered expand/collapse
 # markup (mirrored by the JS detailId() helper in templates/user.html).
@@ -1129,6 +1137,101 @@ def _refuse_frozen_target(username):
 
 
 # ---------------------------------------------------------------------------
+# Account-action cores (shared by the JSON API and the no-JS Overview forms)
+#
+# Every lock/unlock/logout path -- the /api/* JSON endpoints and the
+# /overview/* plain-POST form endpoints -- runs exactly these functions, so
+# the behaviour (and the audit trail) is identical whichever way the browser
+# submits it. Each returns (ok, message); the caller decides JSON vs redirect.
+# ---------------------------------------------------------------------------
+
+def _lock_account_and_screen(username, via):
+    """Lock the account (usermod -L) and best-effort screen-lock it.
+
+    Session-preserving: it never terminates the user's sessions (that is
+    /api/logout's job). Returns (ok, message).
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'usermod', '-L', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+            _safe_audit(_req_actor(), 'account.lock', username,
+                        {'success': False, 'message': msg, 'via': via})
+            return False, msg
+    except Exception as e:
+        msg = 'usermod -L error: ' + str(e)
+        _safe_audit(_req_actor(), 'account.lock', username,
+                    {'success': False, 'message': msg, 'via': via})
+        return False, msg
+
+    # A manual lock takes ownership away from bedtime so the bedtime
+    # timer cannot later auto-unlock it (see note_manual_lock).
+    note_manual_lock(username)
+
+    # Lock the screen without terminating the session.
+    screen_msg = lock_user_sessions(username)
+
+    _safe_audit(_req_actor(), 'account.lock', username,
+                {'success': True, 'message': f'OK ({screen_msg})', 'via': via})
+    return True, f'Account locked and screen locked ({screen_msg})'
+
+
+def _unlock_account(username):
+    """Unlock the account and hand ownership to the manual unlock."""
+    success, message = run_lock_command(username, 'unlock')
+    if success:
+        # Manual unlock takes precedence over bedtime (see note_manual_unlock).
+        note_manual_unlock(username)
+    return success, message
+
+
+def _emergency_logout(username):
+    """Lock the account and terminate ALL its sessions immediately."""
+    try:
+        result = subprocess.run(
+            ['sudo', 'usermod', '-L', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
+            _safe_audit(_req_actor(), 'account.logout', username,
+                        {'success': False, 'message': msg})
+            return False, msg
+    except Exception as e:
+        msg = 'usermod -L error: ' + str(e)
+        _safe_audit(_req_actor(), 'account.logout', username,
+                    {'success': False, 'message': msg})
+        return False, msg
+
+    # A manual lock takes ownership away from bedtime so the bedtime
+    # timer cannot later auto-unlock it (see note_manual_lock).
+    note_manual_lock(username)
+
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'terminate-user', username],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            msg = ('loginctl terminate-user: '
+                   + (result.stderr.strip() or 'failed'))
+            _safe_audit(_req_actor(), 'account.logout', username,
+                        {'success': False, 'message': msg})
+            return False, msg
+    except Exception as e:
+        msg = 'loginctl terminate-user error: ' + str(e)
+        _safe_audit(_req_actor(), 'account.logout', username,
+                    {'success': False, 'message': msg})
+        return False, msg
+
+    _safe_audit(_req_actor(), 'account.logout', username, {'success': True})
+    return True, 'Session terminated. User logged out.'
+
+
+# ---------------------------------------------------------------------------
 # Multi-device (MULTIDEVICE_PLAN.md Phase 1): hub -> agent routing
 # ---------------------------------------------------------------------------
 
@@ -1206,10 +1309,171 @@ def index():
             except remote.RemoteError as e:
                 remote_users, device_error = None, str(e)
             user_data = remote_users if remote_users is not None else []
+    # Admin panel is server-rendered so admin add/remove work without JS
+    # (the redesign's no-JS-post rule). Admin accounts are always local to
+    # this box, even when a remote device's users are being shown.
+    try:
+        admin_store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        admin_store = {'users': {}}
     return render_template('index.html', users=user_data, day_labels=DAY_LABELS,
                            devices=devices, selected_device=selected_device,
-                           device_error=device_error)
+                           device_error=device_error,
+                           admins=_admin_rows(admin_store), admin_self=g.admin)
 
+
+# ---------------------------------------------------------------------------
+# Overview action forms (no-JS path)
+#
+# The Overview's lock / unlock / lock-screen / emergency-logout and admin
+# add/remove controls are plain <form method="post"> submissions, so every
+# action works with JavaScript disabled. Each route runs the same core as its
+# /api/* twin, flashes the outcome and redirects back to the Overview
+# (POST/Redirect/GET). `static/js/app.js` + the page script only add the
+# confirmation dialog on top; they never replace the server round-trip.
+# ---------------------------------------------------------------------------
+
+def _overview_redirect():
+    """Back to the Overview, preserving a selected remote device view."""
+    device = (request.form.get('device', '') or '').strip()
+    if device:
+        return redirect(url_for('index', device=device))
+    return redirect(url_for('index'))
+
+
+def _remote_overview_action(subpath):
+    """Run an Overview action on the selected remote device.
+
+    Returns (ok, message). Mirrors /api/device/<name>/v1/<subpath> so the no-JS
+    form path reaches a remote box exactly like the JSON/fetch path, with the
+    hub session + CSRF still guarding the browser side.
+    """
+    device = (request.form.get('device', '') or '').strip()
+    entry = remote.get_device(device)
+    if entry is None:
+        return False, f'Unknown device: {device}'
+    params = {k: v for k, v in request.form.items()
+              if k not in ('csrf_token', 'device')}
+    try:
+        status, payload, rejected = _remote_proxy(
+            entry, 'POST', '/' + subpath, params)
+    except remote.RemoteError as e:
+        _safe_audit(_req_actor(), 'device.command', device,
+                    {'success': False, 'path': subpath, 'error': str(e)})
+        return False, f'Device {device} unavailable: {e}'
+    if rejected:
+        return False, f'{device}: token rejected — re-register'
+    if isinstance(payload, dict):
+        ok = bool(payload.get('success'))
+        msg = (payload.get('message') or payload.get('error')
+               or ('Done' if ok else 'Action failed'))
+    else:
+        ok = 200 <= status < 300
+        msg = 'Done' if ok else f'Device {device} returned {status}'
+    _safe_audit(_req_actor(), 'device.command', device,
+                {'success': ok, 'path': subpath, 'status': status,
+                 'via': 'hub'})
+    return ok, msg
+
+
+def _overview_account_action(core, subpath, success_text, refuse_wheel=True):
+    """Shared body for the four no-JS account action routes.
+
+    `core` is the same function the JSON endpoint uses; `subpath` is the
+    remote agent path when a device is selected. Always flashes and redirects.
+    """
+    device = (request.form.get('device', '') or '').strip()
+    username = request.form.get('username', '').strip()
+    if device:
+        ok, message = _remote_overview_action(subpath)
+        flash(f'{device}: {message}' if ok else message,
+              'ok' if ok else 'danger')
+        return _overview_redirect()
+    if not username:
+        flash('No username provided', 'danger')
+        return _overview_redirect()
+    if not valid_username(username):
+        flash('Invalid username', 'danger')
+        return _overview_redirect()
+    if refuse_wheel:
+        # Wheel admins can never be locked / terminated — refused here, not
+        # just in the UI (the same decision the JSON endpoint makes).
+        refusal = device_policy.wheel_refusal(username)
+        if refusal:
+            flash(refusal, 'danger')
+            return _overview_redirect()
+    ok, message = core(username)
+    flash(success_text.format(username=username) if ok else message,
+          'ok' if ok else 'danger')
+    return _overview_redirect()
+
+
+@app.route('/overview/lock', methods=['POST'])
+@require_admin
+def overview_lock():
+    """No-JS Overview form: lock the account + screen (PRG + flash)."""
+    return _overview_account_action(
+        lambda u: _lock_account_and_screen(u, 'overview.lock'),
+        'lock', 'Locked {username} (account + screen).')
+
+
+@app.route('/overview/lock-screen', methods=['POST'])
+@require_admin
+def overview_lock_screen():
+    """No-JS Overview form: lock the screen + account (PRG + flash)."""
+    return _overview_account_action(
+        lambda u: _lock_account_and_screen(u, 'overview.lock_screen'),
+        'lock-screen', 'Locked the screen for {username}.')
+
+
+@app.route('/overview/unlock', methods=['POST'])
+@require_admin
+def overview_unlock():
+    """No-JS Overview form: unlock the account (PRG + flash)."""
+    return _overview_account_action(
+        _unlock_account, 'unlock', 'Unlocked {username}.',
+        refuse_wheel=False)
+
+
+@app.route('/overview/logout', methods=['POST'])
+@require_admin
+def overview_logout():
+    """No-JS Overview form: emergency logout (PRG + flash)."""
+    return _overview_account_action(
+        _emergency_logout, 'logout',
+        '{username} logged out — all sessions terminated.')
+
+
+@app.route('/overview/admins', methods=['POST'])
+@require_admin
+def overview_admin_add():
+    """No-JS Overview form: create an app-only admin (PRG + flash).
+
+    The one-time generated password is flashed back so the wheel admin can
+    copy it; it is never shown again.
+    """
+    username = request.form.get('username', '').strip()
+    _status, payload = _add_app_admin(username)
+    if payload.get('success'):
+        flash(f'Admin {username} created. One-time password: '
+              f'{payload.get("password")} — shown ONCE; copy it now.', 'ok')
+    else:
+        flash(payload.get('error') or 'Could not add admin.', 'danger')
+    return _overview_redirect()
+
+
+@app.route('/overview/admins/remove', methods=['POST'])
+@require_admin
+def overview_admin_remove():
+    """No-JS Overview form: remove an app-only admin (PRG + flash)."""
+    username = request.form.get('username', '').strip()
+    _status, payload = _remove_app_admin(username)
+    if payload.get('success'):
+        flash(payload.get('message') or f'Admin {username} removed.', 'ok')
+    else:
+        flash(payload.get('error') or 'Could not remove admin.', 'danger')
+    return _overview_redirect()
 
 
 @app.route('/api/users')
@@ -1239,7 +1503,7 @@ def api_users():
 def api_lock():
     """Lock a user account and screen without terminating the session.
 
-    Runs:
+    JSON endpoint (the Overview form path is /overview/lock). Runs:
       sudo usermod -L <user>      — lock the account
       loginctl lock-session       — lock the screen (session stays alive)
     """
@@ -1254,35 +1518,10 @@ def api_lock():
     if refused is not None:
         return refused
 
-    # Lock the account
-    try:
-        result = subprocess.run(
-            ['sudo', 'usermod', '-L', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-                msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
-                _safe_audit(_req_actor(), 'account.lock', username,
-                            {'success': False, 'message': msg,
-                             'via': 'api_lock'})
-                return jsonify({'success': False, 'message': msg}), 400
-    except Exception as e:
-        _safe_audit(_req_actor(), 'account.lock', username,
-                    {'success': False, 'message': 'usermod -L error: ' + str(e),
-                     'via': 'api_lock'})
-        return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
-
-    # A manual lock takes ownership away from bedtime so the bedtime
-    # timer cannot later auto-unlock it (see note_manual_lock).
-    note_manual_lock(username)
-
-    # Lock the screen without terminating the session
-    screen_msg = lock_user_sessions(username)
-
-    _safe_audit(_req_actor(), 'account.lock', username,
-                {'success': True, 'message': f'OK ({screen_msg})',
-                 'via': 'api_lock'})
-    return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
+    ok, msg = _lock_account_and_screen(username, 'api_lock')
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True, 'message': msg})
 
 
 @app.route('/api/lock-screen', methods=['POST'])
@@ -1290,9 +1529,7 @@ def api_lock():
 def api_lock_screen():
     """Lock the user's screen and account without terminating the session.
 
-    Runs:
-      sudo usermod -L <user>      — lock the account
-      loginctl lock-session       — lock the screen (session stays alive)
+    JSON endpoint (the Overview form path is /overview/lock-screen).
     """
     username = request.form.get('username', '').strip()
     if not username:
@@ -1305,51 +1542,23 @@ def api_lock_screen():
     if refused is not None:
         return refused
 
-    # Lock the account (without terminating the session)
-    try:
-        result = subprocess.run(
-            ['sudo', 'usermod', '-L', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-                msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
-                _safe_audit(_req_actor(), 'account.lock', username,
-                            {'success': False, 'message': msg,
-                             'via': 'api_lock_screen'})
-                return jsonify({'success': False, 'message': msg}), 400
-    except Exception as e:
-        _safe_audit(_req_actor(), 'account.lock', username,
-                    {'success': False, 'message': 'usermod -L error: ' + str(e),
-                     'via': 'api_lock_screen'})
-        return jsonify({'success': False, 'message':  'usermod -L error: ' + str(e)}), 400
-
-    # A manual lock takes ownership away from bedtime so the bedtime
-    # timer cannot later auto-unlock it (see note_manual_lock).
-    note_manual_lock(username)
-
-    # Lock the screen without terminating the session
-    screen_msg = lock_user_sessions(username)
-
-    _safe_audit(_req_actor(), 'account.lock', username,
-                {'success': True, 'message': f'OK ({screen_msg})',
-                 'via': 'api_lock_screen'})
-    return jsonify({'success': True, 'message': f'Account locked and screen locked ({screen_msg})'})
+    ok, msg = _lock_account_and_screen(username, 'api_lock_screen')
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True, 'message': msg})
 
 
 @app.route('/api/unlock', methods=['POST'])
 @require_admin
 def api_unlock():
-    """Unlock a user account."""
+    """Unlock a user account (JSON; the Overview form path is /overview/unlock)."""
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'error': 'No username provided'}), 400
     if not valid_username(username):
         return jsonify({'success': False, 'error': 'Invalid username'}), 400
 
-    success, message = run_lock_command(username, 'unlock')
-    if success:
-        # Manual unlock takes precedence over bedtime (see note_manual_unlock).
-        note_manual_unlock(username)
+    success, message = _unlock_account(username)
     return jsonify({'success': success, 'message': message})
 
 
@@ -1586,7 +1795,7 @@ def api_bedtime_set():
 def api_logout():
     """Emergency logout — terminates the user's session.
 
-    Runs:
+    JSON endpoint (the Overview form path is /overview/logout). Runs:
       sudo usermod -L <user>      — lock the account
       sudo loginctl terminate-user <user>  — terminates all user sessions
     """
@@ -1602,46 +1811,10 @@ def api_logout():
     if refused is not None:
         return refused
 
-    # Lock the account
-    try:
-        result = subprocess.run(
-            ['sudo', 'usermod', '-L', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            _safe_audit(_req_actor(), 'account.logout', username,
-                        {'success': False,
-                         'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')})
-            return jsonify({'success': False, 'message': 'usermod -L: ' + (result.stderr.strip() or 'failed')}), 400
-    except Exception as e:
-        _safe_audit(_req_actor(), 'account.logout', username,
-                    {'success': False,
-                     'message': 'usermod -L error: ' + str(e)})
-        return jsonify({'success': False, 'message': 'usermod -L error: ' + str(e)}), 400
-
-    # A manual lock takes ownership away from bedtime so the bedtime
-    # timer cannot later auto-unlock it (see note_manual_lock).
-    note_manual_lock(username)
-
-    # Terminate the user's sessions
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'terminate-user', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            _safe_audit(_req_actor(), 'account.logout', username,
-                        {'success': False,
-                         'message': 'loginctl terminate-user: ' + (result.stderr.strip() or 'failed')})
-            return jsonify({'success': False, 'message': 'loginctl terminate-user: ' + (result.stderr.strip() or 'failed')}), 400
-    except Exception as e:
-        _safe_audit(_req_actor(), 'account.logout', username,
-                    {'success': False,
-                     'message': 'loginctl terminate-user error: ' + str(e)})
-        return jsonify({'success': False, 'message': 'loginctl terminate-user error: ' + str(e)}), 400
-
-    _safe_audit(_req_actor(), 'account.logout', username, {'success': True})
-    return jsonify({'success': True, 'message': 'Session terminated. User logged out.'})
+    ok, msg = _emergency_logout(username)
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True, 'message': msg})
 
 
 @app.route('/api/process-prefs', methods=['POST'])
@@ -2280,16 +2453,12 @@ def change_password():
     return redirect(url_for('index'))
 
 
-@app.route('/api/admins', methods=['GET'])
-@require_admin
-def api_admins_list():
-    """List admin accounts with live tier resolution."""
-    try:
-        store = auth.load_store()
-    except auth.AuthStoreError as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        return jsonify({'success': False,
-                        'error': 'Authentication unavailable'}), 500
+def _admin_rows(store):
+    """Admin rows with live tier resolution.
+
+    Shared by the JSON list endpoint and the server-rendered Overview admin
+    panel, so both show exactly the same accounts.
+    """
     admins = []
     for username, row in store.get('users', {}).items():
         if not isinstance(row, dict):
@@ -2302,14 +2471,95 @@ def api_admins_list():
             'system_user': auth.is_system_user(username),
         })
     admins.sort(key=lambda a: a['username'])
-    return jsonify({'success': True, 'admins': admins,
+    return admins
+
+
+def _add_app_admin(username):
+    """Create an app-only admin. Returns (status_code, payload_dict).
+
+    Wheel actors only; wheel targets and non-wheel system accounts are
+    refused (delegated to adminstore, which re-checks live). The password
+    is generated server-side and returned ONCE in the payload.
+    """
+    if g.tier != 'wheel':
+        return 403, {'success': False,
+                     'error': 'Only wheel admins can add admins.'}
+    if not auth.valid_admin_username(username):
+        return 400, {'success': False, 'error': 'Invalid username.'}
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 500, {'success': False, 'error': 'Authentication unavailable'}
+    try:
+        tier, generated = adminstore.add_admin(
+            username, store=store, allow_wheel=False)
+    except adminstore.RefusedError as e:
+        return 403, {'success': False, 'error': str(e)}
+    except adminstore.AdminExistsError:
+        return 400, {'success': False, 'error': 'Admin already exists.'}
+    except adminstore.AuthStoreUnavailable as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 500, {'success': False, 'error': 'Authentication unavailable'}
+    _safe_audit(_req_actor(), 'admin.add', username,
+                {'success': True, 'tier': tier})
+    return 200, {'success': True,
+                 'message': f'Admin {username} created. This password is '
+                            'shown ONCE and must be changed at first login.',
+                 'password': generated}
+
+
+def _remove_app_admin(username):
+    """Remove an app-only admin. Returns (status_code, payload_dict).
+
+    Wheel actors only; wheel targets are never removable.
+    """
+    if g.tier != 'wheel':
+        return 403, {'success': False,
+                     'error': 'Only wheel admins can remove admins.'}
+    if not auth.valid_admin_username(username):
+        return 400, {'success': False, 'error': 'Invalid username.'}
+    refusal = device_policy.wheel_refusal(username)
+    if refusal:
+        return 403, {'success': False, 'error': refusal}
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 500, {'success': False, 'error': 'Authentication unavailable'}
+    try:
+        # Re-checks wheel membership live after loading the store
+        # (belt and braces), then deletes + persists.
+        adminstore.remove_admin(username, store=store)
+    except adminstore.RefusedError as e:
+        return 403, {'success': False, 'error': str(e)}
+    except adminstore.NoSuchAdminError:
+        return 404, {'success': False, 'error': 'No such admin.'}
+    except adminstore.AuthStoreUnavailable as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return 500, {'success': False, 'error': 'Authentication unavailable'}
+    _safe_audit(_req_actor(), 'admin.remove', username, {'success': True})
+    return 200, {'success': True, 'message': f'Admin {username} removed.'}
+
+
+@app.route('/api/admins', methods=['GET'])
+@require_admin
+def api_admins_list():
+    """List admin accounts with live tier resolution (JSON)."""
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return jsonify({'success': False,
+                        'error': 'Authentication unavailable'}), 500
+    return jsonify({'success': True, 'admins': _admin_rows(store),
                     'self': g.admin, 'tier': g.tier})
 
 
 @app.route('/api/admins', methods=['POST'])
 @require_admin
 def api_admins_add():
-    """Create an app-only admin account. Wheel admins only.
+    """Create an app-only admin account. Wheel admins only (JSON).
 
     The web console only ever adds app-only admins: a wheel member's
     row is bootstrap/CLI territory (mirrors the CLI constraints, but the
@@ -2318,75 +2568,18 @@ def api_admins_add():
     login to a regular local user (e.g. the child). The password is
     generated server-side and returned ONCE in the response.
     """
-    if g.tier != 'wheel':
-        return jsonify({'success': False,
-                        'error': 'Only wheel admins can add admins.'}), 403
     username = request.form.get('username', '').strip()
-    if not auth.valid_admin_username(username):
-        return jsonify({'success': False,
-                        'error': 'Invalid username.'}), 400
-    try:
-        store = auth.load_store()
-    except auth.AuthStoreError as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        return jsonify({'success': False,
-                        'error': 'Authentication unavailable'}), 500
-    try:
-        tier, generated = adminstore.add_admin(
-            username, store=store, allow_wheel=False)
-    except adminstore.RefusedError as e:
-        return jsonify({'success': False, 'error': str(e)}), 403
-    except adminstore.AdminExistsError:
-        return jsonify({'success': False,
-                        'error': 'Admin already exists.'}), 400
-    except adminstore.AuthStoreUnavailable as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        return jsonify({'success': False,
-                        'error': 'Authentication unavailable'}), 500
-    _safe_audit(_req_actor(), 'admin.add', username,
-                {'success': True, 'tier': tier})
-    return jsonify({'success': True,
-                    'message': f'Admin {username} created. This password is '
-                               'shown ONCE and must be changed at first login.',
-                    'password': generated})
+    status, payload = _add_app_admin(username)
+    return jsonify(payload), status
 
 
 @app.route('/api/admins/remove', methods=['POST'])
 @require_admin
 def api_admins_remove():
-    """Remove an app-only admin. Wheel admins only; wheel targets never."""
-    if g.tier != 'wheel':
-        return jsonify({'success': False,
-                        'error': 'Only wheel admins can remove admins.'}), 403
+    """Remove an app-only admin. Wheel admins only; wheel targets never (JSON)."""
     username = request.form.get('username', '').strip()
-    if not auth.valid_admin_username(username):
-        return jsonify({'success': False,
-                        'error': 'Invalid username.'}), 400
-    refused = _wheel_target_refused(username)
-    if refused is not None:
-        return refused
-    try:
-        store = auth.load_store()
-    except auth.AuthStoreError as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        return jsonify({'success': False,
-                        'error': 'Authentication unavailable'}), 500
-    try:
-        # Re-checks wheel membership live after loading the store
-        # (belt and braces), then deletes + persists.
-        adminstore.remove_admin(username, store=store)
-    except adminstore.RefusedError as e:
-        return jsonify({'success': False, 'error': str(e)}), 403
-    except adminstore.NoSuchAdminError:
-        return jsonify({'success': False,
-                        'error': 'No such admin.'}), 404
-    except adminstore.AuthStoreUnavailable as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        return jsonify({'success': False,
-                        'error': 'Authentication unavailable'}), 500
-    _safe_audit(_req_actor(), 'admin.remove', username, {'success': True})
-    return jsonify({'success': True,
-                    'message': f'Admin {username} removed.'})
+    status, payload = _remove_app_admin(username)
+    return jsonify(payload), status
 
 
 @app.route('/api/audit')
