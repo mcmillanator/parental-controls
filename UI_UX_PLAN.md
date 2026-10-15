@@ -518,6 +518,7 @@ inline. Keep `.error`.
 | Status + `In Bedtime`/`Override` badges | status **pill** (icon+text+color) + chips; keep status classes `status-locked/unlocked/unknown`; keep `.badge-bedtime`/`.badge-override` |
 | Bedtime start–end + days | "Bedtime 9:00 PM–7:00 AM · Mon–Fri" line; keep `|twelve` formatting |
 | Lock / Unlock conditional buttons | primary action on the card; keep `.btn-lock`/`.btn-unlock` and `onclick="lockUser/unlockUser"` |
+| Emergency logout | **not on the Overview** — removed from `/` on 2026-10-15 at the owner's request; it stays on the per-user page (`user.html`) only |
 | Details button | secondary outline; keep `.btn-details`, target `#row-… .btn-details` |
 | `#admin-panel`/`#admin-list`/`#new-admin-username`/Add admin | move **inside** the content container as a collapsed `.pc-disclosure`; keep all three ids |
 | `#toast` | `.pc-toast` with `role=status` + stack; keep id `#toast` |
@@ -781,6 +782,10 @@ literally present:
   keeps them, visually hidden on phones — do **not** `display:none` them into
   non-existence; use `clip`).
 
+Note `.btn-logout` (Emergency logout) is **not** an Overview control: it was
+removed from `/` on 2026-10-15 at the owner's request, and the class/text stay
+pinned for the per-user page, which still carries it.
+
 Note the inventory match is prefix-lenient for templated ids (`budget-` matches
 `#budget-games`) — keep real ids.
 
@@ -1017,7 +1022,7 @@ content is untouched.
   (`grid-template-columns: repeat(2, minmax(0,1fr))`); below that they stay a
   single column. No new sections were invented.
 - **Selector contract unchanged**: every §7.4 pinned id/class (`#row-<user>`,
-  `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`/`.btn-logout`, `status-*`,
+  `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`, `status-*`,
   `pc-status--*`, `.refresh-info`, `#admin-panel`, `#admin-list`,
   `#new-admin-username`, `#device-selector`, `#accounts`, `.pc-account`,
   `data-label`, …) is preserved; **zero** selector changes.
@@ -1075,19 +1080,21 @@ distilled starter prompt. This pass implements that intent.
   `data-comm`/`data-mode`/`data-minutes` and the inline Screen-4 editor card is
   gone, so the pinned `.override-mode`/`.override-minutes` controls now resolve
   from `_partials/override_dialog.html`.
-- **Overview actions are a real no-JS POST path.** Every account action
-  (lock / unlock / lock screen / emergency logout) and the admin add/remove
-  controls are server-rendered `<form method="post">` submissions to
-  `/overview/lock`, `/overview/lock-screen`, `/overview/unlock`,
-  `/overview/logout`, `/overview/admins` and `/overview/admins/remove`. Each
-  runs the same core as its `/api/*` twin — so the JSON contract and the audit
-  trail are unchanged — then flashes and redirects (POST/Redirect/GET).
-  `static/js/app.js` and the page script only add the shared confirmation
-  dialog on top; with JS disabled the forms still submit, act and audit.
-  `#admin-add` / `#new-admin-username` stay visible for every admin (the
-  selector contract asserts them on `/`); the endpoint refuses non-wheel actors
-  server-side, and
-  the per-row Remove buttons are wheel-actor only.
+- **Overview actions are a real no-JS POST path.** Every Overview account action
+  (lock / unlock / lock screen) and the admin add/remove controls are
+  server-rendered `<form method="post">` submissions to `/overview/lock`,
+  `/overview/lock-screen`, `/overview/unlock`, `/overview/admins` and
+  `/overview/admins/remove`. Each runs the same core as its `/api/*` twin — so
+  the JSON contract and the audit trail are unchanged — then flashes and
+  redirects (POST/Redirect/GET). `static/js/app.js` and the page script only add
+  the shared confirmation dialog on top; with JS disabled the forms still
+  submit, act and audit. **Emergency logout is no longer on the Overview**
+  (removed 2026-10-15 at the owner's request): it stays on the per-user page as
+  a JS/fetch action against `/api/logout`, which is part of the no-JS coverage
+  gap noted below. `#admin-add` / `#new-admin-username` stay visible for every
+  admin (the selector contract asserts them on `/`); the endpoint refuses
+  non-wheel actors server-side, and the per-row Remove buttons are wheel-actor
+  only.
 - **Mutually exclusive states.** With the state specimens behind the preview,
   each region renders exactly one server-selected state (normal / empty /
   error) — the loading skeleton and offline copy are progressive-enhancement

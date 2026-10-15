@@ -12,18 +12,20 @@
    phone bottom tab bar below 768px (hidden >=768px like every sidebar screen).
    It no longer overrides layout_class / sidebar / appbar.
 
-   NO-JS ACTIONS: every account action (Lock / Unlock / Lock screen / Emergency
-   logout) and the admin add/remove controls are real <form method="post">
-   submissions to /overview/*, which run the same core as the /api/* twins,
-   flash the outcome and redirect back here (POST/Redirect/GET). The page script
-   only adds the shared confirmation dialog on top (the dialog is itself a real
-   POST form); with JavaScript disabled the forms still submit and the server
-   still acts and audits. See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must
-   work as a plain server-rendered POST".
+   NO-JS ACTIONS: every Overview account action (Lock / Unlock / Lock screen)
+   and the admin add/remove controls are real <form method="post"> submissions
+   to /overview/*, which run the same core as the /api/* twins, flash the
+   outcome and redirect back here (POST/Redirect/GET). The page script only adds
+   the shared confirmation dialog on top (the dialog is itself a real POST
+   form); with JavaScript disabled the forms still submit and the server still
+   acts and audits. See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must work
+   as a plain server-rendered POST". Emergency logout is deliberately NOT
+   offered here (owner request, 2026-10-15) — it lives on the per-user page,
+   where it is a JS/fetch action against /api/logout.
 
    Every selector pinned by the selector contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
-   .btn-lockscreen, .btn-logout, .refresh-info, #admin-panel, #admin-list,
+   .btn-lockscreen, .refresh-info, #admin-panel, #admin-list,
    #new-admin-username, #admin-add, #toast (base), plus the multi-device
    #device-selector/switchDevice JS.
    ========================================================================= #}
@@ -125,7 +127,6 @@
             {% if user.wheel %}
             {{ pc_button('Lock', 'neutral', extra='disabled aria-disabled="true"') }}
             {{ pc_button('Unlock', 'neutral', extra='disabled aria-disabled="true"') }}
-            {{ pc_button('Emergency logout', 'neutral', extra='disabled aria-disabled="true"') }}
             {{ pc_button('Details', 'ghost', cls='btn-details', extra="onclick=\"window.location='/user/" ~ user.username ~ "'\"") }}
             <span class="pc-meta">wheel admins can never be locked or removed.</span>
             {% else %}
@@ -136,7 +137,6 @@
             {{ account_action(url_for('overview_unlock'), user.username, 'Unlock', 'unlockUser', cls='btn-unlock') }}
             {% endif %}
             {{ account_action(url_for('overview_lock_screen'), user.username, 'Lock screen', 'lockScreen', variant='neutral', cls='btn-lockscreen', title='Locks the screen without terminating the session') }}
-            {{ account_action(url_for('overview_logout'), user.username, 'Emergency logout', 'logoutUser', variant='danger', cls='btn-logout', title='Terminates ALL sessions for this user immediately') }}
             {{ pc_button('Details', 'ghost', cls='btn-details', extra="onclick=\"window.location='/user/" ~ user.username ~ "'\"") }}
             {% endif %}
         </div>
@@ -190,8 +190,8 @@
    guidance, NOT product content: they render only behind the dev-only
    preview (`?preview=1`). The "Selected account: Sam" example is the reusable
    confirmation-dialog pattern — it is now the shared `#pc-confirm` dialog
-   rendered in the shell and opened by every destructive account action
-   (lock/unlock/lock-screen/emergency logout), not an inline card. #}
+   rendered in the shell and opened by every destructive account action, not an
+   inline card. #}
 {% if show_fixtures %}
 <section id="overview-specimens" class="pc-stack" aria-label="Design specimens">
     <article class="pc-card pc-card--hero" aria-labelledby="specimen-confirm">
@@ -332,17 +332,6 @@
         });
     }
 
-    function logoutUser(form) {
-        const username = formUsername(form);
-        return confirmThenSubmit(form, {
-            title: 'Emergency logout?',
-            body: `Terminate ALL sessions for "${username}" immediately?`,
-            confirmLabel: 'Log out',
-            danger: true,
-            requireText: username,
-        });
-    }
-
     function removeAdmin(form) {
         const username = formUsername(form);
         return confirmThenSubmit(form, {
@@ -395,7 +384,6 @@
         if (u.wheel) {
             actions = '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Lock</button>' +
                 '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Unlock</button>' +
-                '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Emergency logout</button>' +
                 `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>` +
                 '<span class="pc-meta">wheel admins can never be locked or removed.</span>';
         } else {
@@ -406,7 +394,6 @@
                 actions += accountActionForm('/overview/unlock', u.username, 'Unlock', 'unlockUser', 'primary', 'btn-unlock', '');
             }
             actions += accountActionForm('/overview/lock-screen', u.username, 'Lock screen', 'lockScreen', 'neutral', 'btn-lockscreen', 'Locks the screen without terminating the session');
-            actions += accountActionForm('/overview/logout', u.username, 'Emergency logout', 'logoutUser', 'danger', 'btn-logout', 'Terminates ALL sessions for this user immediately');
             actions += `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
         }
         return `<article class="pc-card pc-account" id="row-${esc(u.username)}">` +
@@ -432,11 +419,10 @@
 
     async function refreshTable() {
         // Never rebuild the account cards while a modal confirm dialog is
-        // open: every action now submits its own <form> node, and an
-        // Emergency logout needs the operator to type the username (well past
-        // the 10s tick). Swapping the DOM would detach the form under the
-        // dialog and disturb the typed gate. The next tick picks the refresh
-        // up once the dialog closes.
+        // open: every action now submits its own <form> node, and the operator
+        // may spend well past the 10s tick reading the confirmation. Swapping
+        // the DOM would detach the form under the dialog. The next tick picks
+        // the refresh up once the dialog closes.
         if (document.querySelector('dialog[open]')) { return; }
         const list = document.getElementById('accounts');
         try {

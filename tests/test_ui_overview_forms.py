@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """No-JS Overview action forms (UI_UX_PLAN.md progressive enhancement).
 
-Every Overview action — Lock / Unlock / Lock screen / Emergency logout and
-admin add/remove — is a plain ``<form method="post">`` to ``/overview/*``.
+Every Overview account action — Lock / Unlock / Lock screen — and the admin
+add/remove controls are plain ``<form method="post">`` submissions to
+``/overview/*``.
 Those routes run the *same* core as their ``/api/*`` twins, flash the outcome
 and redirect back to the Overview (POST/Redirect/GET). The page script only
 adds the shared confirmation dialog on top; with JavaScript disabled the forms
@@ -128,7 +129,7 @@ class _OverviewFormsBase(_AdminSessionMixin, unittest.TestCase):
 
 
 class TestAccountActionForms(_OverviewFormsBase):
-    """The four account actions work as real POST forms (PRG + flash)."""
+    """The three Overview account actions work as real POST forms (PRG + flash)."""
 
     def test_lock_form_redirects_and_locks(self):
         calls = []
@@ -139,7 +140,7 @@ class TestAccountActionForms(_OverviewFormsBase):
         self.assertEqual(302, resp.status_code)
         self.assertTrue(resp.headers['Location'].endswith('/'))
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
-        # Session-preserving: only /overview/logout terminates.
+        # Session-preserving: no Overview form terminates (that is /api/logout).
         self.assertFalse([c for c in calls if 'terminate-user' in c])
         nml.assert_called_once_with(KID)
 
@@ -211,17 +212,6 @@ class TestAccountActionForms(_OverviewFormsBase):
         self.assertEqual(lock.call_args[0], (KID, 'unlock'))
         nmu.assert_called_once_with(KID)
         self.assertIn('Unlocked %s' % KID, resp.get_data(as_text=True))
-
-    def test_logout_form_locks_and_terminates(self):
-        calls = []
-        with mock.patch.object(app, 'note_manual_lock'), \
-             mock.patch.object(app.subprocess, 'run',
-                               side_effect=self._fake_runner(calls)):
-            resp = self._post_follow('/overview/logout', {'username': KID})
-        self.assertEqual(200, resp.status_code)
-        self.assertIn(['sudo', 'usermod', '-L', KID], calls)
-        self.assertTrue([c for c in calls if 'terminate-user' in c])
-        self.assertIn('logged out', resp.get_data(as_text=True))
 
 
 class TestAdminForms(_OverviewFormsBase):
@@ -302,7 +292,7 @@ class TestServerRenderedForms(_OverviewFormsBase):
     def test_every_action_is_a_real_post_form(self):
         html = self._render_home(users=USERS, lock=LOCK)
         for action in ('/overview/lock', '/overview/unlock',
-                       '/overview/lock-screen', '/overview/logout'):
+                       '/overview/lock-screen'):
             with self.subTest(action=action):
                 self.assertIn('action="%s"' % action, html)
         self.assertIn('name="csrf_token"', html)
@@ -310,7 +300,9 @@ class TestServerRenderedForms(_OverviewFormsBase):
         self.assertIn('class="pc-btn pc-btn--primary btn-lock"', html)
         self.assertIn('class="pc-btn pc-btn--primary btn-unlock"', html)
         self.assertIn('class="pc-btn pc-btn--neutral btn-lockscreen"', html)
-        self.assertIn('class="pc-btn pc-btn--danger btn-logout"', html)
+        # Emergency logout is no longer offered on the Overview.
+        self.assertNotIn('btn-logout', html)
+        self.assertNotIn('/overview/logout', html)
 
     def test_refresh_is_skipped_while_a_confirm_dialog_is_open(self):
         with open(os.path.join(TEMPLATE_DIR, 'index.html'), encoding='utf-8') as fh:

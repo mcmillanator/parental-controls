@@ -151,9 +151,9 @@ Recovery CLI on `PATH`:
 
 ## Open / deferred
 
-- **Overview actions are a real no-JS POST path** (resolved): every account
-  action (Lock / Unlock / Lock screen / Emergency logout) and the admin
-  add/remove controls are `<form method="post">` submissions to `/overview/*`,
+- **Overview actions are a real no-JS POST path** (resolved): every Overview
+  account action (Lock / Unlock / Lock screen) and the admin add/remove
+  controls are `<form method="post">` submissions to `/overview/*`,
   which run the same cores as the `/api/*` twins, flash and redirect (PRG); JS
   only adds the confirm dialog. `#admin-add` / `#new-admin-username` stay
   visible for every admin because the selector contract asserts them on `/`
@@ -172,10 +172,13 @@ Recovery CLI on `PATH`:
   the shared dialog.
 - **No-JS coverage is incomplete outside the Overview:** `budgets`, `processes`
   and `admin_audit` (and much of `user`) still post via `fetch` + a CSRF
-  header. §11.1's "server-rendered POST/fetch path" wording is weaker than the
-  claim in `static/js/app.js` ("with JavaScript disabled the pages still render,
-  navigate and submit"). Whether to converge the rest — or soften the docs — is
-  an open owner question; not started.
+  header. Emergency logout is part of this: it was removed from the Overview
+  (owner request, 2026-10-15) and now lives only on the per-user page as a
+  JS/fetch action against `/api/logout` (the `/overview/logout` route is gone).
+  §11.1's "server-rendered POST/fetch path" wording is weaker than the claim in
+  `static/js/app.js` ("with JavaScript disabled the pages still render, navigate
+  and submit"). Whether to converge the rest — or soften the docs — is an open
+  owner question; not started.
 - Honest placeholders: "1 active session" and specimen values are illustrative;
   per-account "using 1h 42m today" isn't in the payload; notification lead-time,
   the HTTPS toggle and multi-device are disabled.

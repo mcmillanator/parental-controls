@@ -287,7 +287,7 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertNotIn('btn-lock', card)
         self.assertNotIn('btn-unlock', card)
         self.assertNotIn('btn-logout', card)
-        # REVISED-SPEC.md: all three actions render disabled for a wheel admin.
+        # REVISED-SPEC.md: the remaining actions render disabled for a wheel admin.
         self.assertIn('disabled aria-disabled="true"', card)
         self.assertIn('>Lock<', card)
         self.assertIn('>Unlock<', card)
@@ -296,21 +296,36 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         card2 = html[idx2:html.index('</article>', idx2)]
         self.assertIn('btn-unlock', card2)
         self.assertIn('btn-lockscreen', card2)
-        self.assertIn('btn-logout', card2)
+        self.assertNotIn('btn-logout', card2)
 
-    def test_emergency_logout_requires_typed_confirmation(self):
+    def test_remaining_actions_are_no_js_post_forms(self):
         # Overview actions are plain POST forms (progressive enhancement):
         # the page script only gates them behind the shared confirm dialog.
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
-        self.assertIn('requireText: username', src)
         self.assertIn("url_for('overview_lock_screen')", src)
-        self.assertIn("url_for('overview_logout')", src)
-        # ...and every action posts to its own no-JS form endpoint.
+        self.assertNotIn("url_for('overview_logout')", src)
+        # ...and every remaining action posts to its own no-JS form endpoint.
         html = self._render()
         for action in ('/overview/lock', '/overview/lock-screen',
-                       '/overview/unlock', '/overview/logout'):
+                       '/overview/unlock'):
             with self.subTest(action=action):
                 self.assertIn('action="%s"' % action, html)
+
+    def test_overview_no_longer_offers_emergency_logout(self):
+        # Owner request (2026-10-15): the Overview dropped Emergency logout.
+        # Regression guard: it must be gone from the Overview but still present
+        # on the per-user page.
+        html = self._render()
+        self.assertNotIn('btn-logout', html)
+        self.assertNotIn('Emergency logout', html)
+        self.assertNotIn('logoutUser', html)
+        self.assertNotIn('/overview/logout', html)
+        src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        self.assertNotIn('overview_logout', src)
+        self.assertNotIn('logoutUser', src)
+        user_src = read(os.path.join(TEMPLATE_DIR, 'user.html'))
+        self.assertIn('btn-logout', user_src)
+        self.assertIn('logoutUser', user_src)
 
     def test_specimen_cards_are_dev_only(self):
         # The "Selected account: Sam" example, the design thesis and the empty

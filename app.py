@@ -1378,7 +1378,7 @@ def _remote_overview_action(subpath):
 
 
 def _overview_account_action(core, subpath, success_text, refuse_wheel=True):
-    """Shared body for the four no-JS account action routes.
+    """Shared body for the three no-JS Overview account action routes.
 
     `core` is the same function the JSON endpoint uses; `subpath` is the
     remote agent path when a device is selected. Always flashes and redirects.
@@ -1434,15 +1434,6 @@ def overview_unlock():
     return _overview_account_action(
         _unlock_account, 'unlock', 'Unlocked {username}.',
         refuse_wheel=False)
-
-
-@app.route('/overview/logout', methods=['POST'])
-@require_admin
-def overview_logout():
-    """No-JS Overview form: emergency logout (PRG + flash)."""
-    return _overview_account_action(
-        _emergency_logout, 'logout',
-        '{username} logged out — all sessions terminated.')
 
 
 @app.route('/overview/admins', methods=['POST'])
@@ -1795,7 +1786,7 @@ def api_bedtime_set():
 def api_logout():
     """Emergency logout — terminates the user's session.
 
-    JSON endpoint (the Overview form path is /overview/logout). Runs:
+    JSON endpoint (the per-user page posts here via fetch). Runs:
       sudo usermod -L <user>      — lock the account
       sudo loginctl terminate-user <user>  — terminates all user sessions
     """
