@@ -47,6 +47,36 @@
     applyReduced(on);
   };
 
+  // --- Live countdowns -----------------------------------------------------
+  // ONE 1 Hz ticker drives every countdown element on any page (the Time rules
+  // "Live countdown" card and the Overview account cards). Each element carries
+  // `data-countdown-seconds`, seeded server-side from app.countdown_state() —
+  // this only decrements that number and writes HH:MM:SS, it never derives the
+  // value. A page poll re-seeds the attribute (the Overview rebuilds the cards
+  // every 10s; the user page's refreshUserLive rewrites it), which re-syncs the
+  // readout so it cannot drift.
+  function formatCountdown(seconds) {
+    var total = Math.max(0, Math.floor(Number(seconds) || 0));
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return pad(Math.floor(total / 3600)) + ':' +
+      pad(Math.floor((total % 3600) / 60)) + ':' + pad(total % 60);
+  }
+
+  window.pcFormatCountdown = formatCountdown;
+
+  function tickCountdowns() {
+    var nodes = document.querySelectorAll('[data-countdown-seconds]');
+    Array.prototype.forEach.call(nodes, function (node) {
+      var left = parseInt(node.getAttribute('data-countdown-seconds'), 10);
+      if (isNaN(left)) { return; }
+      left = left > 0 ? left - 1 : 0;
+      node.setAttribute('data-countdown-seconds', String(left));
+      node.textContent = formatCountdown(left);
+    });
+  }
+
+  window.pcTickCountdowns = tickCountdowns;
+
   // Dismiss an open popover <details> on outside click / Escape.
   function closeOpenMenus(except) {
     var open = document.querySelectorAll('details.pc-menu[open], details.pc-tabmenu[open]');
@@ -64,6 +94,11 @@
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') { closeOpenMenus(null); }
     });
+    // Tick only when the page actually has a countdown element; the Overview
+    // and the Time rules page do, the auth pages do not.
+    if (document.querySelector('[data-countdown-seconds]')) {
+      setInterval(tickCountdowns, 1000);
+    }
   }
 
   if (document.readyState === 'loading') {

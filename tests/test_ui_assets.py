@@ -377,6 +377,14 @@ class MobileOverflowGuardTest(unittest.TestCase):
         self._assert_decl(body, 'white-space:normal')
         self._assert_decl(body, 'overflow-wrap:anywhere')
 
+    def test_account_countdown_can_shrink(self):
+        # The compact Overview countdown sits in the account card head next to
+        # the badges; it must be shrinkable so a 320/375px phone cannot get a
+        # horizontal scrollbar from it.
+        body = self._rule(r'\.pc-account__countdown')
+        self._assert_decl(body, 'min-width:0')
+        self._assert_decl(body, 'max-width:100%')
+
     def test_table_cells_can_shrink(self):
         body = self._rule(r'\.pc-table th,\s*\.pc-table td')
         self._assert_decl(body, 'min-width:0')

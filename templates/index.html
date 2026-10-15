@@ -122,6 +122,18 @@
             {% if user.wheel %}<span class="badge-protected pc-pill pc-pill--protected"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-wheel"/></svg>Protected</span>{% endif %}
             {% if user.in_bedtime %}<span class="pc-chip pc-chip--bedtime badge-bedtime"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-clock"/></svg>In Bedtime</span>{% endif %}
             {% if user.in_bedtime and user.bedtime and user.bedtime.manual_override %}<span class="pc-chip pc-chip--override badge-override">Override</span>{% endif %}
+            {# Compact live countdown (same value as the Time rules page, both
+               from app.countdown_state). Rendered only when there is something
+               to count down to, and never on a wheel-admin "Protected" card.
+               No aria-live: N cards ticking at 1 Hz would flood a screen
+               reader — the aria-label says what it counts down to. The shared
+               1 Hz ticker (static/js/app.js) decrements data-countdown-seconds
+               and the 10s poll re-seeds it. #}
+            {% if user.countdown and not user.wheel %}
+            <span class="pc-account__countdown pc-timer pc-timer--sm" role="timer" aria-live="off"
+                  aria-label="{{ 'Bonus time remaining' if user.countdown.kind == 'bonus' else 'Until the next bedtime window' }}"
+                  data-countdown-seconds="{{ user.countdown.seconds }}">{{ user.countdown.seconds|countdown }}</span>
+            {% endif %}
         </div>
         <div class="pc-account__actions pc-row" data-label="Actions">
             {% if user.wheel %}
@@ -356,6 +368,21 @@
             '</form>';
     }
 
+    // Compact live countdown for one account card. Mirrors the server-rendered
+    // markup above exactly (same class/role/attrs) so the first paint and the
+    // 10s rebuild are indistinguishable. The value comes from the payload's
+    // `countdown` (app.countdown_state) — never re-derived here. Renders
+    // nothing when there is nothing to count down to.
+    function countdownHtml(cd) {
+        if (!cd || typeof cd.seconds !== 'number') { return ''; }
+        const label = cd.kind === 'bonus'
+            ? 'Bonus time remaining' : 'Until the next bedtime window';
+        const fmt = window.pcFormatCountdown;
+        const text = fmt ? fmt(cd.seconds) : '';
+        return `<span class="pc-account__countdown pc-timer pc-timer--sm" role="timer" aria-live="off"` +
+            ` aria-label="${esc(label)}" data-countdown-seconds="${esc(cd.seconds)}">${esc(text)}</span>`;
+    }
+
     function accountHtml(u) {
         const cls = statusClass(u.locked);
         let badges = `<span class="pc-pill pc-pill--${cls} pc-status pc-status--${cls} status-${cls}">` +
@@ -372,6 +399,9 @@
         if (u.in_bedtime && u.bedtime && u.bedtime.manual_override) {
             badges += '<span class="pc-chip pc-chip--override badge-override">Override</span>';
         }
+        // Wheel cards are "Protected" and carry no countdown (same rule as the
+        // server-rendered markup).
+        if (!u.wheel) { badges += countdownHtml(u.countdown); }
         let meta = `UID ${esc(u.uid)}`;
         if (u.bedtime && u.bedtime.start) {
             const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
