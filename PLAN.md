@@ -175,7 +175,7 @@ Phase 5 (scale & polish):
       (`.pc-table--stack` + `data-label`) converting Home, user details, login /
       change-password and the admin console. Dark by default with an automatic
       light theme; WCAG 2.2 AA contrast, 44 px targets, skip link,
-      reduced-motion. The Katalon selector contract holds with **zero selector
+      reduced-motion. The selector contract holds with **zero selector
       changes** (Phase 6 reconciliation, `feature/ui-docs`)
 
 ### Open after 1.1 (deliberately not done)
@@ -239,7 +239,6 @@ lockout safeguards (confirm dialogs, wheel-admin auto-lock/auto-freeze exemption
 | `FREEZE_BUTTONS_PLAN.md` | Manual freeze/unfreeze buttons design |
 | `TLS_PLAN.md` | TLS-for-LAN design |
 | `sudo-audit.md` | Sudo coverage audit and blanket-removal procedure |
-| `katalon/README.md` | Browser (Katalon Recorder) QA suite guide |
 | `.gitignore` | Ignores worktrees, Python artifacts and runtime state (`*.json`) |
 
 ## Release status
@@ -317,4 +316,4 @@ Test suite: **1238 tests, 14 environmental skips** (47 test files, stdlib
 - [x] Health check: `parental-controls-healthcheck.timer` probes every 5 minutes (unit active, HTTP/HTTPS 200/302 on `/`, auth store parseable by the service user) and surfaces breakage as a failed unit; it never notifies a child and never restarts the panel (`feature/health-check`)
 - [x] Dedicated service user: the panel and its oneshots run as system user `parental-controls` (nologin, locked password, no sudo of its own, scoped sudoers only), created idempotently by `install.sh`; `pcverify` keeps the scoped least-privilege verification role
 - [x] Recovery CLI installed by `install.sh` at `/usr/local/bin/parental-controls` (root-only, 0750), so the escape hatch exists on-machine without the checkout
-- [x] Katalon Recorder browser QA suite (`katalon/parental-controls.html`, a Selenium-IDE HTML suite, plus `katalon/README.md`) and a CI validator (`tests/test_katalon_suite.py`) that pins every locator and expected string against `templates/` and `app.py` (`feature/katalon-qa`, format reworked on `feature/katalon-selenese-html`)
+- [x] Browser-recorder QA suite (a third-party browser-recorder Selenium-IDE HTML suite plus its guide) and a CI validator that pinned every locator and expected string against `templates/` and `app.py` (format reworked later) — **removed** 2026-10-15 at the owner's request (no longer used). The §7.4 selector/expected-text inventory it pinned is now guarded by `tests/test_ui_assets.py` (`PinnedSelectorInventoryTest`) plus the per-page `test_ui_*.py` modules, with `UI_UX_PLAN.md` §7.4 as the spec.

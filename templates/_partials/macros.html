@@ -5,7 +5,7 @@
    device cards and dialogs).
 
    Every macro emits the same class names the pinned selector contract
-   (`tests/test_katalon_suite.py`, UI_UX_PLAN.md §7.4) expects, so pages can
+   (UI_UX_PLAN.md §7.4, guarded by the stdlib suite) expects, so pages can
    adopt them without moving a selector. The page-local `time_select` macro
    (templates/user.html, templates/budgets.html) keeps the 12-hour selects;
    `pc_empty` / `pc_skeleton` / `pc_banner` live in `_partials/flash.html`;
@@ -54,7 +54,7 @@
 
 {# A navigation link for the sidebar / app bar / tab bar. `style` is
    'navlink' (sidebar) or 'appbar'/'tab'; the active destination carries
-   aria-current="page" so the runtime Katalon selector keeps resolving. #}
+   aria-current="page" so the pinned selector keeps resolving. #}
 {%- macro pc_nav_link(key, icon, label, href, active='', style='navlink') -%}
 {%- if style == 'navlink' -%}
 <a class="pc-navlink" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}><svg class="pc-navlink__icon" aria-hidden="true" focusable="false"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>
