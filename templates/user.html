@@ -79,6 +79,20 @@
 </nav>
 {% endif %}
 
+{# Live countdown (design Screen 2) — muted card with a big mono readout.
+   It is now the FIRST card in the content area, directly under the page title
+   and above the Account hero, so the time-to-bedtime is the first thing the
+   parent sees. The readout is genuinely live: `data-countdown-seconds` seeds
+   the shared 1 Hz ticker in static/js/app.js and the 10s poll re-syncs it from
+   the /live payload (`renderCountdown`). The markup string (ids/classes/roles)
+   stays byte-identical to what tests/test_ui_user.py pins. #}
+<section class="pc-card pc-card--muted" id="countdown-card" aria-labelledby="countdown-heading">
+    <h2 class="pc-card__title" id="countdown-heading">Live countdown</h2>
+    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="polite"{% if countdown %} data-countdown-seconds="{{ countdown.seconds }}"{% endif %}>{{ countdown_text }}</p>
+    <p class="pc-meta" id="countdown-note">{% if user.bonus and user.bonus.active %}Bonus time remaining{% else %}Until the next bedtime window{% endif %}{% if user.in_bedtime %} · Desktop warning sent{% endif %}</p>
+    <p class="pc-hint">The countdown respects reduced-motion preferences.</p>
+</section>
+
 <!-- Account hero: who + live status + the one obvious safe action -->
 <section class="pc-card pc-card--hero" aria-labelledby="pc-user-title">
     <div class="pc-card__header">
@@ -257,14 +271,6 @@
         </div>
     </div>
 </details>
-
-{# Live countdown (design Screen 2) — muted card with a big mono readout. #}
-<section class="pc-card pc-card--muted" id="countdown-card" aria-labelledby="countdown-heading">
-    <h2 class="pc-card__title" id="countdown-heading">Live countdown</h2>
-    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="polite">{{ countdown_text }}</p>
-    <p class="pc-meta" id="countdown-note">{% if user.bonus and user.bonus.active %}Bonus time remaining{% else %}Until the next bedtime window{% endif %}{% if user.in_bedtime %} · Desktop warning sent{% endif %}</p>
-    <p class="pc-hint">The countdown respects reduced-motion preferences.</p>
-</section>
 
 <!-- Time budgets -->
 <details class="pc-disclosure" id="budgets-section" open>
@@ -1161,6 +1167,33 @@
         }
     }
 
+    // Re-sync the live countdown from the polled payload. The per-second
+    // decrement is owned by the shared 1 Hz ticker in static/js/app.js (it
+    // reads `data-countdown-seconds`); this only re-seeds that value from the
+    // server so the readout cannot drift. The value itself is server-derived
+    // (app.countdown_state) — never re-computed here.
+    function renderCountdown(data) {
+        const el = document.getElementById('bedtime-countdown');
+        if (!el) return;
+        const state = data && data.countdown;
+        if (state && typeof state.seconds === 'number') {
+            el.setAttribute('data-countdown-seconds', String(state.seconds));
+            if (window.pcFormatCountdown) {
+                el.textContent = window.pcFormatCountdown(state.seconds);
+            }
+        } else {
+            el.removeAttribute('data-countdown-seconds');
+            el.textContent = '--:--:--';
+        }
+        const note = document.getElementById('countdown-note');
+        if (note) {
+            let text = (state && state.kind === 'bonus')
+                ? 'Bonus time remaining' : 'Until the next bedtime window';
+            if (data && data.in_bedtime) text += ' · Desktop warning sent';
+            note.textContent = text;
+        }
+    }
+
     // Refresh-state affordances (plan §6.2): a subtle stale chip when a
     // poll fails (last good data is kept, never blanked) and a visible
     // "paused while you edit" hint when the 10s poll is skipped.
@@ -1187,6 +1220,7 @@
             setStale(false);
             renderAccount(data);
             renderBonus(data);
+            renderCountdown(data);
             renderProcesses(data);
             renderBudgets(data);
         } catch (e) {

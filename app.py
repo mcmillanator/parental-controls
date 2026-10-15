@@ -1280,6 +1280,7 @@ def index():
     for u in users:
         locked, detail = get_lock_status(u['username'])
         entry = bedtime.get(u['username'], {})
+        bonus = bonus_state(entry)
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -1289,7 +1290,10 @@ def index():
             'status_detail': detail,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
-            'bonus': bonus_state(entry),
+            'bonus': bonus,
+            # Live countdown for the account card (same value as the per-user
+            # Time rules page — both built on countdown_state).
+            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
             # Wheel admins are system-protected: the UI disables their
             # lock/unlock/logout actions and shows a Protected pill. The
             # endpoints refuse them anyway (defence in depth).
@@ -1309,6 +1313,13 @@ def index():
             except remote.RemoteError as e:
                 remote_users, device_error = None, str(e)
             user_data = remote_users if remote_users is not None else []
+    # Remote rows are passed through untouched: the Overview's own 10s poll
+    # re-fetches them from the agent via the device proxy, so a countdown
+    # invented here for the first paint would vanish on the first rebuild.
+    # `index.html` (and accountHtml) render the countdown only when the row
+    # carries a `countdown` key; a remote row that lacks it (the agent's
+    # /users payload does not include one yet) simply shows no countdown —
+    # degrade, never crash. Local rows always get one just above.
     # Admin panel is server-rendered so admin add/remove work without JS
     # (the redesign's no-JS-post rule). Admin accounts are always local to
     # this box, even when a remote device's users are being shown.
@@ -1477,6 +1488,7 @@ def api_users():
     for u in users:
         locked, detail = get_lock_status(u['username'])
         entry = bedtime.get(u['username'], {})
+        bonus = bonus_state(entry)
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -1484,7 +1496,11 @@ def api_users():
             'status_detail': detail,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
-            'bonus': bonus_state(entry),
+            'bonus': bonus,
+            # Same countdown value as the server-rendered index.html cards and
+            # the per-user Time rules page, so the 10s JS rebuild can never
+            # disagree with the first paint.
+            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
         })
     return jsonify(user_data)
 
@@ -2014,30 +2030,71 @@ def api_budgets_get(username):
     return jsonify(budgets.budget_status(username))
 
 
+def _countdown_seconds(minutes):
+    """Whole seconds for a minutes value; None when it is unusable."""
+    if minutes is None:
+        return None
+    try:
+        return max(0, int(round(float(minutes) * 60)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_seconds(seconds):
+    """HH:MM:SS for a whole number of seconds (clamped at zero)."""
+    total = max(0, int(seconds))
+    return f'{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}'
+
+
+def countdown_state(user):
+    """Single source of truth for a live countdown value.
+
+    ``user`` is a mapping carrying ``bonus`` (as produced by ``bonus_state``)
+    and ``bedtime`` (the raw schedule entry) keys — the shape both the per-user
+    Time rules page and the Overview account cards hold. Returns
+    {'kind': 'bonus'|'bedtime', 'seconds': int} when there is something to
+    count down to, else None (no active bonus and no bedtime schedule).
+
+    The per-user ``_countdown_text`` and the Overview cards (server-rendered
+    markup *and* the /api/users payload the JS rebuilds from) are all built on
+    this, so the two screens can never disagree.
+    """
+    user = user or {}
+    bonus = user.get('bonus') or {}
+    if bonus.get('active') and bonus.get('remaining_minutes') is not None:
+        seconds = _countdown_seconds(bonus.get('remaining_minutes'))
+        if seconds is not None:
+            return {'kind': 'bonus', 'seconds': seconds}
+    entry = user.get('bedtime') or {}
+    if entry.get('start'):
+        seconds = _countdown_seconds(minutes_until_bedtime(entry))
+        if seconds is not None:
+            return {'kind': 'bedtime', 'seconds': seconds}
+    return None
+
+
 def _format_countdown(minutes):
     """HH:MM:SS for the live countdown card; '--:--:--' when unknown."""
-    if minutes is None:
+    seconds = _countdown_seconds(minutes)
+    if seconds is None:
         return '--:--:--'
-    try:
-        total = max(0, int(round(float(minutes) * 60)))
-    except (TypeError, ValueError):
-        return '--:--:--'
-    return f'{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}'
+    return _format_seconds(seconds)
 
 
 def _countdown_text(user):
     """Countdown for the Time rules screen (design Screen 2).
 
-    Bonus time remaining when a bonus is active, otherwise the minutes until
-    the next bedtime window; '--:--:--' when there is nothing to count down.
+    Bonus time remaining when a bonus is active, otherwise the time until the
+    next bedtime window; '--:--:--' when there is nothing to count down.
     """
-    bonus = (user or {}).get('bonus') or {}
-    if bonus.get('active') and bonus.get('remaining_minutes') is not None:
-        return _format_countdown(bonus.get('remaining_minutes'))
-    entry = (user or {}).get('bedtime') or {}
-    if entry.get('start'):
-        return _format_countdown(minutes_until_bedtime(entry))
-    return '--:--:--'
+    state = countdown_state(user)
+    if state is None:
+        return '--:--:--'
+    return _format_seconds(state['seconds'])
+
+
+# Seconds -> HH:MM:SS for the Overview countdown chips (index.html).
+app.jinja_env.filters['countdown'] = _format_seconds
 
 
 @app.route('/user/<username>')
@@ -2079,6 +2136,7 @@ def user_detail(username):
                            app_names=data.get('app_names') or [],
                            children=data.get('children') or [],
                            countdown_text=_countdown_text(data['user']),
+                           countdown=countdown_state(data['user']),
                            category_labels=budgets.CATEGORY_LABELS,
                            categories=budgets.CATEGORIES,
                            day_labels=DAY_LABELS,
@@ -2295,6 +2353,9 @@ def api_user_live(username):
         'in_bedtime': user['in_bedtime'],
         'manual_override': bool(user['bedtime'].get('manual_override', False)),
         'bonus': user['bonus'],
+        # Same countdown the first paint rendered (countdown_state), so the
+        # 10s poll re-syncs the live ticker instead of drifting.
+        'countdown': countdown_state(user),
         'groups': slim_groups,
         'hidden': slim_hidden,
         'error': error,
