@@ -380,7 +380,7 @@ collapsed `Detail` on mobile (grouped by day with a sticky date header).
 ├──────────────────────────────────┤
 │ 2 locked · 1 in bedtime · 1 paused│  summary strip
 ├──────────────────────────────────┤
-│ ┌ alice ──────────────[ 🔒 LOCKED]┐
+│ ┌ alice ──[ 🔒 LOCKED][ ⏳01:30:00]┐
 │ │ In Bedtime · Bonus 1h 30m      │
 │ │ Bedtime 9:00 PM–7:00 AM        │
 │ │ Mon Tue Wed Thu Fri            │
@@ -404,6 +404,10 @@ collapsed `Detail` on mobile (grouped by day with a sticky date header).
 ```
 ┌──────────────────────────────────┐
 │ ← Back to users                  │
+│ Time rules                       │  eyebrow + H1 (+ child tabs)
+│ ┌ Live countdown ────────────────┐│  FIRST card (above the hero)
+│ │ 01:30:00   Bonus time remaining││  1 Hz ticker, aria-live polite
+│ └────────────────────────────────┘│
 │ alice                    [ 🔒 ]  │  hero: who + live status pill
 │ ⚠ In Bedtime · Bonus 1h 30m       │
 │ [ Unlock ]   [ ⋯ ]               │  primary + overflow (Emergency logout)
@@ -516,6 +520,7 @@ inline. Keep `.error`.
 | Username link | card title link → `/user/<u>` |
 | UID | small meta line in card / table column |
 | Status + `In Bedtime`/`Override` badges | status **pill** (icon+text+color) + chips; keep status classes `status-locked/unlocked/unknown`; keep `.badge-bedtime`/`.badge-override` |
+| (new) live countdown per account | compact `.pc-account__countdown` readout in the card head next to the badges — the same value as the Time rules page (`app.countdown_state`, fed from `/api/users`); rendered only when there is something to count down to, and never on a wheel-admin "Protected" card; `role="timer" aria-live="off"` (N cards at 1 Hz must not flood a screen reader) with an `aria-label` naming the target |
 | Bedtime start–end + days | "Bedtime 9:00 PM–7:00 AM · Mon–Fri" line; keep `|twelve` formatting |
 | Lock / Unlock conditional buttons | primary action on the card; keep `.btn-lock`/`.btn-unlock` and `onclick="lockUser/unlockUser"` |
 | Emergency logout | **not on the Overview** — removed from `/` on 2026-10-15 at the owner's request; it stays on the per-user page (`user.html`) only |
@@ -530,6 +535,7 @@ inline. Keep `.error`.
 |---|---|
 | `a.back-link` | kept; label "← Back to users" |
 | float-right nav | app bar / tabs (no `float`) |
+| Live countdown card (`#countdown-card`, `#bedtime-countdown`, `#countdown-heading`, `#countdown-note`) | **moved to the top of the content area** — the first card, directly under `#pc-user-title` and above the Account hero (it used to sit after the Bedtime/Bonus disclosures). Markup string unchanged; the readout gains `data-countdown-seconds` so the shared 1 Hz ticker (`static/js/app.js`) makes it genuinely live, re-synced from `/api/user/<u>/live` on each 10s poll |
 | Bedtime card (start/end `time_select`, all-days, 7 day checkboxes, Save, Clear) | hero-adjacent `.pc-disclosure` card, summary in the `<summary>`; forms unchanged; keep `name="start_*"/"end_*"/"day_N"/"all_days"`, `#all_days_checkbox`, `.day-checkbox`, `.btn-bedtime-save`, `.btn-bedtime-clear`; keep `>12h` formatting and **no `type=time`** |
 | Bonus status `#bonus-status`, `.badge-bonus`, `.btn-lock` (Revoke) | inside Bonus disclosure; keep ids/classes; shortcut button **labels unchanged** (+15m/+30m/+1h/+1h30/+2h/Grant custom/Revoke — xpath-pinned) |
 | `#bonus-hours` `#bonus-minutes` + Grant custom | `.pc-duration`; keep ids |
@@ -789,6 +795,12 @@ pinned for the per-user page, which still carries it.
 Note the inventory match is prefix-lenient for templated ids (`budget-` matches
 `#budget-games`) — keep real ids.
 
+Additive selectors (not part of the pinned inventory, so keeping them is not a
+contract break): `#countdown-card` / `#countdown-heading` / `#bedtime-countdown`
+/ `#countdown-note` on the Time rules page, and `.pc-account__countdown` /
+`.pc-timer--sm` + `data-countdown-seconds` on the Overview (§11.10). They are
+pinned by the per-page stdlib modules, not by §7.4.
+
 ### 7.5 New / updated tests
 
 - `tests/test_ui_assets.py` (new): offline promise, static files exist,
@@ -920,8 +932,8 @@ this project's stack.
 
 | Screen | Route | Shape |
 |---|---|---|
-| 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px), confirmation specimen, design thesis, empty state |
-| 2 Time rules | `/user/<u>` | manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, live countdown (`aria-live`), clear-schedule confirm, state specimen |
+| 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px) each with a compact **live countdown** next to its badges, confirmation specimen, design thesis, empty state |
+| 2 Time rules | `/user/<u>` | **live countdown card first** (directly under the page title), then manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, clear-schedule confirm, state specimen |
 | 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
 | 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, row-launched override dialog + visibility card |
 | 5 Admin console | `/admin/audit` | audit log (filters, integrity, export) + admin accounts + type-`REMOVE` confirm dialog + specimens |
@@ -1138,3 +1150,39 @@ the canvas-derived desktop split (S5/S6), separate from `--bp-lg: 1024px`.
 **Verify visually** at 768–959 px that the rendered sidebar is exactly 236 px
 between the app bar and the main column — there is no browser in the repo, so
 this is a real-device/owner check, not a suite assertion.
+
+### 11.10 Live countdown: one value, one ticker (Screens 1 + 2)
+
+- **One source of truth.** `app.countdown_state(user)` returns
+  `{'kind': 'bonus'|'bedtime', 'seconds': int}` (or `None`) from the bonus that
+  is already in the payload and the bedtime schedule. `_countdown_text` (the
+  Time rules card) and the Overview cards are both built on it, so the two
+  screens can never disagree. Nothing is re-derived in JS.
+- **The Time rules card moved to the top.** `#countdown-card` is now the first
+  card in the content area, directly under `#pc-user-title` and above the
+  Account hero (it used to sit after the Bedtime/Bonus disclosures). Every
+  pinned id/class/role/`aria-live` literal is unchanged.
+- **The Overview carries it too.** `index()` and `api_users()` gain a
+  `countdown` object per user (same `countdown_state`); both the Jinja markup
+  and the JS `accountHtml` rebuild render it as `.pc-account__countdown`
+  (`role="timer" aria-live="off"`, an `aria-label` naming the target) next to
+  the badges. It renders **nothing** when there is nothing to count down to and
+  **nothing** on wheel-admin "Protected" cards. Remote-device rows are passed
+  through untouched and render a countdown only if the agent's `/users` payload
+  carries a `countdown` key (it does not yet), so the first paint and the 10s JS
+  rebuild stay identical — a payload without `bedtime`/`bonus`/`countdown`
+  degrades to no countdown, never an error.
+- **It is genuinely live.** `static/js/app.js` gains one 1 Hz ticker that
+  decrements every `[data-countdown-seconds]` element in place and writes
+  `HH:MM:SS`; the server seeds that attribute and every poll re-seeds it (the
+  Overview rebuilds the cards every 10s; the user page's `renderCountdown`
+  rewrites the attribute from `/api/user/<u>/live`). This is the first piece of
+  per-account *live* data on the Overview.
+- **Selector notes (additive only).** New, project-owned selectors:
+  `.pc-account__countdown`, `.pc-timer--sm` and the `data-countdown-seconds`
+  attribute. None is in the §7.4 contract and no §7.4 selector changed. The
+  overflow guard (`.pc-account__countdown { min-width:0; max-width:100% }`) is
+  pinned by `tests/test_ui_assets.py`, and the countdown presence/absence rules
+  by `tests/test_ui_home.py` / `tests/test_ui_user.py`. The readout reuses the
+  `--text` on `--surface` pair, so `tests/test_ui_a11y.py` (contrast) is
+  unaffected — no new colour.

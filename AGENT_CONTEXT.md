@@ -88,6 +88,20 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 - Mobile: no horizontal overflow at 320/375 — guarded by `.pc-chip`/`.pc-pill`/
   `.badge-*` `max-width:100%` + wrapping and `.pc-table` `min-width:0`;
   dense tables become labelled cards. `tests/test_ui_assets.py` pins these.
+- **The live countdown is shared between the two screens and now sits at the
+  top of the user page** (`feature/countdown-top-and-overview`): on the Time
+  rules page `#countdown-card` is the first card, directly under
+  `#pc-user-title` and above the Account hero; the Overview account cards carry
+  the same value as a compact `.pc-account__countdown` chip beside their
+  badges. Both are built on one helper, `app.countdown_state(user)` →
+  `{'kind': 'bonus'|'bedtime', 'seconds'} | None`, fed to the Overview through
+  the existing `index()` + `/api/users` payload (server markup *and* the JS
+  `accountHtml` rebuild) — never re-derived in JS. A single 1 Hz ticker in
+  `static/js/app.js` decrements every `[data-countdown-seconds]` element and
+  each 10s poll re-seeds it, so the Time rules readout is genuinely live (it
+  used to change only on reload). The Overview countdowns carry no `aria-live`
+  (N cards at 1 Hz would flood a screen reader) and render nothing when there
+  is nothing to count down to, or on wheel "Protected" cards.
 
 ## Verifying work
 
@@ -179,7 +193,10 @@ Recovery CLI on `PATH`:
   owner question; not started.
 - Honest placeholders: "1 active session" and specimen values are illustrative;
   per-account "using 1h 42m today" isn't in the payload; notification lead-time,
-  the HTTPS toggle and multi-device are disabled.
+  the HTTPS toggle and multi-device are disabled. **The Overview's per-account
+  live countdown is NOT a placeholder** — it is derived from `bedtime`/`bonus`,
+  which *are* in the `/api/users` payload (`app.countdown_state()`), so it shows
+  a real, ticking value; it is the first per-account live data on the Overview.
 - Tablet (768–959) sidebar sizing is **resolved** — `app.css` pins the tablet
   band to `--sidebar-w: 236px` (canvas S3/S4); see `UI_UX_PLAN.md` §11.9.
 - Multi-device implementation is parked (owner: not soon). The session agent is

@@ -67,7 +67,7 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
              mock.patch.object(app, 'get_lock_status',
                                side_effect=lambda u: LOCK[u]), \
              mock.patch.object(app, 'is_in_bedtime',
-                               side_effect=lambda e: bool(e and e.get('manual_override'))), \
+                               side_effect=lambda e, now=None: bool(e and e.get('manual_override'))), \
              mock.patch.object(app, 'bonus_state', return_value={'active': False}):
             resp = self.client.get('/' + query)
         self.assertEqual(200, resp.status_code)
@@ -134,6 +134,19 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
             html = self.client.get('/').get_data(as_text=True)
         self.assertIn('pc-empty', html)
         self.assertIn('No users', html)
+
+    def test_no_countdown_when_no_user_has_a_schedule(self):
+        with mock.patch.object(app, 'get_human_users', return_value=USERS), \
+             mock.patch.object(app, 'load_bedtime', return_value={}), \
+             mock.patch.object(app, 'get_lock_status', side_effect=lambda u: LOCK[u]), \
+             mock.patch.object(app, 'is_in_bedtime', return_value=False), \
+             mock.patch.object(app, 'bonus_state', return_value={'active': False}):
+            html = self.client.get('/').get_data(as_text=True)
+        # Scope to the server-rendered list: the page script legitimately
+        # contains the class name as a template literal.
+        region = html[html.index('id="accounts"'):html.index('class="refresh-info"')]
+        self.assertNotIn('pc-account__countdown', region)
+        self.assertNotIn('--:--:--', region)
 
     # ----------------------------------------------------------- dialog
     def test_destructive_actions_use_the_native_dialog(self):
@@ -240,6 +253,35 @@ class ConvertedPageStaticTest(unittest.TestCase):
             self.assertIn(token, src)
 
 
+class CountdownTickerTest(unittest.TestCase):
+    """One shared 1 Hz ticker drives both screens' countdown readouts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = read(os.path.join(ROOT, 'static', 'js', 'app.js'))
+        cls.home = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        cls.user = read(os.path.join(TEMPLATE_DIR, 'user.html'))
+
+    def test_shared_ticker_exists_in_app_js(self):
+        self.assertIn('function tickCountdowns(', self.js)
+        self.assertIn("querySelectorAll('[data-countdown-seconds]')", self.js)
+        self.assertIn('setInterval(tickCountdowns, 1000)', self.js)
+        # The formatter is shared so both pages agree on HH:MM:SS.
+        self.assertIn('window.pcFormatCountdown = formatCountdown', self.js)
+
+    def test_both_screens_seed_and_use_the_ticker(self):
+        for name, src in (('index.html', self.home), ('user.html', self.user)):
+            with self.subTest(template=name):
+                self.assertIn('data-countdown-seconds', src)
+                self.assertIn('pcFormatCountdown', src)
+
+    def test_ticker_decrements_and_clamps_at_zero(self):
+        # Crash-free at 0 / non-numeric values (a remote payload may omit the
+        # seed entirely) — parse, clamp, write back.
+        self.assertIn('isNaN(left)', self.js)
+        self.assertIn('left > 0 ? left - 1 : 0', self.js)
+
+
 class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
     """design-exports/SPEC.md Screen 1 elements on the Overview page."""
 
@@ -249,7 +291,7 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
              mock.patch.object(app, 'get_lock_status',
                                side_effect=lambda u: LOCK[u]), \
              mock.patch.object(app, 'is_in_bedtime',
-                               side_effect=lambda e: bool(e and e.get('manual_override'))), \
+                               side_effect=lambda e, now=None: bool(e and e.get('manual_override'))), \
              mock.patch.object(app, 'bonus_state', return_value={'active': False}), \
              mock.patch.object(app.auth, 'is_wheel_member',
                                side_effect=lambda u: u == self.ADMIN_USER or u in wheel):
@@ -297,6 +339,59 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('btn-unlock', card2)
         self.assertIn('btn-lockscreen', card2)
         self.assertNotIn('btn-logout', card2)
+
+    def test_account_card_renders_a_live_countdown(self):
+        # A user with a bedtime schedule gets the compact countdown next to
+        # the badges — the same value the Time rules page shows.
+        html = self._render()
+        idx = html.index('id="row-kidfree"')
+        card = html[idx:html.index('</article>', idx)]
+        self.assertIn(
+            'class="pc-account__countdown pc-timer pc-timer--sm"', card)
+        self.assertIn('role="timer"', card)
+        self.assertIn('data-countdown-seconds=', card)
+        self.assertIn('Until the next bedtime window', card)
+
+    def test_overview_countdown_has_no_aria_live(self):
+        # N cards ticking at 1 Hz must not flood a screen reader.
+        html = self._render()
+        idx = html.index('id="row-kidfree"')
+        card = html[idx:html.index('</article>', idx)]
+        self.assertIn('aria-live="off"', card)
+        self.assertNotIn('aria-live="polite"', card)
+        self.assertNotIn('aria-live="assertive"', card)
+
+    def test_overview_countdown_absent_for_users_without_a_schedule(self):
+        # Nothing to count down to -> no chip, no scary '--:--:--'.
+        html = self._render()
+        idx = html.index('id="row-kidlocked"')
+        card = html[idx:html.index('</article>', idx)]
+        self.assertNotIn('pc-account__countdown', card)
+        self.assertNotIn('--:--:--', html)
+
+    def test_overview_countdown_absent_on_wheel_cards(self):
+        html = self._render(wheel=('kidfree',))
+        idx = html.index('id="row-kidfree"')
+        card = html[idx:html.index('</article>', idx)]
+        self.assertIn('badge-protected', card)
+        self.assertNotIn('pc-account__countdown', card)
+
+    def test_api_users_payload_carries_the_countdown(self):
+        with mock.patch.object(app, 'get_human_users', return_value=USERS), \
+             mock.patch.object(app, 'load_bedtime', return_value=BEDTIME), \
+             mock.patch.object(app, 'get_lock_status',
+                               side_effect=lambda u: LOCK[u]), \
+             mock.patch.object(app, 'is_in_bedtime', return_value=False), \
+             mock.patch.object(app, 'bonus_state',
+                               return_value={'active': False}):
+            resp = self.client.get('/api/users')
+        self.assertEqual(200, resp.status_code)
+        by_user = {u['username']: u for u in resp.get_json()}
+        countdown = by_user['kidfree']['countdown']
+        self.assertEqual('bedtime', countdown['kind'])
+        self.assertIsInstance(countdown['seconds'], int)
+        # Users without a schedule carry an explicit null, not a placeholder.
+        self.assertIsNone(by_user['kidlocked']['countdown'])
 
     def test_remaining_actions_are_no_js_post_forms(self):
         # Overview actions are plain POST forms (progressive enhancement):

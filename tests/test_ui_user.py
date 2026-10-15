@@ -390,6 +390,48 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('class="pc-timer"', html)
         self.assertIn('id="bedtime-countdown"', html)
 
+    def test_countdown_card_is_the_first_card_in_the_content_area(self):
+        # Owner request: the live countdown moved to the top of the user page —
+        # directly under the page title and above the Account status hero.
+        html = self.render(self._live_with())
+        title = html.index('id="pc-user-title"')
+        card = html.index('id="countdown-card"')
+        hero = html.index('class="pc-card pc-card--hero"')
+        self.assertLess(title, card, 'countdown must follow the page title')
+        self.assertLess(card, hero, 'countdown must precede the Account hero')
+        # ... and it sits above the disclosures it used to trail.
+        self.assertLess(card, html.index('id="bedtime-section"'))
+
+    def test_countdown_readout_is_seeded_for_the_live_ticker(self):
+        # bonus active -> 90 minutes -> 5400 seconds, seeded for app.js's 1 Hz
+        # ticker. The readout text is unchanged (the pinned markup is intact).
+        html = self.render(self._live_with())
+        self.assertIn('data-countdown-seconds="5400"', html)
+        self.assertIn('id="bedtime-countdown" role="timer" aria-live="polite"',
+                      html)
+
+    def test_countdown_has_no_ticker_seed_when_there_is_nothing_to_count(self):
+        live = self._live_with()
+        live['user']['bonus'] = {'active': False, 'remaining_minutes': None}
+        live['user']['bedtime'] = {}
+        html = self.render(live)
+        # Check the readout element itself (the page script legitimately
+        # contains the attribute name in renderCountdown).
+        start = html.index('id="bedtime-countdown"')
+        element = html[start:html.index('>', start)]
+        self.assertNotIn('data-countdown-seconds', element)
+        # The user page keeps its '--:--:--' placeholder (the Overview does
+        # not: it renders nothing).
+        self.assertIn('--:--:--', html)
+
+    def test_countdown_poll_resyncs_from_the_live_payload(self):
+        # refreshUserLive re-seeds data-countdown-seconds from the polled
+        # `countdown` object; the per-second decrement lives in app.js.
+        src = read(TEMPLATE)
+        self.assertIn('function renderCountdown(', src)
+        self.assertIn('renderCountdown(data)', src)
+        self.assertIn('data-countdown-seconds', src)
+
     def test_state_specimen(self):
         self.assertNotIn('id="time-rules-states"', self.render(self._live_with()))
         html = self.render(self._live_with(), path='/user/' + KID + '?preview=1')
