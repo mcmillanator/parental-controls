@@ -3,16 +3,15 @@
 
 The redesign moved Bootstrap from a CDN into ``static/`` and replaced the
 desktop-only skin with a token-based, mobile-first design system. The docs are
-part of that promise, so this module keeps ``README.md``, ``PLAN.md``,
-``UI_UX_PLAN.md`` and ``katalon/README.md`` truthful about what shipped:
+part of that promise, so this module keeps ``README.md``, ``PLAN.md`` and
+``UI_UX_PLAN.md`` truthful about what shipped:
 
 * README/PLAN describe the offline, vendored assets (no CDN), the mobile-first
   layout, the dark/light theme and that ``static/`` ships with the app,
 * README/PLAN do not contradict the shipped UI (no stale "loaded from a CDN",
   no stale test counts),
 * the two recorded test counts (tests + skips) agree between README and PLAN,
-* UI_UX_PLAN.md marks the phases landed instead of "PLAN ONLY",
-* katalon/README.md documents the redesigned navigation.
+* UI_UX_PLAN.md marks the phases landed instead of "PLAN ONLY".
 
 Stdlib only (``re`` + ``unittest``); no Flask, no network, no browser.
 """
@@ -25,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / 'README.md'
 PLAN = ROOT / 'PLAN.md'
 UI_PLAN = ROOT / 'UI_UX_PLAN.md'
-KATALON_README = ROOT / 'katalon' / 'README.md'
 
 TESTS_RE = re.compile(r'(\d+)\s+tests')
 SKIPS_RE = re.compile(r'(\d+)\s+environmental skips')
@@ -90,7 +88,7 @@ class PlanTest(unittest.TestCase):
 
     def test_marks_the_redesign_complete(self):
         # The mobile-first redesign should be recorded as shipped with the
-        # Katalon contract intact.
+        # selector contract intact.
         self.assertIn('mobile-first', self.lower)
         self.assertIn('zero selector', self.lower)
 
@@ -146,21 +144,6 @@ class UiPlanStatusTest(unittest.TestCase):
 
     def test_phase_6_recorded_zero_selector_changes(self):
         self.assertIn('zero selector changes', self.text)
-
-
-class KatalonReadmeTest(unittest.TestCase):
-    """katalon/README.md documents the redesigned navigation."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.flat = ' '.join(read(KATALON_README).split())
-
-    def test_documents_the_new_navigation(self):
-        self.assertIn('Navigating the redesigned panel', self.flat)
-        for needle in ('Account', 'app bar', 'bottom bar', 'Details'):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, self.flat,
-                              'katalon/README.md must mention %r' % needle)
 
 
 if __name__ == '__main__':

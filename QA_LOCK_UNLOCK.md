@@ -19,9 +19,8 @@ the bedtime/timer enforcement paths that drive them).
 > SQLite (`store.py`) with the JSON files demoted to rollback mirrors — items 4/8
 > below are updated accordingly; a hash-chained audit log now records every
 > lock/unlock/logout action (`audit.py`); the panel runs as the dedicated
-> `parental-controls` service user; and the browser QA suite in `katalon/` now
-> automates several of the physical-machine items below (see the last section).
-> The suite counts below are the values at the time of the original run; the
+> `parental-controls` service user. The suite counts below are the values at
+> the time of the original run; the
 > current full suite is **526 tests across 22 files, 9 environmental skips**
 > (re-verified 2026-10-11).
 
@@ -176,8 +175,8 @@ via `su -`. Creates and deletes its own throwaway account; never touches
 **Full suite: 122 tests, all green (was 61)** — the counts at the time of this
 run. The suite has grown substantially since: current counts are **526 tests
 across 22 files, 9 environmental skips** (re-verified 2026-10-11), including the
-new `test_audit.py`, `test_sqlite.py`, `test_service_user.py`, `test_tls.py`,
-`test_health.py` and `test_katalon_suite.py` coverage.
+new `test_audit.py`, `test_sqlite.py`, `test_service_user.py`, `test_tls.py`
+and `test_health.py` coverage.
 
 I confirmed the tests actually catch the bugs by reverting each fix in turn:
 
@@ -373,30 +372,29 @@ Please run these as the parent, at the machine:
 10. **Open: health check proves liveness, not correctness.** The 5-minute probe
     (unit active, HTTP/HTTPS 200/302, auth store parseable) catches a hung or
     wedged panel, but not a subtle enforcement bug (e.g. a bedtime that "wins"
-    the wrong way). The browser QA suite and the mocked unit tests are the
-    correctness net.
+    the wrong way). The mocked unit tests are the correctness net.
 
-## Newly automatable checklist items (Katalon Recorder)
+## Items covered without the physical machine
 
 The physical-machine list above is still the ground truth for the
-greeter/PAM/screen halves, but several items are now automatable in a real
-browser via the Katalon Recorder suite in `katalon/` (full guide:
-`katalon/README.md`). Run those first, repeatedly and cheaply; keep the physical
-machine for the parts a browser cannot see.
+greeter/PAM/screen halves, but several items are now covered by the stdlib
+suite (`tests/test_*.py`, all mocked). Run those first, repeatedly and cheaply;
+keep the physical machine for the parts a test cannot see.
 
-| Physical item (above) | Browser twin in the Katalon suite | Still needs the physical machine? |
+| Physical item (above) | Stdlib coverage | Still needs the physical machine? |
 |---|---|---|
-| Manual Lock really locks / Unlock really unlocks (items 2–4) | `08_manual_unlock_round_trip`, objects `24_manual_lock` / `25_manual_unlock` | The button path is proven; the **greeter/PAM** half (locked account cannot sign back in) still does. |
-| Lock state survives a refresh / matches the action buttons | `11_verify_account_status` (status text ↔ button) | No. |
-| Manual lock is sticky across changes | `24_manual_lock` + `25_manual_unlock` round trips (regression-level coverage; a bedtime-boundary variant is still a manual check) | Partly — the bedtime-boundary case. |
-| All lock paths preserve the session | Partly: the suite checks the Emergency logout button is only ever *present*, never clicked (no `.btn-logout` click); manual Lock is exercised | The session-preservation guarantee itself still needs a live session. |
-| Wheel-admin protection | Pointing the freeze/lock cases at an admin fails **loudly** (the app refuses) instead of damaging anything | No. |
-| Per-category Freeze/Unfreeze buttons | `07_time_budget_limit_freeze_toggle`, object seams `16_budget_set_limit`–`18_budget_clear_limit` | The cgroup freeze/thaw on real PIDs still needs the machine's own processes. |
-| Bonus grant/revoke, login/backoff, forced password change, process grouping | Cases `01`–`06` | No. |
-| 10-second live refresh has no error toast | `23_auto_refresh_health` | No. |
+| Manual Lock really locks / Unlock really unlocks (items 2–4) | `test_lock.py`, `test_lock_regression.py` | The button path is proven; the **greeter/PAM** half (locked account cannot sign back in) still does. |
+| Lock state survives a refresh / matches the action buttons | `test_ui_home.py`, `test_ui_user.py` (status text ↔ button) | No. |
+| Manual lock is sticky across changes | `test_lock_regression.py` round trips (regression-level coverage; a bedtime-boundary variant is still a manual check) | Partly — the bedtime-boundary case. |
+| All lock paths preserve the session | `test_lock_preserve_session.py` (no lock path may `terminate-user`; only `/api/logout` terminates) | The session-preservation guarantee itself still needs a live session. |
+| Wheel-admin protection | `test_ui_overview_forms.py`, `test_admin_console.py` (refusals) | No. |
+| Per-category Freeze/Unfreeze buttons | `test_freeze_buttons.py`, `test_budgets.py` | The cgroup freeze/thaw on real PIDs still needs the machine's own processes. |
+| Bonus grant/revoke, login/backoff, forced password change, process grouping | `test_bonus_time.py`, `test_auth.py`, `test_process_grouping.py` | No. |
+| 10-second live refresh has no error toast | `test_ui_home.py` | No. |
 
-The suite's selectors and expected strings are pinned against the templates and
-`app.py` by `tests/test_katalon_suite.py` (CI), so it cannot silently drift.
-It never contains real credentials — values are typed into the Recorder at run
-time, and the safety rules (test account only, never an admin as `TEST_USER`,
-each case restores state) are documented in `katalon/README.md`.
+The §7.4 selectors and expected strings are pinned against the templates and
+`app.py` by the stdlib suite (`tests/test_ui_assets.py` plus the per-page
+`test_ui_*.py` modules), so the contract cannot silently drift. No test here
+contains real credentials, and the safety rules (throwaway test account only,
+never a real human account as the target, each case restores state) are
+unchanged.

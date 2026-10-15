@@ -359,10 +359,11 @@ Notes:
   the running service on `:5000`.
 - They're slow on purpose (every live test locks/unlocks the throwaway account
   through the real stack).
-- Browser-level QA is a separate, self-contained Katalon Recorder suite — see
-  `katalon/README.md`. Its Selenium-IDE HTML (`katalon/parental-controls.html`)
-  is validated in CI by `tests/test_katalon_suite.py`, which pins every locator
-  and expected string against `templates/` and `app.py`.
+- Browser-level QA is manual: the owner runs the device/browser pass on the
+  live box (see `UI_UX_PLAN.md` §7.6). The §7.4 pinned selectors are guarded in
+  CI by the stdlib suite (`tests/test_ui_assets.py` plus the per-page
+  `test_ui_*.py` modules), which pins every id/class/expected string against
+  `templates/` and `app.py`.
 
 ## License
 

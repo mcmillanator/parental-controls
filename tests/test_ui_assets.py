@@ -9,8 +9,9 @@ the foundation commit adds and nothing else:
 * the converted pages (``index.html``, ``login.html``,
   ``change_password.html``) extend ``base.html``, carry no external
   ``http(s)://`` asset and keep the §7.4 pinned selectors,
-* the Katalon selector contract is still intact, reusing the real validator in
-  ``tests/test_katalon_suite.py`` rather than a weaker copy (§7.4).
+* the §7.4 pinned-selector inventory still resolves against the templates
+  (``PinnedSelectorInventoryTest`` — retained when the browser QA suite was
+  removed).
 
 Deliberately **not** asserted here: the *rendered* behaviour of each page
 (that needs a Flask test client and lives in the per-page modules, e.g.
@@ -23,7 +24,6 @@ Stdlib only (``hashlib`` + ``re`` + ``unittest``), no Flask, no network.
 """
 
 import hashlib
-import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -120,13 +120,67 @@ def read(path):
     return path.read_text(encoding='utf-8')
 
 
-def load_katalon_validator():
-    """Import the real Katalon validator so this guardrail cannot drift from it."""
-    spec = importlib.util.spec_from_file_location(
-        'pc_katalon_suite', ROOT / 'tests' / 'test_katalon_suite.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# ---------------------------------------------------------------------------
+# §7.4 pinned-selector inventory. The browser QA suite that used to carry this
+# as a Selenese validator was removed (owner request, 2026-10-15); the same
+# inventory is now resolved directly against the templates + app.py here, so the
+# guard survives without a third-party suite.
+# ---------------------------------------------------------------------------
+APP_PY = ROOT / 'app.py'
+
+JINJA = re.compile(r'\{\{.*?\}\}|\{%.*?%\}', re.S)
+ATTR = re.compile(r'([\w:-]+)\s*=\s*"([^"]*)"')
+
+# Classes the shared shell builds at runtime (string concatenation in
+# templates/_partials/toast.html), so they never appear as a literal
+# class="..." attribute.
+RUNTIME_CLASSES = {'pc-toast--error', 'pc-toast--success', 'pc-toast--info'}
+
+# `base.html` composes the shell from `templates/_partials/*`, so the partials
+# belong to the corpus: a selector that moved into the shell (e.g. `#toast`)
+# must keep resolving.
+TEMPLATES = {p.name: read(p) for p in sorted(TEMPLATE_DIR.glob('*.html'))}
+TEMPLATES.update({'_partials/' + p.name: read(p)
+                  for p in sorted(PARTIAL_DIR.glob('*.html'))})
+TEMPLATE_CORPUS = '\n'.join(TEMPLATES.values())
+TEXT_CORPUS = TEMPLATE_CORPUS + '\n' + read(APP_PY)
+
+
+def attr_candidates(kind):
+    """Every value templates use for ``kind`` (class/id/...), jinja-aware.
+
+    A jinja-templated attribute (``id="budget-{{ cat }}"``) yields its static
+    prefix, so a concrete selector (``#budget-games``) still resolves. A
+    ``class`` attribute holds space-separated tokens, and a selector pins a
+    *token* (``.btn-lock``), not the whole value — so a button decorated with
+    the design system (``class="pc-btn pc-btn--danger btn-lock"``) still
+    resolves ``.btn-lock``.
+    """
+    out = set()
+    for text in TEMPLATES.values():
+        for name, value in ATTR.findall(text):
+            if name != kind:
+                continue
+            if kind == 'class':
+                for part in JINJA.sub('\x00', value).split():
+                    prefix = part.split('\x00', 1)[0]
+                    if prefix:
+                        out.add(prefix)
+            elif JINJA.search(value):
+                out.add(value[:JINJA.search(value).start()])
+            else:
+                out.add(value)
+    return out
+
+
+def tokens_exist(token, candidates):
+    """``status-locked`` matches literal ``status-locked`` or prefix ``status-``."""
+    return token in candidates or any(c and token.startswith(c)
+                                      for c in candidates)
+
+
+IDS = attr_candidates('id')
+CLASSES = attr_candidates('class') | RUNTIME_CLASSES
 
 
 class VendoredBootstrapTest(unittest.TestCase):
@@ -479,8 +533,8 @@ class UserPageConversionTest(unittest.TestCase):
 
     def test_router_needs_for_the_shell_are_satisfied(self):
         # The shell's app bar/tab bar link these; the page must keep the
-        # back link (Katalon `a.back-link`) and the shared toast container
-        # comes from base (not duplicated here).
+        # back link (`a.back-link`) and the shared toast container comes
+        # from base (not duplicated here).
         self.assertIn('class="back-link">← Back to Parental Controls</a>',
                       self.html)
         self.assertNotIn('id="toast"', self.html)
@@ -667,37 +721,15 @@ class ConvertedPageTest(unittest.TestCase):
                 self.assertNotIn('confirm(', body)
 
 
-class KatalonContractTest(unittest.TestCase):
-    """The selector/expected-text contract is untouched by adding the shell."""
+class PinnedSelectorInventoryTest(unittest.TestCase):
+    """The §7.4 inventory that still lives in the un-converted pages.
 
-    @classmethod
-    def setUpClass(cls):
-        try:
-            cls.katalon = load_katalon_validator()
-        except Exception as exc:  # pragma: no cover - surfaces as a skip
-            raise unittest.SkipTest('katalon validator unavailable: %s' % exc)
-
-    def test_every_katalon_selector_still_resolves(self):
-        mod = self.katalon
-        if not mod.CASES:
-            self.skipTest('katalon suite absent')
-        checked = 0
-        for name, rows in mod.CASES.items():
-            for command, target, value in rows:
-                if command not in mod.LOCATOR_COMMANDS or not target:
-                    continue
-                if target.startswith('${'):
-                    continue
-                checked += 1
-                with self.subTest(case=name, target=target):
-                    self.assertEqual([], mod.locator_problems(target),
-                                     'foundation must not break selector '
-                                     '%r' % target)
-        self.assertGreater(checked, 60, 'suspiciously few selectors checked')
+    Resolved directly against the templates + ``app.py`` (no external suite).
+    This is the selector half of what was the browser-suite validator; the
+    inventory itself is unchanged.
+    """
 
     def test_pinned_selectors_that_have_not_moved_yet_still_exist(self):
-        """The §7.4 inventory that still lives in the un-converted pages."""
-        mod = self.katalon
         pinned_ids = (
             'username', 'password', 'current', 'new', 'confirm', 'row-',
             'admin-panel', 'admin-list', 'new-admin-username', 'toast',
@@ -721,19 +753,19 @@ class KatalonContractTest(unittest.TestCase):
                        'Status updates automatically every 10 seconds')
         for token in pinned_ids:
             with self.subTest(kind='id', token=token):
-                self.assertTrue(mod.tokens_exist(token, mod.IDS),
+                self.assertTrue(tokens_exist(token, IDS),
                                 'pinned id %r vanished' % token)
         for token in pinned_classes:
             with self.subTest(kind='class', token=token):
-                self.assertTrue(mod.tokens_exist(token, mod.CLASSES),
+                self.assertTrue(tokens_exist(token, CLASSES),
                                 'pinned class %r vanished' % token)
         for token in pinned_attrs:
             with self.subTest(kind='attr', token=token):
-                self.assertIn(token, mod.TEMPLATE_CORPUS,
+                self.assertIn(token, TEMPLATE_CORPUS,
                               'pinned attribute %r vanished' % token)
         for text in pinned_text:
             with self.subTest(kind='text', text=text):
-                self.assertIn(text, mod.TEXT_CORPUS,
+                self.assertIn(text, TEXT_CORPUS,
                               'pinned text %r vanished' % text)
 
 

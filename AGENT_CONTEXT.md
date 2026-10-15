@@ -6,6 +6,11 @@ derivable from the code. Read this plus `AGENTS.md` before touching anything.
 Last updated: 2026-10-14, after three local workstreams were merged to `master`
 but **not yet pushed or deployed**: the tablet-band sidebar token, the
 row-launched Processes override dialog, and the Overview no-JS POST forms.
+On 2026-10-15 the browser-recorder QA suite (a third-party browser-recorder
+Selenium-IDE HTML suite plus its CI validator) was **removed** at the owner's
+request — it is no longer used. The pinned-selector guard is now the stdlib
+suite (`tests/test_ui_assets.py` `PinnedSelectorInventoryTest` plus the
+per-page `test_ui_*.py` modules), with `UI_UX_PLAN.md` §7.4 still the spec.
 
 ## ⚠️ Moving machines: what does NOT come with a clone
 
@@ -31,7 +36,7 @@ host, tunnel that port.
 - `UI_UX_PLAN.md` — **§11 "Design translation — Flowstep canvas alignment"** is
   the authoritative record of the design system, the shell/IA, per-screen shape,
   the selector contract, and §11.8 (design-intent notes). §7.4 pins the
-  selectors that tests and Katalon depend on — **preserve them**.
+  selectors the tests depend on — **preserve them**.
 - `PLAN.md` — overall plan + current suite size. `README.md` — usage/deploy.
 - `QA_LOCK_UNLOCK.md` — lock/unlock QA procedures.
 
@@ -90,11 +95,13 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests
 ```
 All scratch stays **inside** the worktree (`.scratch/` is gitignored); never
-`/tmp`. Last known: **1284 tests, OK, 20 skips** (the 20 are live-env and
-root-gated skips). The Katalon selector contract
-is `tests/test_katalon_suite.py` over `katalon/parental-controls.html` (a
-Selenium-IDE HTML suite) — keep it green and avoid changing that file's pinned
-ids/classes/text.
+`/tmp`. Last known on the VM (before the 2026-10-15 QA-suite removal):
+**1284 tests, OK, 20 skips** (the 20 are live-env and root-gated skips); the
+removal drops the retired suite's tests, so re-verify the count there. The
+pinned-selector guard is the stdlib suite (`tests/test_ui_assets.py` plus the
+per-page `test_ui_*.py` modules); `UI_UX_PLAN.md` §7.4 is still the spec. (The
+browser-recorder suite that used to carry that guard was removed 2026-10-15 —
+owner request, no longer used.)
 
 Neither box has a browser by default, but the container now has Playwright +
 Chromium **installed** under `.scratch/` (gitignored) with a working harness:
@@ -149,11 +156,11 @@ Recovery CLI on `PATH`:
   add/remove controls are `<form method="post">` submissions to `/overview/*`,
   which run the same cores as the `/api/*` twins, flash and redirect (PRG); JS
   only adds the confirm dialog. `#admin-add` / `#new-admin-username` stay
-  visible for every admin because Katalon asserts them on `/` (the endpoint
-  refuses non-wheel actors server-side). **Resolved:** the owner confirmed the
-  Katalon `ADMIN_USER` is an **app-only** admin (not a wheel account), which is
-  exactly why the Overview admin add-form has to render for every admin rather
-  than only for wheel actors. Two live-box checks: the new
+  visible for every admin because the selector contract asserts them on `/`
+  (the endpoint refuses non-wheel actors server-side). **Resolved:** the owner
+  confirmed the shared test admin is an **app-only** admin (not a wheel
+  account), which is exactly why the Overview admin add-form has to render for
+  every admin rather than only for wheel actors. Two live-box checks: the new
   `app.secret_key` (per-process random, `PARENTAL_SECRET_KEY` overridable) makes
   Flask's `session` cookie appear alongside `pc_sid`, and the one-time admin
   password rides in that signed (not encrypted) cookie until the redirect
@@ -200,7 +207,7 @@ Do **not** push to `origin` from either side without the owner's say-so.
   error at baseline, all environment-bound: `test_deployment`,
   `test_multidevice_install`, `test_session_agent`, `test_budgets`,
   `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
-  set plus `test_katalon_suite`, `test_ui_a11y`, `test_ui_assets`.
+  set plus `test_ui_a11y` and `test_ui_assets`.
 - The VM is the authoritative environment: **1284 tests, OK, 20 skips** at
   `9fe72ee` (Python 3.14.8, live PAM/usermod included). Run it there with
   `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
@@ -222,7 +229,7 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 `master` = `9fe72ee`, on top of `3af46f0`: the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
-store ownership fix and the reworked Katalon suite. Verified on the VM: full
+store ownership fix. Verified on the VM: full
 suite **1284 tests, OK, 20 skips**, the no-JS Overview path over real HTTP
 (`POST /overview/lock` → 302 → danger flash; non-wheel add-admin refused;
 missing-CSRF 403), and an outage replay of the store-ownership fix
@@ -237,7 +244,6 @@ skill). Outbound SSH port 22 is filtered from **both** boxes — push over
 `ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
 in flight.
 
-Still unverified: the no-JS toggle in a real browser, the 236px tablet sidebar at
-768–959px (measured correct by the harness, never eyeballed), and the **Katalon
-suite has never been imported or played** — it is statically validated only. Open
+Still unverified: the no-JS toggle in a real browser and the 236px tablet
+sidebar at 768–959px (measured correct by the harness, never eyeballed). Open
 owner question: the no-JS scope above.

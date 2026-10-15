@@ -283,7 +283,7 @@ class TestAdminForms(_OverviewFormsBase):
             resp = self.client.get('/')
         self.assertEqual(200, resp.status_code)
         html = resp.get_data(as_text=True)
-        # Katalon asserts these on the index page for every admin (04/09);
+        # The selector contract asserts these on the index page for every admin;
         # they must stay visible even though the endpoint refuses non-wheel
         # actors. The refusal is covered by
         # test_non_wheel_actor_cannot_add_or_remove above.

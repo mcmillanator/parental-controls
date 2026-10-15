@@ -11,7 +11,7 @@ under 768px. This module pins the things the redesign must *not* lose:
 * the stacked-table pattern with per-cell ``data-label``s,
 * native ``<details>`` disclosures,
 * destructive actions go through ``window.pcConfirm`` (never ``window.confirm``),
-* every id/class the Katalon contract + stdlib suite pin still renders,
+* every id/class the selector contract + stdlib suite pin still renders,
 * the budget spend-vs-limit ``.pc-meter`` exists.
 
 Renders go through the mocked admin session harness (temp auth store, mocked
@@ -37,7 +37,7 @@ TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
 # A jsdelivr/Bootstrap CDN <link> is exactly the failure this guards against.
 EXTERNAL_ASSET = re.compile(r'''(?:href|src)\s*=\s*["']https?://''', re.I)
 
-# UI_UX_PLAN.md §7.4 + tests/test_katalon_suite.py + the stdlib suite.
+# UI_UX_PLAN.md §7.4 + the stdlib suite.
 PINNED_IDS = (
     'account-status', 'account-status-text', 'account-badges',
     'account-actions', 'bonus-status', 'bonus-hours', 'bonus-minutes',
@@ -257,7 +257,7 @@ class UserPageRenderTest(_UserPageRender):
         self.assertIn('btn-logout', html)
 
     def test_locked_and_unknown_status_classes(self):
-        # Katalon pins #account-status.status-locked / .status-unknown.
+        # The selector contract pins #account-status.status-locked / .status-unknown.
         for locked, cls in ((True, 'locked'), (None, 'unknown')):
             live = live_dict(with_extras=False)
             live['overrides'] = None

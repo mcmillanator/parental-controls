@@ -21,7 +21,7 @@
    still acts and audits. See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must
    work as a plain server-rendered POST".
 
-   Every selector pinned by the Katalon contract and the stdlib suite is
+   Every selector pinned by the selector contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
    .btn-lockscreen, .btn-logout, .refresh-info, #admin-panel, #admin-list,
    #new-admin-username, #admin-add, #toast (base), plus the multi-device
@@ -153,7 +153,7 @@
 {# Admin list — INSIDE the page container. Kept `open` so a runtime
    verifyElementVisible('#admin-panel') still resolves. Server-rendered so
    add/remove work without JavaScript. `#admin-add` / `#new-admin-username`
-   render for EVERY admin (the Katalon index contract asserts their
+   render for EVERY admin (the selector contract asserts their
    visibility); the endpoint refuses non-wheel actors server-side, and the
    per-row Remove buttons are wheel-actor only. #}
 <details class="pc-disclosure" id="admin-panel" open>
