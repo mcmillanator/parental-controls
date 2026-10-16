@@ -1337,7 +1337,7 @@ def index():
 # ---------------------------------------------------------------------------
 # Overview action forms (no-JS path)
 #
-# The Overview's lock / unlock / lock-screen / emergency-logout and admin
+# The Overview's lock / unlock and admin
 # add/remove controls are plain <form method="post"> submissions, so every
 # action works with JavaScript disabled. Each route runs the same core as its
 # /api/* twin, flashes the outcome and redirects back to the Overview
@@ -1389,7 +1389,7 @@ def _remote_overview_action(subpath):
 
 
 def _overview_account_action(core, subpath, success_text, refuse_wheel=True):
-    """Shared body for the three no-JS Overview account action routes.
+    """Shared body for the two no-JS Overview account action routes.
 
     `core` is the same function the JSON endpoint uses; `subpath` is the
     remote agent path when a device is selected. Always flashes and redirects.
@@ -1427,15 +1427,6 @@ def overview_lock():
     return _overview_account_action(
         lambda u: _lock_account_and_screen(u, 'overview.lock'),
         'lock', 'Locked {username} (account + screen).')
-
-
-@app.route('/overview/lock-screen', methods=['POST'])
-@require_admin
-def overview_lock_screen():
-    """No-JS Overview form: lock the screen + account (PRG + flash)."""
-    return _overview_account_action(
-        lambda u: _lock_account_and_screen(u, 'overview.lock_screen'),
-        'lock-screen', 'Locked the screen for {username}.')
 
 
 @app.route('/overview/unlock', methods=['POST'])
@@ -1536,7 +1527,10 @@ def api_lock():
 def api_lock_screen():
     """Lock the user's screen and account without terminating the session.
 
-    JSON endpoint (the Overview form path is /overview/lock-screen).
+    JSON endpoint with no Overview form twin: the Overview's single Lock
+    button (POST /overview/lock) already locks the account *and* the screen,
+    so the redundant form route was dropped. This endpoint — and the agent's
+    /api/v1/lock-screen verb — are kept as documented API surface.
     """
     username = request.form.get('username', '').strip()
     if not username:

@@ -12,8 +12,8 @@
    phone bottom tab bar below 768px (hidden >=768px like every sidebar screen).
    It no longer overrides layout_class / sidebar / appbar.
 
-   NO-JS ACTIONS: every Overview account action (Lock / Unlock / Lock screen)
-   and the admin add/remove controls are real <form method="post"> submissions
+   NO-JS ACTIONS: every Overview account action (Lock / Unlock) and the admin
+   add/remove controls are real <form method="post"> submissions
    to /overview/*, which run the same core as the /api/* twins, flash the
    outcome and redirect back here (POST/Redirect/GET). The page script only adds
    the shared confirmation dialog on top (the dialog is itself a real POST
@@ -25,7 +25,7 @@
 
    Every selector pinned by the selector contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
-   .btn-lockscreen, .refresh-info, #admin-panel, #admin-list,
+   .refresh-info, #admin-panel, #admin-list,
    #new-admin-username, #admin-add, #toast (base), plus the multi-device
    #device-selector/switchDevice JS.
    ========================================================================= #}
@@ -148,7 +148,6 @@
             {% if user.locked == True %}
             {{ account_action(url_for('overview_unlock'), user.username, 'Unlock', 'unlockUser', cls='btn-unlock') }}
             {% endif %}
-            {{ account_action(url_for('overview_lock_screen'), user.username, 'Lock screen', 'lockScreen', variant='neutral', cls='btn-lockscreen', title='Locks the screen without terminating the session') }}
             {{ pc_button('Details', 'ghost', cls='btn-details', extra="onclick=\"window.location='/user/" ~ user.username ~ "'\"") }}
             {% endif %}
         </div>
@@ -335,15 +334,6 @@
         });
     }
 
-    function lockScreen(form) {
-        const username = formUsername(form);
-        return confirmThenSubmit(form, {
-            title: 'Lock screen?',
-            body: `Lock the screen for "${username}"? The session stays alive.`,
-            confirmLabel: 'Lock screen',
-        });
-    }
-
     function removeAdmin(form) {
         const username = formUsername(form);
         return confirmThenSubmit(form, {
@@ -423,7 +413,6 @@
             if (u.locked === true) {
                 actions += accountActionForm('/overview/unlock', u.username, 'Unlock', 'unlockUser', 'primary', 'btn-unlock', '');
             }
-            actions += accountActionForm('/overview/lock-screen', u.username, 'Lock screen', 'lockScreen', 'neutral', 'btn-lockscreen', 'Locks the screen without terminating the session');
             actions += `<button type="button" class="pc-btn pc-btn--ghost btn-details" onclick="window.location='/user/${encodeURIComponent(u.username)}'">Details</button>`;
         }
         return `<article class="pc-card pc-account" id="row-${esc(u.username)}">` +

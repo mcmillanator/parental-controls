@@ -164,10 +164,16 @@ Recovery CLI on `PATH`:
 ## Open / deferred
 
 - **Overview actions are a real no-JS POST path** (resolved): every Overview
-  account action (Lock / Unlock / Lock screen) and the admin add/remove
-  controls are `<form method="post">` submissions to `/overview/*`,
+  account action (Lock / Unlock) and the admin add/remove controls are
+  `<form method="post">` submissions to `/overview/*`,
   which run the same cores as the `/api/*` twins, flash and redirect (PRG); JS
-  only adds the confirm dialog. `#admin-add` / `#new-admin-username` stay
+  only adds the confirm dialog. The Overview's redundant **Lock screen** button
+  was removed (2026-10-16) — Lock already locks the account *and* the screen via
+  `_lock_account_and_screen`; `/overview/lock-screen` is gone, so `/`'s actions
+  are now exactly Lock / Unlock / Details. `/api/lock-screen` is deliberately
+  **kept** as a documented endpoint with no UI button (mirrored by the agent's
+  `/api/v1/lock-screen` verb), so the JSON/agent/audit contract is unchanged.
+  `#admin-add` / `#new-admin-username` stay
   visible for every admin because the selector contract asserts them on `/`
   (the endpoint refuses non-wheel actors server-side). **Resolved:** the owner
   confirmed the shared test admin is an **app-only** admin (not a wheel
