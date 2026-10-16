@@ -1034,7 +1034,7 @@ content is untouched.
   (`grid-template-columns: repeat(2, minmax(0,1fr))`); below that they stay a
   single column. No new sections were invented.
 - **Selector contract unchanged**: every §7.4 pinned id/class (`#row-<user>`,
-  `.btn-lock`/`.btn-unlock`/`.btn-lockscreen`, `status-*`,
+  `.btn-lock`/`.btn-unlock`, `status-*`,
   `pc-status--*`, `.refresh-info`, `#admin-panel`, `#admin-list`,
   `#new-admin-username`, `#device-selector`, `#accounts`, `.pc-account`,
   `data-label`, …) is preserved; **zero** selector changes.
@@ -1071,7 +1071,7 @@ distilled starter prompt. This pass implements that intent.
   the canvas' example content (`Confirm lock` / `Lock Sam now?` /
   `Confirm lock action` / `Lock Sam`).
 - **Destructive / access-changing actions all use the dialog:** lock, unlock,
-  lock-screen, emergency logout (typed confirmation), freeze/thaw,
+  emergency logout (typed confirmation), freeze/thaw,
   remove app-only admin (typed `REMOVE`), clear schedule, revoke override and
   remove weekly window.
 - **Fixtures are dev-only.** Annotation cards, "State specimen",
@@ -1093,9 +1093,9 @@ distilled starter prompt. This pass implements that intent.
   gone, so the pinned `.override-mode`/`.override-minutes` controls now resolve
   from `_partials/override_dialog.html`.
 - **Overview actions are a real no-JS POST path.** Every Overview account action
-  (lock / unlock / lock screen) and the admin add/remove controls are
+  (lock / unlock) and the admin add/remove controls are
   server-rendered `<form method="post">` submissions to `/overview/lock`,
-  `/overview/lock-screen`, `/overview/unlock`, `/overview/admins` and
+  `/overview/unlock`, `/overview/admins` and
   `/overview/admins/remove`. Each runs the same core as its `/api/*` twin — so
   the JSON contract and the audit trail are unchanged — then flashes and
   redirects (POST/Redirect/GET). `static/js/app.js` and the page script only add
@@ -1103,7 +1103,14 @@ distilled starter prompt. This pass implements that intent.
   submit, act and audit. **Emergency logout is no longer on the Overview**
   (removed 2026-10-15 at the owner's request): it stays on the per-user page as
   a JS/fetch action against `/api/logout`, which is part of the no-JS coverage
-  gap noted below. `#admin-add` / `#new-admin-username` stay visible for every
+  gap noted below. **Lock screen is no longer a separate Overview control**
+  (removed 2026-10-16): the Lock button already locks the account **and** the
+  screen (`app._lock_account_and_screen`), so `/overview/lock-screen` was
+  dropped and the redundant `.btn-lockscreen` / `lockScreen()` handler with it.
+  `/api/lock-screen` deliberately **remains** as a documented endpoint with no
+  UI button (it is mirrored by the agent's `/api/v1/lock-screen` verb), so the
+  JSON/agent contract is unchanged. `#admin-add` / `#new-admin-username` stay
+  visible for every
   admin (the selector contract asserts them on `/`); the endpoint refuses
   non-wheel actors server-side, and the per-row Remove buttons are wheel-actor
   only.

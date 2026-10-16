@@ -337,7 +337,7 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         idx2 = html.index('id="row-kidlocked"')
         card2 = html[idx2:html.index('</article>', idx2)]
         self.assertIn('btn-unlock', card2)
-        self.assertIn('btn-lockscreen', card2)
+        self.assertNotIn('btn-lockscreen', card2)
         self.assertNotIn('btn-logout', card2)
 
     def test_account_card_renders_a_live_countdown(self):
@@ -397,12 +397,11 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         # Overview actions are plain POST forms (progressive enhancement):
         # the page script only gates them behind the shared confirm dialog.
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
-        self.assertIn("url_for('overview_lock_screen')", src)
+        self.assertNotIn("url_for('overview_lock_screen')", src)
         self.assertNotIn("url_for('overview_logout')", src)
         # ...and every remaining action posts to its own no-JS form endpoint.
         html = self._render()
-        for action in ('/overview/lock', '/overview/lock-screen',
-                       '/overview/unlock'):
+        for action in ('/overview/lock', '/overview/unlock'):
             with self.subTest(action=action):
                 self.assertIn('action="%s"' % action, html)
 
@@ -421,6 +420,24 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         user_src = read(os.path.join(TEMPLATE_DIR, 'user.html'))
         self.assertIn('btn-logout', user_src)
         self.assertIn('logoutUser', user_src)
+
+    def test_overview_no_longer_offers_a_lock_screen_control(self):
+        # The Overview used to carry two near-identical controls, Lock and
+        # "Lock screen". Lock already locks the account *and* the child's
+        # screen (app._lock_account_and_screen), so the redundant button — and
+        # its /overview/lock-screen form route — was removed. Regression guard:
+        # it must be gone from both the rendered markup and the template source.
+        # (/api/lock-screen deliberately remains as an endpoint with no button.)
+        html = self._render()
+        self.assertNotIn('btn-lockscreen', html)
+        self.assertNotIn('Lock screen', html)
+        self.assertNotIn('/overview/lock-screen', html)
+        self.assertNotIn('lockScreen', html)
+        src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        self.assertNotIn('btn-lockscreen', src)
+        self.assertNotIn('overview_lock_screen', src)
+        self.assertNotIn('/overview/lock-screen', src)
+        self.assertNotIn('function lockScreen', src)
 
     def test_specimen_cards_are_dev_only(self):
         # The "Selected account: Sam" example, the design thesis and the empty

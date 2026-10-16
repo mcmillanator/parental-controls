@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """No-JS Overview action forms (UI_UX_PLAN.md progressive enhancement).
 
-Every Overview account action — Lock / Unlock / Lock screen — and the admin
+Every Overview account action — Lock / Unlock — and the admin
 add/remove controls are plain ``<form method="post">`` submissions to
 ``/overview/*``.
 Those routes run the *same* core as their ``/api/*`` twins, flash the outcome
@@ -129,7 +129,7 @@ class _OverviewFormsBase(_AdminSessionMixin, unittest.TestCase):
 
 
 class TestAccountActionForms(_OverviewFormsBase):
-    """The three Overview account actions work as real POST forms (PRG + flash)."""
+    """The Overview account actions work as real POST forms (PRG + flash)."""
 
     def test_lock_form_redirects_and_locks(self):
         calls = []
@@ -190,18 +190,38 @@ class TestAccountActionForms(_OverviewFormsBase):
             self.assertEqual(200, resp.status_code)
             run.assert_not_called()
 
-    def test_lock_screen_form_locks_without_terminating(self):
+    def test_lock_screen_form_route_is_gone(self):
+        # The redundant Overview "Lock screen" button was removed (owner
+        # request): its form route no longer exists. Lock already covers it.
+        with mock.patch.object(app.subprocess, 'run') as run:
+            resp = self._post_raw('/overview/lock-screen', {'username': KID})
+        self.assertEqual(404, resp.status_code)
+        run.assert_not_called()
+
+    def test_lock_also_locks_the_screen(self):
+        # Removing the "Lock screen" button loses no behaviour: the single
+        # Overview Lock action still locks the account *and* the child's
+        # screen. /api/lock is unchanged and must still invoke
+        # `loginctl lock-session` on the resolved session.
         calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if 'show-user' in cmd:
+                return _result(0, stdout='21\n')
+            if 'show-session' in cmd:
+                return _result(0, stdout='Type=wayland\nClass=user\n')
+            return _result(0)
+
         with mock.patch.object(app, 'note_manual_lock'), \
-             mock.patch.object(app.subprocess, 'run',
-                               side_effect=self._fake_runner(calls)):
-            resp = self._post_follow('/overview/lock-screen',
-                                     {'username': KID})
+             mock.patch.object(app.subprocess, 'run', side_effect=fake_run):
+            resp = self._post_raw('/api/lock', {'username': KID})
         self.assertEqual(200, resp.status_code)
+        self.assertTrue(resp.get_json()['success'])
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
+        self.assertIn(['sudo', 'loginctl', 'lock-session', '21'], calls)
+        # session-preserving: /api/lock never terminates
         self.assertFalse([c for c in calls if 'terminate-user' in c])
-        self.assertIn('Locked the screen for %s' % KID,
-                      resp.get_data(as_text=True))
 
     def test_unlock_form_unlocks_and_hands_off_ownership(self):
         with mock.patch.object(app, 'run_lock_command',
@@ -291,15 +311,16 @@ class TestServerRenderedForms(_OverviewFormsBase):
 
     def test_every_action_is_a_real_post_form(self):
         html = self._render_home(users=USERS, lock=LOCK)
-        for action in ('/overview/lock', '/overview/unlock',
-                       '/overview/lock-screen'):
+        for action in ('/overview/lock', '/overview/unlock'):
             with self.subTest(action=action):
                 self.assertIn('action="%s"' % action, html)
         self.assertIn('name="csrf_token"', html)
         # The lock/unlock buttons are submit buttons bound to a form.
         self.assertIn('class="pc-btn pc-btn--primary btn-lock"', html)
         self.assertIn('class="pc-btn pc-btn--primary btn-unlock"', html)
-        self.assertIn('class="pc-btn pc-btn--neutral btn-lockscreen"', html)
+        # The redundant "Lock screen" control is gone (Lock covers it).
+        self.assertNotIn('btn-lockscreen', html)
+        self.assertNotIn('/overview/lock-screen', html)
         # Emergency logout is no longer offered on the Overview.
         self.assertNotIn('btn-logout', html)
         self.assertNotIn('/overview/logout', html)
@@ -321,7 +342,7 @@ class TestServerRenderedForms(_OverviewFormsBase):
         idx = html.index('id="row-kidfree"')
         card = html[idx:html.index('</article>', idx)]
         self.assertIn('badge-protected', card)
-        for cls in ('btn-lock', 'btn-unlock', 'btn-lockscreen', 'btn-logout'):
+        for cls in ('btn-lock', 'btn-unlock', 'btn-logout'):
             self.assertNotIn(cls, card)
         self.assertNotIn('<form', card)
 
