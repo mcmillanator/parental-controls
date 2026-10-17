@@ -2444,6 +2444,97 @@ def _clear_window_target_freeze(entry, window, username, act, summary):
                                    f'{target}: {msg}')
 
 
+# _audit_auto_pause_failed dedup state (FIX-3): 'user:tag' -> last logged
+# (stage, reason). Same once-per-change semantics as the summary emitter.
+_LAST_AUTO_PAUSE_SIGS = {}
+
+
+def _audit_auto_pause_failed(username, tag, stage, reason, state=None):
+    """Audit budget.auto_pause_failed (FIX-3, TIME_TRACKING_QA.md F8).
+
+    Mirrors the manual-path audit hooks in _set_frozen_path: every auto
+    freeze attempt that aborts (ensure/verify/write) is logged, but an
+    IDENTICAL persistent failure is logged once per change, not 1440
+    times a day (the exhaustion branch re-evaluates every 60s tick).
+    """
+    if state is None:
+        state = _LAST_AUTO_PAUSE_SIGS
+    target = f'{username}:{tag}'
+    sig = (stage, reason)
+    if state.get(target) == sig:
+        return
+    state[target] = sig
+    audit.safe_log('system', 'budget.auto_pause_failed', target,
+                   {'ok': False, 'stage': stage, 'reason': reason})
+
+
+def _summary_signature(summary):
+    """The observable enforcement fields of a tick summary, in a tuple."""
+    return (summary.get('note') or '',
+            tuple(summary.get('froze') or ()),
+            tuple(summary.get('unfroze') or ()),
+            bool(summary.get('degraded')),
+            tuple(summary.get('skipped') or ()))
+
+
+def summary_line(summary):
+    """One journal line for a tick summary; '' when there is nothing to say.
+
+    FIX-3 (TIME_TRACKING_QA.md F8): before this, both production tick
+    callers discarded the per-user summaries, so an enforcement failure
+    that repeated every 60s produced zero journal output.
+    """
+    note, froze, unfroze, degraded, skipped = _summary_signature(summary)
+    if not (note or froze or unfroze or degraded or skipped):
+        return ''
+    parts = [f'budget-tick {summary.get("user", "?")}']
+    if note:
+        parts.append(f'note={note}')
+    if froze:
+        parts.append('froze=' + ','.join(froze))
+    if unfroze:
+        parts.append('unfroze=' + ','.join(unfroze))
+    if degraded:
+        parts.append('degraded')
+    if skipped:
+        parts.append('skipped=' + ','.join(skipped))
+    return ' '.join(parts)
+
+
+# emit_tick_summaries dedup state (FIX-3): user -> last emitted signature.
+# Process-local by design: the app thread logs transitions, the per-minute
+# timer process (fresh state) logs every repeating failure.
+_LAST_SUMMARY_SIGS = {}
+
+
+def emit_tick_summaries(summaries, state=None):
+    """Print per-user tick summaries worth journaling; return the lines.
+
+    One line per user whose note/froze/unfroze/degraded/skipped CHANGED
+    since the previous emit (``state`` is a {user: signature} map; the
+    module-level default persists for the long-running app thread, while
+    the timer process starts fresh every run so a repeating failure keeps
+    surfacing there — journald rate-limits, silence does not). Callers:
+    enforce_bedtime_timer.py and app.py bedtime_loop (FIX-3).
+    """
+    if state is None:
+        state = _LAST_SUMMARY_SIGS
+    lines = []
+    for summary in summaries or []:
+        user = summary.get('user', '?')
+        sig = _summary_signature(summary)
+        if not any(sig):
+            continue
+        if state.get(user) == sig:
+            continue
+        state[user] = sig
+        line = summary_line(summary)
+        if line:
+            print(line, flush=True)
+            lines.append(line)
+    return lines
+
+
 def _enforce_target(username, t, wall, deltas, summary, act):
     """Shared billing + freeze state machine for one target.
 
@@ -2491,6 +2582,8 @@ def _enforce_target(username, t, wall, deltas, summary, act):
         ok, msg = t['ensure']()
         if not ok:
             summary['note'] = f"ensure cgroup: {msg}"
+            _audit_auto_pause_failed(username, t['tag'],
+                                     'ensure-cgroup', msg)
             return
         for proc in members:
             t['migrate'](proc['pid'])
@@ -2499,6 +2592,8 @@ def _enforce_target(username, t, wall, deltas, summary, act):
         safe, reason = verify_freeze_safety(username, current, expected)
         if not safe:
             summary['note'] = f"freeze aborted for {t['label']}: {reason}"
+            _audit_auto_pause_failed(username, t['tag'],
+                                     'verify-freeze-safety', reason)
             return
         if not members and not current:
             paused[pkey] = True  # exhausted, nothing running yet
@@ -2507,6 +2602,9 @@ def _enforce_target(username, t, wall, deltas, summary, act):
         if not members:
             summary['note'] = (f"freeze aborted for {t['label']}: "
                                'cgroup has members but nothing is freezable')
+            _audit_auto_pause_failed(
+                username, t['tag'], 'verify-freeze-safety',
+                'cgroup has members but nothing is freezable')
             return
         ok, msg = t['set_frozen'](True)
         if ok:
@@ -2515,11 +2613,17 @@ def _enforce_target(username, t, wall, deltas, summary, act):
             t['notify_paused']()
         else:
             summary['note'] = f"freeze failed for {t['label']}: {msg}"
+            _audit_auto_pause_failed(username, t['tag'], 'freeze-write', msg)
     elif exhausted and paused.get(pkey) and members and act:
         # Exhausted earlier while nothing was running: a matching app
         # launched since. Migrate it in and (re-)freeze.
         ok, _msg = t['ensure']()
-        if ok:
+        if not ok:
+            # FIX-3: was a silent discard (_msg was dropped entirely).
+            summary['note'] = f"ensure cgroup (re-freeze): {_msg}"
+            _audit_auto_pause_failed(username, t['tag'],
+                                     'ensure-cgroup-re-freeze', _msg)
+        else:
             current = set(t['get_members']())
             for proc in members:
                 if proc['pid'] not in current:
@@ -2534,13 +2638,21 @@ def _enforce_target(username, t, wall, deltas, summary, act):
                 else:
                     summary['note'] = (
                         f"re-freeze failed for {t['label']}: {msg}")
+                    _audit_auto_pause_failed(username, t['tag'],
+                                             're-freeze-write', msg)
             else:
                 summary['note'] = (
                     f"re-freeze aborted for {t['label']}: {reason}")
+                _audit_auto_pause_failed(username, t['tag'],
+                                         're-freeze-verify', reason)
     elif manual.get(t['manual_key']) and act:
         # Manually-frozen steady state: re-assert for late starters only.
         ok, _msg = t['ensure']()
-        if ok:
+        if not ok:
+            summary['note'] = f"ensure cgroup (manual): {_msg}"
+            _audit_auto_pause_failed(username, t['tag'],
+                                     'ensure-cgroup-manual', _msg)
+        else:
             current = set(t['get_members']())
             for proc in members:
                 if proc['pid'] not in current:
@@ -2555,9 +2667,13 @@ def _enforce_target(username, t, wall, deltas, summary, act):
                 else:
                     summary['note'] = (
                         f"manual re-freeze failed for {t['label']}: {msg}")
+                    _audit_auto_pause_failed(username, t['tag'],
+                                             'manual-re-freeze-write', msg)
             else:
                 summary['note'] = (
                     f"manual re-freeze aborted for {t['label']}: {reason}")
+                _audit_auto_pause_failed(username, t['tag'],
+                                         'manual-re-freeze-verify', reason)
     elif members and act and not paused.get(pkey):
         # Pre-place matching processes so a later freeze is instant.
         ok, _msg = t['ensure']()
@@ -3004,8 +3120,13 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     if changed:
         try:
             save_budgets(data)
-        except OSError:
-            pass
+        except OSError as e:
+            # FIX-3 (TIME_TRACKING_QA.md F8): a swallowed save error means
+            # every enforcement decision this tick made evaporates before
+            # the watchdog re-reads the store — say so loudly.
+            print(f'BUDGETS SAVE FAILED: {e}', flush=True)
+            audit.safe_log('system', 'budget.save_failed', '',
+                           {'ok': False, 'error': str(e)})
     if run_watchdog:
         # Enforcement first, watchdog second, same in-memory `data`: a
         # category frozen above already has paused=True, so it reads as

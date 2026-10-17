@@ -37,8 +37,15 @@ if __name__ == '__main__':
         # accounts bill nothing: get_lock_status (sudo passwd -S, already
         # covered by the sudoers grants) feeds account_locked the same way
         # the app thread does.
-        budgets.tick_budgets(load_bedtime(), datetime.now(),
-                             notify=notify_user, run_watchdog=True,
-                             account_locked=lambda u: get_lock_status(u)[0])
+        # FIX-2: tick_budgets(index=None) now builds the per-user
+        # .desktop index (cached), so the tick categorizes like the UI.
+        summaries = budgets.tick_budgets(
+            load_bedtime(), datetime.now(),
+            notify=notify_user, run_watchdog=True,
+            account_locked=lambda u: get_lock_status(u)[0])
+        # FIX-3 (TIME_TRACKING_QA.md F8): surface what the tick decided —
+        # a silently aborted freeze repeating every minute used to mean
+        # zero journal output. stdout here goes to journald.
+        budgets.emit_tick_summaries(summaries)
     except Exception as e:
         print(f'budget tick failed: {e}')

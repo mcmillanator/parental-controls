@@ -999,9 +999,15 @@ def bedtime_loop():
             # Per-category time budgets: CPU-time accounting + cgroup
             # freezer enforcement, same 60s cadence as bedtime. Locked
             # accounts bill nothing (get_lock_status feeds account_locked).
-            budgets.tick_budgets(load_bedtime(), datetime.now(),
-                                 notify=notify_user,
-                                 account_locked=lambda u: get_lock_status(u)[0])
+            # index=None -> tick_budgets builds the cached per-user
+            # .desktop index, so the tick categorizes like the UI (FIX-2).
+            summaries = budgets.tick_budgets(load_bedtime(), datetime.now(),
+                                             notify=notify_user,
+                                             account_locked=lambda u: get_lock_status(u)[0])
+            # FIX-3 (TIME_TRACKING_QA.md F8): print the summaries this
+            # thread used to discard — one line per user whose
+            # note/froze/unfroze/degraded/skipped changed since last emit.
+            budgets.emit_tick_summaries(summaries)
         except Exception:
             traceback.print_exc()
         time.sleep(60)
