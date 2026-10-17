@@ -8,10 +8,15 @@ merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
 §11.1 were corrected to the shipped split — Overview actions are a full
 plain-POST no-JS path; the other pages' mutations are JS/fetch and do not
 submit without JS — the owner chose accurate docs over converging the
-remaining pages. The time-tracking QA is merged too (`80bfce7`) — see
-`TIME_TRACKING_QA.md`: one attribution bug (Minecraft runs as bare `java`,
-no category keyword, `.desktop` index keys on the launcher) explains both
-owner symptoms; FIX-1..4 plan + repro tests in `tests/test_qa_time_tracking.py`.
+remaining pages. The time-tracking QA is merged too (`80bfce7`) and
+implemented: one attribution bug (Minecraft runs as bare `java`, no category
+keyword, `.desktop` index keys on the launcher) explained both owner
+symptoms; FIX-1..3 (JVM attribution by app-identity tokens with friendly
+names, tick builds the per-user .desktop index TTL-cached 300s, enforcement
+observability) landed as `90e7bb8..b5a40dc` — every freeze/save failure now
+surfaces as `budget-tick` journal lines + `budget.auto_pause_failed` /
+`budget.save_failed` audit events. FIX-4 (stale-cgroup reconciliation) is
+deferred by owner; F9 stays documented as live behavior.
 That sits on top of the `feature/bonus-modal` work (merged
 as `567fcb9`): the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
@@ -196,11 +201,13 @@ Recovery CLI on `PATH`:
 
 ## Open / deferred
 
-- **Minecraft/budget enforcement fix (plan ready, not started):** root cause
-  confirmed (attribution bug, `TIME_TRACKING_QA.md`); FIX-1..5 ordered there
-  with two owner decisions embedded: FIX-4 cgroup-reconciliation option (a)
-  vs (b), and whether the tick snapshot should mark `user_app` (would change
-  default-hidden billing) — decide before landing FIX-2.
+- **Time-tracking fix status (2026-10-17):** FIX-1..3 merged
+  (`90e7bb8..b5a40dc`); owner decisions recorded: billing unchanged (tick
+  snapshots do NOT mark `user_app`) and **FIX-4 deferred** (stale-cgroup
+  reconciliation, option (a)/(b) undecided). FIX-5 (Other-category UI) not
+  started. Post-deploy live verification of the new journal/audit output is
+  pending — watch `journalctl -u parental-controls-enforce.service` and
+  `audit.jsonl`.
 - **Overview actions are a real no-JS POST path** (resolved): every Overview
   account action (Lock / Unlock) and the admin add/remove controls are
   `<form method="post">` submissions to `/overview/*`,
@@ -307,8 +314,8 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `80bfce7` (QA report + repro tests) over the `de566ec` docs
-correction, over `567fcb9` (which sat on `3af46f0`): the tablet-band sidebar token, the
+`master` = `b5a40dc` (time-tracking FIX-1..3) over `80bfce7` (QA report),
+over `de566ec` (docs correction) — originally `567fcb9` (atop `3af46f0`): the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
 store ownership fix, the removal of the browser-recorder QA suite and the
 Overview Emergency logout button (owner request, 2026-10-15), the live countdown
@@ -339,9 +346,14 @@ SSH bootstrap). Live-box checks: enforce timer fires every minute and ticks
 `parental-*` cgroups exist** (so no stale-member deadlock in play today),
 no stale `resumed` flags; `used_seconds` is 0 for both kids (tester logged
 out; bluefox idle Steam only), so nothing has actually reached exhaustion —
-symptom 2's enforcement gate is still unproven live. Next workstream:
-FIX-1..4 in `TIME_TRACKING_QA.md`; FIX-4 (cgroup reconciliation) needs an
-owner decision.
+symptom 2's enforcement gate is still unproven live. FIX-1..3 are now
+implemented and merged (`90e7bb8..b5a40dc`, worktree/branch removed); the
+release (sync → VM suite → push → deploy) is running. Post-deploy
+expectation: `budget-tick <user> …` lines in the enforce journal each
+minute (locked accounts produce a note line per run — intended, trim if
+noisy) and new `budget.auto_pause_failed` / `budget.save_failed` audit
+events. FIX-4 stays deferred (owner); the F9 stale-member deadlock remains
+documented live behavior.
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
