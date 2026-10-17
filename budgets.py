@@ -549,6 +549,14 @@ def build_desktop_index(username=None):
     return index
 
 
+# Tick-side desktop index cache (FIX-2, TIME_TRACKING_QA.md §7): the
+# enforcement tick must categorize with the same .desktop index the UI
+# builds per render, but a 60s timer should not glob the desktop dirs
+# once per user per tick — cache per user with a short TTL.
+_DESKTOP_INDEX_TTL_SECONDS = 300.0
+_DESKTOP_INDEX_CACHE = {}  # username -> (monotonic time, index dict)
+
+
 def build_desktop_names(username=None):
     """Map executable-basename -> human-friendly app Name=.
 
@@ -2862,6 +2870,29 @@ def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry):
     entry['last_tick'] = now.isoformat()
 
 
+def tick_desktop_index(username):
+    """Per-user .desktop categorization index with a short TTL cache.
+
+    The tick must classify like the UI does (the /user page builds a
+    fresh ``build_desktop_index(username)`` per render; the tick used to
+    pass ``index=None``, so any app whose only category signal is its
+    .desktop file billed to 'other' while the parent watched it under
+    Games — TIME_TRACKING_QA.md F6, §7 FIX-2). The tick runs every 60s
+    per user, so the glob result is cached per user for
+    ``_DESKTOP_INDEX_TTL_SECONDS``.
+    """
+    now = time.monotonic()
+    hit = _DESKTOP_INDEX_CACHE.get(username)
+    if hit is not None and now - hit[0] < _DESKTOP_INDEX_TTL_SECONDS:
+        return hit[1]
+    try:
+        index = build_desktop_index(username)
+    except OSError:
+        index = {}
+    _DESKTOP_INDEX_CACHE[username] = (now, index)
+    return index
+
+
 def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
                  index=None, act=True, notify=None, run_watchdog=True,
                  cgroup_root=None, account_locked=None, focus_provider=None,
@@ -2871,7 +2902,11 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     bedtime_map: {username: bedtime_entry} (from the app's bedtime loader).
     procs_provider: callable(username) -> procs (default: live ps snapshot).
     notify: optional callable ``notify(username, title, body)`` for
-    best-effort "minutes left" / "paused" warnings.
+      best-effort "minutes left" / "paused" warnings.
+    index: categorization index applied to every user. Default None now
+      builds the per-user .desktop index (tick_desktop_index, cached) so
+      the tick groups processes exactly like the UI does (FIX-2); tests
+      and callers that want a fixed index pass one explicitly.
     run_watchdog: when True (default), run the freezer watchdog AFTER
       enforcement against the same in-memory state, so categories this
       tick legitimately froze already carry paused=True and are never
@@ -2962,7 +2997,9 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             continue
         summaries.append(account_and_enforce(
             username, entry, procs, (bedtime_map or {}).get(username),
-            now, prefs, index, act, notify, overrides=user_overrides,
+            now, prefs,
+            index if index is not None else tick_desktop_index(username),
+            act, notify, overrides=user_overrides,
             focus_provider=focus_provider, now_bt=now_bt))
     if changed:
         try:
