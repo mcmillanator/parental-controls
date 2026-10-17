@@ -8,7 +8,11 @@ merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
 §11.1 were corrected to the shipped split — Overview actions are a full
 plain-POST no-JS path; the other pages' mutations are JS/fetch and do not
 submit without JS — the owner chose accurate docs over converging the
-remaining pages. That sits on top of the `feature/bonus-modal` work (merged
+remaining pages. The time-tracking QA is merged too (`80bfce7`) — see
+`TIME_TRACKING_QA.md`: one attribution bug (Minecraft runs as bare `java`,
+no category keyword, `.desktop` index keys on the launcher) explains both
+owner symptoms; FIX-1..4 plan + repro tests in `tests/test_qa_time_tracking.py`.
+That sits on top of the `feature/bonus-modal` work (merged
 as `567fcb9`): the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
 `_partials/bonus_dialog.html`, opened from the hero's "Add bonus time" button)
@@ -192,6 +196,11 @@ Recovery CLI on `PATH`:
 
 ## Open / deferred
 
+- **Minecraft/budget enforcement fix (plan ready, not started):** root cause
+  confirmed (attribution bug, `TIME_TRACKING_QA.md`); FIX-1..5 ordered there
+  with two owner decisions embedded: FIX-4 cgroup-reconciliation option (a)
+  vs (b), and whether the tick snapshot should mark `user_app` (would change
+  default-hidden billing) — decide before landing FIX-2.
 - **Overview actions are a real no-JS POST path** (resolved): every Overview
   account action (Lock / Unlock) and the admin add/remove controls are
   `<form method="post">` submissions to `/overview/*`,
@@ -298,8 +307,8 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `de566ec` (the merged no-JS docs correction) on top of `567fcb9`,
-which sat on `3af46f0`: the tablet-band sidebar token, the
+`master` = `80bfce7` (QA report + repro tests) over the `de566ec` docs
+correction, over `567fcb9` (which sat on `3af46f0`): the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
 store ownership fix, the removal of the browser-recorder QA suite and the
 Overview Emergency logout button (owner request, 2026-10-15), the live countdown
@@ -322,10 +331,17 @@ missing-CSRF 403), an outage replay of the store-ownership fix (`root:root 600` 
 `GET /` → 302, health probe OK; proceedings in the `parental-controls-deploy`
 skill). Outbound SSH port 22 is filtered from **both** boxes — push over
 `ssh.github.com:443`. The no-JS docs correction is merged (`de566ec`,
-docs-only — no redeploy needed on its own); no other feature branches left.
-In flight: `qa/time-tracking` (worktree `time-tracking-qa`) is investigating
-the owner-reported gap that Minecraft-like apps accrue no tracked time and
-exhausted category budgets do not enforce.
+docs-only — no redeploy needed on its own); the time-tracking QA is merged
+(`80bfce7`), its worktree and branch removed. Container→VM SSH now works
+passwordlessly (key bootstrapped via ssh-copy-id — see the deploy skill's
+SSH bootstrap). Live-box checks: enforce timer fires every minute and ticks
+(fresh `last_tick`), budgets sudoers rendered + `visudo` OK, **no
+`parental-*` cgroups exist** (so no stale-member deadlock in play today),
+no stale `resumed` flags; `used_seconds` is 0 for both kids (tester logged
+out; bluefox idle Steam only), so nothing has actually reached exhaustion —
+symptom 2's enforcement gate is still unproven live. Next workstream:
+FIX-1..4 in `TIME_TRACKING_QA.md`; FIX-4 (cgroup reconciliation) needs an
+owner decision.
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
