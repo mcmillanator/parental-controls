@@ -1,10 +1,18 @@
 /* ==========================================================================
    static/js/app.js — progressive enhancement only (REVISED-SPEC.md).
 
-   The panel is server-rendered Flask + Jinja; every save is a plain POST form
-   and every destructive action has a server-side endpoint. Nothing here is
-   required for the page to work — with JavaScript disabled the pages still
-   render, navigate and submit. This file only:
+   The panel is server-rendered Flask + Jinja; every page renders and
+   navigates with JavaScript disabled, and nothing in THIS file is required
+   for a page to work. No-JS action coverage is not uniform (UI_UX_PLAN.md
+   §11.1, §11.8): the Overview is a complete plain-POST path — every account
+   action and the admin add/remove are <form method="post"> submissions to
+   their /overview/* twin endpoints (PRG + flash) — while the budgets,
+   processes, admin-audit and per-user (time-rules) pages submit their
+   mutations via page-script fetch + a CSRF header against /api/*, so with
+   JavaScript disabled those pages render and navigate but those actions do
+   NOT submit. (Admin sign-out is a plain POST to /logout on every page.)
+   Converging the remaining pages onto plain-POST twins is an open, deferred
+   owner option, not shipped. This file only:
 
      * remembers the "Reduced motion" switch (Processes) across visits and
        re-applies the `pc-reduced-motion` body class on load;

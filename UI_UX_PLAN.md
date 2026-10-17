@@ -912,8 +912,13 @@ this project's stack.
 - The mockup's `static/css/tokens.css` is mapped onto the existing
   `static/css/app.css`, loaded **after** Bootstrap so our tokens win (no split).
 - `static/js/app.js` is **progressive enhancement only** (reduced-motion
-  persistence, `<details>` popover dismissal); every save is a server-rendered
-  POST/fetch path and the pages work with JS disabled.
+  persistence, `<details>` popover dismissal); every page renders and
+  navigates with JS disabled. Save coverage is not uniform without JS (owner
+  decision 2026-10-17; see §11.8): Overview actions are server-rendered
+  plain-POST forms with `/overview/*` twins, while the budgets, processes,
+  admin-audit and per-user saves are page-script `fetch` + CSRF-header calls
+  to `/api/*` and do not submit with JS disabled. Converging the remaining
+  pages onto plain-POST twins is an open deferred owner option, not shipped.
 - `templates/_partials/macros.html` holds the shared Jinja macros (status
   pills, badges, buttons, toggles, device cards, navigation); the
   confirmation-dialog macro lives in `_partials/dialog.html`. Pages adopt them
@@ -1142,6 +1147,21 @@ distilled starter prompt. This pass implements that intent.
   admin (the selector contract asserts them on `/`); the endpoint refuses
   non-wheel actors server-side, and the per-row Remove buttons are wheel-actor
   only.
+- **No-JS coverage outside the Overview is a recorded gap (owner decision,
+  2026-10-17: document accurately, do not converge).** The budgets, processes,
+  admin-audit and per-user (time-rules) pages render and navigate with
+  JavaScript disabled — server-rendered content, links and the admin
+  sign-out `<form method="post">` to `/logout` (appbar / tabbar) all work —
+  but their mutations go through page-script `fetch` calls with a CSRF header
+  (`/api/budgets*`, `/api/process-prefs`, `/api/admins`,
+  `/api/admins/remove`, `/api/bedtime`, `/api/bonus`, `/api/lock`,
+  `/api/unlock`, `/api/logout`), so **those actions do NOT submit without
+  JS**. Emergency logout is one of them: JS/fetch against `/api/logout`,
+  per-user page only. The `/time-rules` home is a read-only picker — its
+  edits live on the per-user page, which is JS-gated. `/api/lock-screen` has
+  no UI button at all (agent-contract endpoint). Building `/overview/*`-style
+  plain-POST twins for the remaining pages stays an **OPEN DEFERRED OWNER
+  OPTION**, not started — not a shipped guarantee.
 - **Mutually exclusive states.** With the state specimens behind the preview,
   each region renders exactly one server-selected state (normal / empty /
   error) — the loading skeleton and offline copy are progressive-enhancement

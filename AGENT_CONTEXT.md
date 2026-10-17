@@ -3,7 +3,12 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-17, on branch `feature/bonus-modal` (not yet merged): the
+Last updated: 2026-10-17, on branch `docs/nojs-accuracy` (not yet merged): the
+no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md` §11.1 were
+corrected to the shipped split — Overview actions are a full plain-POST no-JS
+path; the other pages' mutations are JS/fetch and do not submit without JS —
+the owner chose accurate docs over converging the remaining pages. That sits
+on top of the unmerged `feature/bonus-modal` work: the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
 `_partials/bonus_dialog.html`, opened from the hero's "Add bonus time" button)
 and the user-page countdown is `aria-live="off"` (it ticks at 1 Hz).
@@ -70,8 +75,10 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 
 - Stack: **Flask + Jinja + vanilla JS + locally vendored Bootstrap 5**, no
   framework, **no build step**, no CDN/external assets. Progressive enhancement
-  only (`static/js/app.js`); every action must work as a plain server-rendered
-  POST.
+  only (`static/js/app.js`); the Overview's actions work as plain
+  server-rendered POSTs, and extending that to the remaining pages is a
+  deferred owner option (see "Open / deferred" — today their saves are
+  JS/fetch-only).
 - Palette: dark = Flowstep `blueDark` (`#0a0a0b` / surfaces `#18181b`, primary
   `#2563eb`), light = the paired `blue`. Token **names** are stable; only values
   move. Active nav is a **solid blue** row (verified against the canvas).
@@ -219,15 +226,21 @@ Recovery CLI on `PATH`:
   the announced one. See `UI_UX_PLAN.md` §7.4.
 - Add-app-only-admin is still a `<details>` disclosure on the audit page, not
   the shared dialog.
-- **No-JS coverage is incomplete outside the Overview:** `budgets`, `processes`
-  and `admin_audit` (and much of `user`) still post via `fetch` + a CSRF
-  header. Emergency logout is part of this: it was removed from the Overview
-  (owner request, 2026-10-15) and now lives only on the per-user page as a
-  JS/fetch action against `/api/logout` (the `/overview/logout` route is gone).
-  §11.1's "server-rendered POST/fetch path" wording is weaker than the claim in
-  `static/js/app.js` ("with JavaScript disabled the pages still render, navigate
-  and submit"). Whether to converge the rest — or soften the docs — is an open
-  owner question; not started.
+- **No-JS coverage is incomplete outside the Overview** (owner decision
+  2026-10-17: make the docs accurate, not the pages): `budgets`, `processes`
+  and `admin_audit` (and much of `user`, including all time-rule edits) still
+  post via `fetch` + a CSRF header, so with JS disabled those pages render
+  and navigate but **those actions do not submit**. Emergency logout is part
+  of this: it was removed from the Overview (owner request, 2026-10-15) and
+  now lives only on the per-user page as a JS/fetch action against
+  `/api/logout` (the `/overview/logout` route is gone). The Overview itself
+  is a complete no-JS path (`/overview/*` plain-POST twins, PRG + flash), and
+  the admin sign-out `<form method="post">` to `/logout` works JS-disabled on
+  every page. The old overclaim in `static/js/app.js` ("with JavaScript
+  disabled the pages still render, navigate and submit") and §11.1's
+  "server-rendered POST/fetch path" wording were corrected to this split on
+  2026-10-17. Converging the remaining pages onto plain-POST twins stays an
+  OPEN DEFERRED owner option; not started.
 - Honest placeholders: "1 active session" and specimen values are illustrative;
   per-account "using 1h 42m today" isn't in the payload; notification lead-time,
   the HTTPS toggle and multi-device are disabled. **The Overview's per-account
@@ -312,6 +325,7 @@ in flight.
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
 correct by the harness, never eyeballed), the countdown ticking, and the bonus
-modal's `showModal()`/Esc/Cancel interactions. Open owner question: the no-JS
-scope above. Resolved: the countdown `aria-live` is now `off`, as on the
-Overview.
+modal's `showModal()`/Esc/Cancel interactions. Resolved 2026-10-17: the no-JS
+scope above — the owner chose accurate docs over converging the remaining
+pages; convergence stays an open deferred option. Resolved: the countdown
+`aria-live` is now `off`, as on the Overview.
