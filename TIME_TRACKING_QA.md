@@ -318,11 +318,27 @@ Interpretation shortcuts:
 
 ## 7. Fix plan (for the implementer agent)
 
+> **Implementation status (2026-10-17, implementer agent, branch
+> `feature/time-tracking-fixes`):** FIX-1 implemented (commit `90e7bb8`),
+> FIX-2 implemented (commit `8d82d02`), FIX-3 implemented (commit
+> `c8ce7c2`), regression/flip tests in `tests/test_qa_time_tracking.py`
+> (commit `01ca5b6`) which now runs 32 tests with zero
+> expectedFailure entries. **FIX-4 is DEFERRED by the owner (2026-10-17):
+> `verify_freeze_safety` abort semantics are unchanged and no cgroup
+> reconciliation/rebuild was added; the stale-member behavior stays
+> characterized by `test_stale_cgroup_member_permanently_aborts_freeze`
+> (which now documents the deferral), not by an expectedFailure test —
+> the original 5 DESIRED tests covered F1/F4/F5/F6/F7, none F9. FIX-5 is
+> out of scope. Billing behavior intentionally unchanged: tick snapshots
+> are still not `user_app`-marked and `apply_filter` default-visibility
+> semantics are untouched (per the FIX-2 spec below).**
+
 Ordered; each lands with the DESIRED tests in `tests/test_qa_time_tracking.py`
 un-marked (`expectedFailure` → regular asserts) plus the regression tests
 sketched below.
 
 **FIX-1 (root cause): Minecraft/JVM attribution — budgets.py.**
+*Status: IMPLEMENTED 2026-10-17 (commit `90e7bb8`).*
 1. Add `'minecraft'` (+ `'prismlauncher'`, `'multimc'`, `'adventure-launcher'`
    spellings as a policy choice) to `CATEGORY_OVERRIDES['games']`
    (budgets.py:391-395). One keyword is enough to flip: `categorize`
@@ -350,7 +366,10 @@ this file as characterization-after-fix); keep
 existing fixture comm becomes newly-matched by word-boundary).
 
 **FIX-2 (parity): the tick must classify like the UI — app.py +
-enforce_bedtime_timer.py.** Build `index = budgets.build_desktop_index(username)`
+enforce_bedtime_timer.py.**
+*Status: IMPLEMENTED 2026-10-17 (commit `8d82d02`; tick_budgets builds a
+per-user `tick_desktop_index()` cached with a 300s TTL; billing/user_app
+semantics unchanged per owner decision).* Build `index = budgets.build_desktop_index(username)`
 once per user per tick (or cache per-user with TTL) in `tick_budgets`
 (default `index=None` → per-user build; budgets.py:2841-2869) and pass it
 into `account_and_enforce`. Do **not** mark `user_app` on the tick snapshot
@@ -364,6 +383,9 @@ Prism launcher (index built) bills games. Add tick_budgets-level test with
 test_freeze_buttons.py).
 
 **FIX-3 (observability): surface every enforcement decision.**
+*Status: IMPLEMENTED 2026-10-17 (commit `c8ce7c2`; `budgets.
+emit_tick_summaries()` + `budget.auto_pause_failed` / `budget.save_failed`
+audit events, wired into both production tick callers).*
 1. `enforce_bedtime_timer.py`: print the summaries returned by
    `tick_budgets` — at minimum, one line per user whose `note` is non-empty
    or whose `froze`/`unfroze`/`degraded`/`skipped` changed; keep it stdout
@@ -380,6 +402,9 @@ through a small `emit_summary` helper — factor the printing into a testable
 function).
 
 **FIX-4 (stale-member deadlock): budgets.py:2058-2092 + 2394-2405.**
+*Status: DEFERRED by owner 2026-10-17 — abort semantics unchanged, no
+reconciliation/rebuild implemented; F9 stays characterized (not
+expectedFailure) by `test_stale_cgroup_member_permanently_aborts_freeze`.*
 When `verify_freeze_safety` aborts because a live pid in **our own**
 `parental-*` group is absent from the freezable set, the group can never be
 frozen again (F9). Options (owner decides): (a) before migrating, reconcile
@@ -395,7 +420,9 @@ refreeze). Foreign `parental-*` names that don't parse stay report-only
 characterization of the *safety* property, new test for reconciliation
 outcome; live: re-run owner experiment after deploy.
 
-**FIX-5 (owner-facing UX for 'other'):** show the *Other* category's usage
+**FIX-5 (owner-facing UX for 'other'):**
+*Status: NOT IN SCOPE for this branch (owner decision 2026-10-17).*
+Show the *Other* category's usage
 and let the parent see why a JVM row isn't in Games *before* FIX-1 lands is
 optional; after FIX-1, `other` mainly catches unknown apps. Low priority.
 
