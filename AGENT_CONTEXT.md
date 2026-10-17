@@ -109,7 +109,7 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests
 ```
 All scratch stays **inside** the worktree (`.scratch/` is gitignored); never
-`/tmp`. Last known on the VM: **1264 tests, OK, 20 skips** (the 20 are live-env
+`/tmp`. Last known on the VM: **1290 tests, OK, 20 skips** (the 20 are live-env
 and root-gated skips). The pinned-selector guard is now the stdlib suite
 (`tests/test_ui_assets.py` plus the per-page `test_ui_*.py` modules);
 `UI_UX_PLAN.md` §7.4 is still the spec. (The browser-recorder suite that used to
@@ -232,8 +232,8 @@ Do **not** push to `origin` from either side without the owner's say-so.
   `test_multidevice_install`, `test_session_agent`, `test_budgets`,
   `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
   set plus `test_ui_a11y` and `test_ui_assets`.
-- The VM is the authoritative environment: **1264 tests, OK, 20 skips** at
-  `e8e20ad` (Python 3.14.8, live PAM/usermod included). Run it there with
+- The VM is the authoritative environment: **1290 tests, OK, 20 skips** at
+  `77bbbbf` (Python 3.14.8, live PAM/usermod included). Run it there with
   `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
 - Each side's worktree `.git` pointers are kept **relative** so `git` works
   regardless of mount path; the admin `gitdir` files under
@@ -251,26 +251,32 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `e8e20ad`, on top of `3af46f0`: the tablet-band sidebar token, the
+`master` = `77bbbbf`, on top of `3af46f0`: the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
-store ownership fix, and the removal of the browser-recorder QA suite and the
-Overview Emergency logout button (owner request, 2026-10-15). Verified on the VM:
-full suite **1264 tests, OK, 20 skips**, the no-JS Overview path over real HTTP
-(`POST /overview/lock` → 302 → danger flash; non-wheel add-admin refused;
-missing-CSRF 403), and an outage replay of the store-ownership fix
-(`root:root 600` → `parental-controls:parental-controls 600`).
+store ownership fix, the removal of the browser-recorder QA suite and the
+Overview Emergency logout button (owner request, 2026-10-15), the live countdown
+(moved to the top of the user page and added per-account on the Overview), and the
+removal of the redundant Overview "Lock screen" button (`/api/lock-screen` is
+kept as an endpoint with no UI button, mirrored by the agent's
+`/api/v1/lock-screen`). Verified on the VM: full suite **1290 tests, OK, 20
+skips**, the no-JS Overview path over real HTTP (`POST /overview/lock` → 302 →
+danger flash; non-wheel add-admin refused; missing-CSRF 403), an outage replay of
+the store-ownership fix (`root:root 600` → `parental-controls:parental-controls
+600`), and that the removed routes 404 while `/overview/lock` 302s and
+`/api/lock-screen` still answers 401.
 
-**Pushed** to `origin/master`. **Deployed on the live box** (2026-10-14) with
+**Pushed** to `origin/master` and **deployed on the live box** (2026-10-17) with
 `sudo ./install.sh --port 5000 --bind 192.168.122.201 --tls --open-firewall`
 (LAN HTTPS, self-signed cert fingerprint
 `5A:06:42:8E:A4:38:EA:2E:63:1B:F4:CD:AD:C9:50:A4:7A:B0:91:29:A5:44:64:51:58:F3:CB:1C:AF:B8:74:72`;
 `GET /` → 302, health probe OK; proceedings in the `parental-controls-deploy`
-skill) — but that deploy serves `b2b1ca8`: **`e8e20ad` is not yet deployed**, so
-the Overview still shows Emergency logout on the live box until the next
-`install.sh`. Outbound SSH port 22 is filtered from **both** boxes — push over
+skill). Outbound SSH port 22 is filtered from **both** boxes — push over
 `ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
 in flight.
 
-Still unverified: the no-JS toggle in a real browser and the 236px tablet
-sidebar at 768–959px (measured correct by the harness, never eyeballed). Open
-owner question: the no-JS scope above.
+Still unverified: the no-JS toggle in a real browser, the 236px tablet sidebar at
+768–959px (measured correct by the harness, never eyeballed), and the countdown
+(static renders + tests only — nobody has watched it tick). Open owner questions:
+the no-JS scope above, and whether the user-page countdown should keep
+`aria-live="polite"` now that it updates once a second (the Overview uses
+`aria-live="off"`; changing the user page means changing pinned markup).
