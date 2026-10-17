@@ -130,7 +130,7 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
 mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests
 ```
 All scratch stays **inside** the worktree (`.scratch/` is gitignored); never
-`/tmp`. Last known on the VM: **1290 tests, OK, 20 skips** (the 20 are live-env
+`/tmp`. Last known on the VM: **1302 tests, OK, 20 skips** (the 20 are live-env
 and root-gated skips). The pinned-selector guard is now the stdlib suite
 (`tests/test_ui_assets.py` plus the per-page `test_ui_*.py` modules);
 `UI_UX_PLAN.md` §7.4 is still the spec. (The browser-recorder suite that used to
@@ -256,15 +256,17 @@ SSH to the VM works (`ssh stan@opencode-vm`). Sync with a bundle (no remote-side
 ref churn): on the container `git bundle create .scratch/w.bundle <old>..master`
 then `scp` it over, and on the VM
 `git -C master fetch <bundle> master && git -C master merge --ff-only FETCH_HEAD`.
-Do **not** push to `origin` from either side without the owner's say-so.
+**The whole release sequence (sync → suite → push → deploy → verify), including
+the port-443 push workaround, is captured as the `parental-controls-deploy`
+skill — follow it rather than reconstructing the steps.**
 
 - A full `discover` run is **not** green in the container (~109 failures + 1
   error at baseline, all environment-bound: `test_deployment`,
   `test_multidevice_install`, `test_session_agent`, `test_budgets`,
   `test_lock_usermod_real`). The container's green signal is the `test_ui_*`
   set plus `test_ui_a11y` and `test_ui_assets`.
-- The VM is the authoritative environment: **1290 tests, OK, 20 skips** at
-  `77bbbbf` (Python 3.14.8, live PAM/usermod included). Run it there with
+- The VM is the authoritative environment: **1302 tests, OK, 20 skips** at
+  `567fcb9` (Python 3.14.8, live PAM/usermod included). Run it there with
   `cd master && mkdir -p .scratch && TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests`.
 - Each side's worktree `.git` pointers are kept **relative** so `git` works
   regardless of mount path; the admin `gitdir` files under
@@ -282,19 +284,21 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `77bbbbf`, on top of `3af46f0`: the tablet-band sidebar token, the
+`master` = `567fcb9`, on top of `3af46f0`: the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
 store ownership fix, the removal of the browser-recorder QA suite and the
 Overview Emergency logout button (owner request, 2026-10-15), the live countdown
-(moved to the top of the user page and added per-account on the Overview), and the
+(moved to the top of the user page and added per-account on the Overview), the
 removal of the redundant Overview "Lock screen" button (`/api/lock-screen` is
 kept as an endpoint with no UI button, mirrored by the agent's
-`/api/v1/lock-screen`). Verified on the VM: full suite **1290 tests, OK, 20
-skips**, the no-JS Overview path over real HTTP (`POST /overview/lock` → 302 →
-danger flash; non-wheel add-admin refused; missing-CSRF 403), an outage replay of
-the store-ownership fix (`root:root 600` → `parental-controls:parental-controls
-600`), and that the removed routes 404 while `/overview/lock` 302s and
-`/api/lock-screen` still answers 401.
+`/api/v1/lock-screen`), and the per-user Bonus editor moved into the shared shell
+modal `#pc-bonus` (opened from a new hero "Add bonus time" button; the countdown
+switched to `aria-live="off"` now that it ticks). Verified on the VM: full suite
+**1302 tests, OK, 20 skips**, the no-JS Overview path over real HTTP
+(`POST /overview/lock` → 302 → danger flash; non-wheel add-admin refused;
+missing-CSRF 403), an outage replay of the store-ownership fix (`root:root 600` →
+`parental-controls:parental-controls 600`), and that the removed routes 404 while
+`/overview/lock` 302s and `/api/lock-screen` still answers 401.
 
 **Pushed** to `origin/master` and **deployed on the live box** (2026-10-17) with
 `sudo ./install.sh --port 5000 --bind 192.168.122.201 --tls --open-firewall`
@@ -305,19 +309,9 @@ skill). Outbound SSH port 22 is filtered from **both** boxes — push over
 `ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
 in flight.
 
-**In flight (not merged, not pushed, not deployed):** branch
-`feature/bonus-modal` (worktree `../bonus-modal`) — the per-user Bonus time
-card becomes the shared shell modal `#pc-bonus` (opened from the hero's
-"Add bonus time" button) and the user-page countdown switches to
-`aria-live="off"`. Container `test_ui_*` suite green (364 tests); the VM full
-suite has not been re-run and the live box still runs the pre-change build.
-
-Still unverified: the no-JS toggle in a real browser, the 236px tablet sidebar at
-768–959px (measured correct by the harness, never eyeballed), and the countdown
-(static renders + tests only — nobody has watched it tick). The `feature/bonus-modal`
-worktree moves the bonus card into a shared shell modal and switches the
-user-page countdown to `aria-live="off"` (static renders + tests only — **nobody
-has opened the bonus modal in a real browser**, so the `showModal()`/Esc/Cancel
-interactions are unverified). Open owner question: the no-JS scope above. The
-countdown `aria-live` question is **resolved** — it is now `off` as on the
+Still unverified (static renders + tests only — nobody has watched it in a
+browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
+correct by the harness, never eyeballed), the countdown ticking, and the bonus
+modal's `showModal()`/Esc/Cancel interactions. Open owner question: the no-JS
+scope above. Resolved: the countdown `aria-live` is now `off`, as on the
 Overview.
