@@ -3,12 +3,13 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-17, on branch `docs/nojs-accuracy` (not yet merged): the
-no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md` §11.1 were
-corrected to the shipped split — Overview actions are a full plain-POST no-JS
-path; the other pages' mutations are JS/fetch and do not submit without JS —
-the owner chose accurate docs over converging the remaining pages. That sits
-on top of the unmerged `feature/bonus-modal` work: the
+Last updated: 2026-10-17, on `master` (the `docs/nojs-accuracy` correction is
+merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
+§11.1 were corrected to the shipped split — Overview actions are a full
+plain-POST no-JS path; the other pages' mutations are JS/fetch and do not
+submit without JS — the owner chose accurate docs over converging the
+remaining pages. That sits on top of the `feature/bonus-modal` work (merged
+as `567fcb9`): the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
 `_partials/bonus_dialog.html`, opened from the hero's "Add bonus time" button)
 and the user-page countdown is `aria-live="off"` (it ticks at 1 Hz).
@@ -297,7 +298,8 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `567fcb9`, on top of `3af46f0`: the tablet-band sidebar token, the
+`master` = `de566ec` (the merged no-JS docs correction) on top of `567fcb9`,
+which sat on `3af46f0`: the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
 store ownership fix, the removal of the browser-recorder QA suite and the
 Overview Emergency logout button (owner request, 2026-10-15), the live countdown
@@ -319,8 +321,11 @@ missing-CSRF 403), an outage replay of the store-ownership fix (`root:root 600` 
 `5A:06:42:8E:A4:38:EA:2E:63:1B:F4:CD:AD:C9:50:A4:7A:B0:91:29:A5:44:64:51:58:F3:CB:1C:AF:B8:74:72`;
 `GET /` → 302, health probe OK; proceedings in the `parental-controls-deploy`
 skill). Outbound SSH port 22 is filtered from **both** boxes — push over
-`ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
-in flight.
+`ssh.github.com:443`. The no-JS docs correction is merged (`de566ec`,
+docs-only — no redeploy needed on its own); no other feature branches left.
+In flight: `qa/time-tracking` (worktree `time-tracking-qa`) is investigating
+the owner-reported gap that Minecraft-like apps accrue no tracked time and
+exhausted category budgets do not enforce.
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
