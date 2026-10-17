@@ -387,11 +387,17 @@ def apply_filter(procs, username, prefs=None):
 
 # keyword -> category. Matched as whole words (\b) against "comm + cmdline"
 # (lowercased) so e.g. 'edge' does not match 'knowledge'. Steam chain first.
+# Minecraft is a JVM (`comm=java`): the game itself is attributed through
+# these launcher/game keywords on the cmdline (`net.minecraft...` class
+# names, `--gameDir .../.minecraft` paths), never through `java` itself —
+# see _GENERIC_INTERPRETERS / _cmdline_app_tokens (TIME_TRACKING_QA.md F1,
+# §7 FIX-1).
 CATEGORY_OVERRIDES = {
     'games': (
         'steam', 'gameoverlayui', 'gamescope', 'pressure-vessel',
         'steamwebhelper', 'reaper', 'proton', 'wineserver', 'wine-preloader',
         'lutris', 'heroic', 'bottles',
+        'minecraft', 'prismlauncher', 'multimc', 'adventure-launcher',
     ),
     'browsers': (
         'firefox', 'chrome', 'chromium', 'brave', 'msedge', 'opera',
@@ -585,6 +591,84 @@ def _flatpak_appid_parts(cmdline):
     return []
 
 
+# Interpreter/runtime basenames: an argv0 or path segment like `java`
+# says nothing about WHICH app runs on it (a Minecraft JVM and a
+# JetBrains IDE both run `java`), so these never attribute a process by
+# themselves — attribution comes from the app identity carried in the
+# arguments instead (TIME_TRACKING_QA.md §7 FIX-1: "keep bare java
+# category-neutral").
+_GENERIC_INTERPRETERS = frozenset({
+    'java', 'python', 'python2', 'python3', 'node', 'nodejs', 'bun',
+    'deno', 'electron', 'mono', 'dotnet', 'ruby', 'perl', 'php', 'sh',
+    'bash', 'dash', 'zsh', 'fish', 'wine', 'wine64',
+})
+
+# Registry/TLD-ish and generic dot-name parts dropped from class-name
+# style tokens (mirrors _flatpak_appid_parts / _exec_candidates).
+_GENERIC_DOT_PARTS = frozenset({'org', 'com', 'io', 'net', 'edu', 'gov',
+                                'desktop', 'app', 'main', 'client'})
+
+# Curated friendly names for launcher-spawned games whose visible process
+# is the JVM (comm 'java'): shown on /user rows instead of bare 'java'
+# so parents can find the app and set per-app overrides for it.
+_JVM_APP_NAMES = (
+    ('minecraft', 'Minecraft'),
+    ('prismlauncher', 'Prism Launcher'),
+    ('multimc', 'MultiMC'),
+    ('adventure-launcher', 'Adventure Launcher'),
+)
+_JVM_APP_RES = [(re.compile(r'\b' + re.escape(kw) + r'\b'), friendly)
+                for kw, friendly in _JVM_APP_NAMES]
+
+
+def _cmdline_app_tokens(cmdline):
+    """Yield candidate app-identity tokens from a command line (lowercase).
+
+    Launcher-spawned processes (JVMs, wrappers) carry the real app in
+    their args rather than in argv0: path segments (`~/.minecraft`,
+    `.../PrismLauncher/instances/...`), JVM class names
+    (`net.minecraft.client.main.Main`) and flag values (`--gameDir
+    <path>`, `-cp <paths>`, `-Djava.library.path=<path>`). Used by
+    categorize() as a fallback index lookup and for the friendly
+    game-name annotation (TIME_TRACKING_QA.md §7 FIX-1.2). Bare
+    interpreters, registry-ish dot-parts and <4-char noise are dropped
+    so a JetBrains `java -jar /opt/idea/idea.jar` stays neutral.
+    """
+    seen = set()
+
+    def emit(word):
+        w = word.lower()
+        if len(w) < 4 or w in _GENERIC_INTERPRETERS or w in _GENERIC_DOT_PARTS:
+            return None
+        if w in seen:
+            return None
+        seen.add(w)
+        return w
+
+    for raw in (cmdline or '').split():
+        tok = raw.strip('"\'')
+        if tok.startswith('-'):
+            tok = tok.lstrip('-')
+            _flag, sep, rhs = tok.partition('=')
+            if not sep:
+                continue  # bare flag: the identity is in the NEXT token
+            tok = rhs
+        if not tok:
+            continue
+        parts = tok.split('/') if '/' in tok else [tok]
+        for part in parts:
+            if not part:
+                continue
+            w = emit(part)
+            if w:
+                yield w
+            if '.' in part:  # class names, ids and dotfiles: `minecraft`
+                for sub in part.split('.'):
+                    w = emit(sub)
+                    if w:
+                        yield w
+
+
 def is_user_app(proc, app_index=None, home=None):
     """True if a proc looks explicitly user-started (not background plumbing).
 
@@ -633,17 +717,26 @@ def mark_user_apps(procs, app_index=None, home=None):
 def annotate_display_names(procs, names=None):
     """Set proc['display_name'] to the friendly .desktop Name= (in place).
 
-    Lookup is argv[0]-basename first, then comm; anything without a
-    known friendly name falls back to its comm so callers can render
-    `display_name` unconditionally.
+    Lookup is argv[0]-basename first, then comm; a process with neither
+    still gets a friendly name when its cmdline carries a known
+    launcher-spawned app identity (a Minecraft JVM shows as "Minecraft",
+    not bare "java" — TIME_TRACKING_QA.md F3, §7 FIX-1.4). Anything
+    without a known friendly name falls back to its comm so callers can
+    render `display_name` unconditionally.
     """
     names = names or {}
     for proc in procs:
         cmdline = proc.get('cmdline') or proc.get('args') or ''
         base = _argv0_basename(cmdline)
         comm = proc.get('comm') or ''
-        proc['display_name'] = (
-            names.get(base) or names.get(comm.lower()) or comm)
+        name = names.get(base) or names.get(comm.lower())
+        if not name:
+            haystack = (comm + ' ' + cmdline).lower()
+            for rx, friendly in _JVM_APP_RES:
+                if rx.search(haystack):
+                    name = friendly
+                    break
+        proc['display_name'] = name or comm
     return procs
 
 
@@ -651,7 +744,8 @@ def categorize(proc, index=None):
     """Map a visible app proc to games/browsers/media/chat/other.
 
     Precedence: curated overrides (full cmdline match) > .desktop
-    Categories > fallback 'other'.
+    Categories (argv0/comm key, then launcher-spawned app-identity
+    tokens from the cmdline) > fallback 'other'.
     """
     comm = (proc.get('comm') or '').lower()
     cmdline = proc.get('cmdline') or proc.get('args') or ''
@@ -668,6 +762,9 @@ def categorize(proc, index=None):
             return index[base]
         if comm in index:
             return index[comm]
+        for token in _cmdline_app_tokens(cmdline):
+            if token in index:
+                return index[token]
     return 'other'
 
 
