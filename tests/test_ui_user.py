@@ -33,6 +33,8 @@ from test_lock_regression import _AdminSessionMixin, KID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
+BASE = os.path.join(ROOT, 'templates', 'base.html')
+BONUS_PARTIAL = os.path.join(ROOT, 'templates', '_partials', 'bonus_dialog.html')
 
 # A jsdelivr/Bootstrap CDN <link> is exactly the failure this guards against.
 EXTERNAL_ASSET = re.compile(r'''(?:href|src)\s*=\s*["']https?://''', re.I)
@@ -75,6 +77,13 @@ PINNED_TEXT = (
 def read(path):
     with open(path, encoding='utf-8') as f:
         return f.read()
+
+
+def dialog_html(html):
+    """Slice the shared ``#pc-bonus`` dialog out of the rendered page."""
+    start = html.index('<dialog id="pc-bonus"')
+    end = html.index('</dialog>', start)
+    return html[start:end]
 
 
 def _entry():
@@ -371,10 +380,17 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('aria-pressed="true"', html)
         self.assertIn('aria-pressed="false"', html)
 
-    def test_countdown_is_a_live_region(self):
+    def test_countdown_readout_is_a_silent_live_region(self):
+        # The readout ticks once a second (the shared 1 Hz ticker in app.js);
+        # a polite live region would make a screen reader announce the time
+        # every second, so it is now aria-live="off" — exactly like the
+        # Overview's per-card countdowns. It stays a role="timer" readout, and
+        # the element must still be present (do not weaken this to a bare id).
         html = self.render(self._live_with())
-        self.assertIn('id="bedtime-countdown" role="timer" aria-live="polite"',
-                      html)
+        start = html.index('id="bedtime-countdown"')
+        element = html[start:html.index('>', start)]
+        self.assertIn('role="timer"', element)
+        self.assertIn('aria-live="off"', element)
 
     def test_implementation_annotation(self):
         # Developer guidance only: dev-only preview, never the product page.
@@ -407,7 +423,7 @@ class TimeRulesDesignTest(_UserPageRender):
         # ticker. The readout text is unchanged (the pinned markup is intact).
         html = self.render(self._live_with())
         self.assertIn('data-countdown-seconds="5400"', html)
-        self.assertIn('id="bedtime-countdown" role="timer" aria-live="polite"',
+        self.assertIn('id="bedtime-countdown" role="timer" aria-live="off"',
                       html)
 
     def test_countdown_has_no_ticker_seed_when_there_is_nothing_to_count(self):
@@ -445,6 +461,159 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('function toggleBedtimeEnabled(', src)
         self.assertIn('function revokeOverride(', src)
         self.assertIn("'/api/lock'", src)
+
+
+class BonusModalTest(_UserPageRender):
+    """The Bonus time editor is a shared shell modal (``#pc-bonus``).
+
+    It moved out of the always-open ``<details id="bonus-section">`` disclosure
+    and behind the hero's "Add bonus time" button, following the shared
+    ``#pc-override`` editor: one native ``<dialog>`` in the shell, OUTSIDE the
+    10s-refreshed regions, with an imperative opener (``window.pcBonusDialog``).
+    Every pinned id/class/text still resolves (see PINNED_* above).
+    """
+
+    def test_modal_is_in_the_shell_and_outside_the_refreshed_regions(self):
+        html = self.render()
+        self.assertEqual(1, html.count('id="pc-bonus"'))
+        # The pinned `bonus-section` id now lives on the dialog body.
+        self.assertIn('id="bonus-section"', html)
+        # It renders before it is ever opened (a closed <dialog> in the shell),
+        # and it is not inside #process-section (renderProcesses replaces it)...
+        start = html.index('id="process-section"')
+        end = html.index('</section>', start)
+        self.assertNotIn('id="pc-bonus"', html[start:end])
+        # ...nor inside #account-actions (renderAccount rewrites its innerHTML).
+        actions = html.index('id="account-actions"')
+        self.assertNotIn('id="pc-bonus"', html[actions:html.index('</div>', actions)])
+
+    def test_modal_is_accessible_and_title_is_wired(self):
+        self.assertIn(
+            '<dialog id="pc-bonus" class="pc-dialog" '
+            'aria-labelledby="pc-bonus-title" aria-modal="true">',
+            self.render())
+        self.assertIn('id="pc-bonus-title"', self.render())
+
+    def test_base_shell_includes_the_bonus_partial(self):
+        self.assertIn("_partials/bonus_dialog.html", read(BASE))
+
+    def test_modal_renders_without_changing_the_no_bonus_state(self):
+        live = live_dict()
+        live['user']['bonus'] = {'active': False}
+        html = self.render(live)
+        start = html.index('<dialog id="pc-bonus"')
+        end = html.index('</dialog>', start)
+        self.assertIn('No bonus time active', html[start:end])
+        # The five shortcuts / custom entry still render with no bonus active.
+        self.assertIn('Grant custom', html[start:end])
+
+    def test_add_bonus_time_button_opens_the_modal(self):
+        html = self.render()
+        self.assertIn('class="btn-bonus-open', html)
+        self.assertIn('>Add bonus time</button>', html)
+        self.assertIn('onclick="openBonusDialog()"', html)
+        self.assertIn('aria-haspopup="dialog"', html)
+        # Accessible name spells out the dialog's purpose (the visible label
+        # alone would not say whose bonus).
+        self.assertIn('aria-label="Add bonus time for %s"' % KID, html)
+        # The page script calls the shell's imperative opener.
+        src = read(TEMPLATE)
+        self.assertIn('function openBonusDialog(', src)
+        self.assertIn('window.pcBonusDialog()', src)
+
+    def test_bonus_controls_and_pinned_ids_live_inside_the_dialog(self):
+        dialog = dialog_html(self.render())
+        for dom_id in ('bonus-section', 'bonus-status', 'bonus-hours',
+                       'bonus-minutes'):
+            with self.subTest(id=dom_id):
+                self.assertIn('id="%s"' % dom_id, dialog)
+        for label in ('+15m', '+30m', '+1h', '+1h30', '+2h', 'Grant custom',
+                      'Revoke'):
+            with self.subTest(label=label):
+                self.assertIn('>%s</button>' % label, dialog)
+        # Five shortcuts + Grant custom all keep the legacy `.btn-bonus` hook,
+        # and the Revoke control genuinely keeps `.btn-lock` (hero card idiom).
+        self.assertGreaterEqual(dialog.count('class="btn-bonus '), 5)
+        self.assertIn('class="btn-lock', dialog)
+        self.assertIn('class="pc-duration"', dialog)
+        self.assertIn('class="badge-bonus', dialog)
+
+    def test_hero_badge_bonus_chip_is_still_rendered(self):
+        # Once the card is a modal, the hero `.badge-bonus` chip is how bonus
+        # state stays visible at a glance — both the server markup and the
+        # renderAccount rebuild must keep emitting it (with the 12h "until"
+        # end time in its title, so the end time is not lost to the modal).
+        html = self.render()
+        hero = html[html.index('id="account-badges"'):]
+        hero = hero[:hero.index('</p>')]
+        self.assertIn('badge-bonus', hero)
+        self.assertIn('title="Bonus until 11:00 PM"', hero)
+        src = read(TEMPLATE)
+        start = src.index('function renderAccount(')
+        body = src[start:src.index('\n    }', start)]
+        self.assertIn('badge-bonus', body)
+        self.assertIn('fmt12(data.bonus.until.slice(11, 16))', body)
+
+
+class BonusModalSourceTest(unittest.TestCase):
+    """Static guards on the shared partial + the page handlers (no JS engine)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.partial = read(BONUS_PARTIAL)
+        cls.page = read(TEMPLATE)
+
+    def test_partial_defines_the_one_shared_opener(self):
+        self.assertIn('function pcBonusDialog()', self.partial)
+        self.assertIn('window.pcBonusDialog = pcBonusDialog;', self.partial)
+        self.assertIn('dialog.showModal()', self.partial)
+        self.assertIn("document.getElementById('pc-bonus')", self.partial)
+
+    def test_partial_is_scoped_to_pages_that_carry_a_user(self):
+        # base.html includes it on every route; the guard keeps non-user pages
+        # from rendering an empty dialog, and openBonusDialog() no-ops when the
+        # partial (and so window.pcBonusDialog) is absent.
+        self.assertIn('{% if user is defined and user %}', self.partial)
+
+    def test_cancel_escape_and_backdrop_grant_nothing(self):
+        # Cancel, Esc (native close) and a backdrop click all settle on null
+        # without a network call; the partial never posts.
+        self.assertIn('data-pc-dialog-cancel', self.partial)
+        self.assertIn('>Cancel<', self.partial)
+        self.assertIn('function onCancel() { finish(); }', self.partial)
+        self.assertIn('function onClose() { finish(); }', self.partial)
+        self.assertIn('function onBackdrop(e) { if (e.target === dialog) { finish(); } }',
+                      self.partial)
+        self.assertIn('resolve(null)', self.partial)
+        self.assertNotIn('fetch(', self.partial)
+        self.assertNotIn('postForm', self.partial)
+        self.assertNotIn('<form', self.partial)
+        # Every control is a real type="button": Enter cannot submit a grant.
+        self.assertNotIn('type="submit"', self.partial)
+
+    def test_grants_keep_the_same_endpoints_and_close_on_success(self):
+        self.assertIn("fetch('/api/bonus'", self.page)
+        self.assertIn("fetch('/api/bonus/revoke'", self.page)
+        self.assertIn('function closeBonusDialog(', self.page)
+        # Both success paths close the dialog and let the existing toast /
+        # refresh report the result.
+        grant = self.page[self.page.index('async function grantBonus('):
+                          self.page.index('async function grantCustomBonus(')]
+        self.assertIn('closeBonusDialog();', grant)
+        revoke = self.page[self.page.index('async function revokeBonus('):
+                           self.page.index('async function hideProc(')]
+        self.assertIn('closeBonusDialog();', revoke)
+        # grantCustomBonus still confirms then delegates to grantBonus.
+        self.assertIn('grantBonus(username, total);', self.page)
+
+    def test_account_actions_rebuild_keeps_the_open_button(self):
+        # #account-actions is rebuilt by renderAccount on every 10s poll, so the
+        # open button must be emitted by the JS path too (not only the server
+        # markup), or it would vanish after the first refresh.
+        start = self.page.index('function renderAccount(')
+        body = self.page[start:self.page.index('\n    }', start)]
+        self.assertIn('btn-bonus-open', body)
+        self.assertIn('openBonusDialog()', body)
 
 
 if __name__ == '__main__':

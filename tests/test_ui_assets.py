@@ -457,11 +457,19 @@ class UserPageConversionTest(unittest.TestCase):
     tests/test_ui_user.py. This is the guardrail that the busiest screen
     left the CDN/inline-CSS world and adopted the shell + stack/disclosure
     markup the plan requires (UI_UX_PLAN.md §5.4, Phase 3).
+
+    The Bonus time editor moved out of ``user.html`` into the shared shell
+    modal ``_partials/bonus_dialog.html`` (included from ``base.html``), so the
+    pins it carries (``bonus-status``/``bonus-hours``/``bonus-minutes`` and
+    ``id="bonus-section"``) now resolve from that partial. ``bonus`` below is
+    the page's source *plus* the moved partial — the selectors did not move off
+    the page, they moved into the shell it renders.
     """
 
     @classmethod
     def setUpClass(cls):
         cls.html = read(TEMPLATE_DIR / 'user.html')
+        cls.bonus = cls.html + read(PARTIAL_DIR / 'bonus_dialog.html')
 
     def test_extends_the_shared_shell(self):
         self.assertTrue(self.html.lstrip().startswith('{% extends "base.html" %}'),
@@ -487,11 +495,13 @@ class UserPageConversionTest(unittest.TestCase):
     def test_uses_details_disclosures(self):
         self.assertIn('class="pc-disclosure"', self.html)
         self.assertIn('<details', self.html)
+        # `bonus-section` is now the shared shell modal (still the pinned id,
+        # no longer a <details>); `bonus` = user.html + the moved partial.
         for section_id in ('bedtime-section', 'bonus-section',
                            'budgets-section', 'weekly-windows',
                            'app-overrides'):
             with self.subTest(section=section_id):
-                self.assertIn('id="%s"' % section_id, self.html)
+                self.assertIn('id="%s"' % section_id, self.bonus)
 
     def test_destructive_actions_use_the_dialog_helper(self):
         self.assertIn('pcConfirm(', self.html)
@@ -521,7 +531,9 @@ class UserPageConversionTest(unittest.TestCase):
         )
         for token in pinned_ids:
             with self.subTest(kind='id', token=token):
-                self.assertIn('id="%s"' % token, self.html)
+                # `self.bonus` is user.html plus the moved bonus partial, so a
+                # pin that relocated into the shared shell modal still resolves.
+                self.assertIn('id="%s"' % token, self.bonus)
         for token in pinned_classes:
             with self.subTest(kind='class', token=token):
                 self.assertIn(token, self.html)

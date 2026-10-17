@@ -70,6 +70,9 @@
     {% include '_partials/toast.html' %}
     {% include '_partials/dialog.html' %}
     {% include '_partials/override_dialog.html' %}
+    {# The bonus editor is a shared shell modal too (renders only on the Time
+       rules page, where `user` is in context). #}
+    {% include '_partials/bonus_dialog.html' %}
     {# Progressive enhancement only (reduced-motion persistence + menu
        dismissal); every save path is a plain server-rendered POST form, so the
        page works with JS disabled. #}

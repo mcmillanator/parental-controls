@@ -406,18 +406,16 @@ collapsed `Detail` on mobile (grouped by day with a sticky date header).
 │ ← Back to users                  │
 │ Time rules                       │  eyebrow + H1 (+ child tabs)
 │ ┌ Live countdown ────────────────┐│  FIRST card (above the hero)
-│ │ 01:30:00   Bonus time remaining││  1 Hz ticker, aria-live polite
+│ │ 01:30:00   Bonus time remaining││  1 Hz ticker; silent (aria-live off)
 │ └────────────────────────────────┘│
 │ alice                    [ 🔒 ]  │  hero: who + live status pill
 │ ⚠ In Bedtime · Bonus 1h 30m       │
-│ [ Unlock ]   [ ⋯ ]               │  primary + overflow (Emergency logout)
+│ [Unlock] [Add bonus time] [ ⋯ ]  │  primary + #pc-bonus opener + overflow
 ├──────────────────────────────────┤
 │ ┌ Bedtime ───────────── 9p–7a  ▸ ┐│  disclosure, summary in header
 │ └────────────────────────────────┘
-│ ┌ Bonus time ──────── 1h 30m ▸   ┐│
-│ │ [–15m..] +15m +30m +1h +1h30 +2h│
-│ │ custom [h][m] [Grant] [Revoke] │
-│ └────────────────────────────────┘
+│  (Bonus time is the shared shell modal #pc-bonus, opened from the hero —
+│   status + +15m/+30m/+1h/+1h30/+2h + custom h/m + Grant custom/Revoke)
 │ ┌ Time budgets ──────────────────┐
 │ │ ┌ Games ───────────────[  OK ] │
 │ │ │ Limit [1]h [30]m [Set]       │
@@ -431,8 +429,8 @@ collapsed `Detail` on mobile (grouped by day with a sticky date header).
 │ ┌ Hidden processes (3) ▸ ────────┐│
 └──────────────────────────────────┘
 ```
-- Tablet (≥768): Bedtime/Bonus in a 2-col row; budgets as a real table again.
-- Desktop (≥1024): two-column page — left column Account + Bedtime + Bonus,
+- Tablet (≥768): Bedtime in a 2-col row; budgets as a real table again.
+- Desktop (≥1024): two-column page — left column Account + Bedtime,
   right column Budgets + Windows + Processes; process detail stays an inline
   expandable row (`tr.group-detail`).
 
@@ -535,11 +533,11 @@ inline. Keep `.error`.
 |---|---|
 | `a.back-link` | kept; label "← Back to users" |
 | float-right nav | app bar / tabs (no `float`) |
-| Live countdown card (`#countdown-card`, `#bedtime-countdown`, `#countdown-heading`, `#countdown-note`) | **moved to the top of the content area** — the first card, directly under `#pc-user-title` and above the Account hero (it used to sit after the Bedtime/Bonus disclosures). Markup string unchanged; the readout gains `data-countdown-seconds` so the shared 1 Hz ticker (`static/js/app.js`) makes it genuinely live, re-synced from `/api/user/<u>/live` on each 10s poll |
+| Live countdown card (`#countdown-card`, `#bedtime-countdown`, `#countdown-heading`, `#countdown-note`) | **moved to the top of the content area** — the first card, directly under `#pc-user-title` and above the Account hero (it used to sit after the Bedtime/Bonus disclosures). Markup string unchanged apart from `aria-live="off"` (it ticks at 1 Hz, so it must not be a polite live region — the status/toast region is the announced one); the readout gains `data-countdown-seconds` so the shared 1 Hz ticker (`static/js/app.js`) makes it genuinely live, re-synced from `/api/user/<u>/live` on each 10s poll |
 | Bedtime card (start/end `time_select`, all-days, 7 day checkboxes, Save, Clear) | hero-adjacent `.pc-disclosure` card, summary in the `<summary>`; forms unchanged; keep `name="start_*"/"end_*"/"day_N"/"all_days"`, `#all_days_checkbox`, `.day-checkbox`, `.btn-bedtime-save`, `.btn-bedtime-clear`; keep `>12h` formatting and **no `type=time`** |
-| Bonus status `#bonus-status`, `.badge-bonus`, `.btn-lock` (Revoke) | inside Bonus disclosure; keep ids/classes; shortcut button **labels unchanged** (+15m/+30m/+1h/+1h30/+2h/Grant custom/Revoke — xpath-pinned) |
-| `#bonus-hours` `#bonus-minutes` + Grant custom | `.pc-duration`; keep ids |
-| Account Status (`#account-status`, `#account-status-text`, `#account-badges`, `.status-*`, `.badge-*`) | hero card at top: UID/Shell/Home as meta; keep every id/class; actions `#account-actions` with `.btn-lock`/`.btn-unlock`/`.btn-logout` |
+| Bonus status `#bonus-status`, `.badge-bonus`, `.btn-lock` (Revoke) | **in the shared shell modal** `#pc-bonus` (`_partials/bonus_dialog.html`), opened by the hero's "Add bonus time" button — same model as `#pc-override`; keep ids/classes; shortcut button **labels unchanged** (+15m/+30m/+1h/+1h30/+2h/Grant custom/Revoke — xpath-pinned) |
+| `#bonus-hours` `#bonus-minutes` + Grant custom | `.pc-duration` inside the `#pc-bonus` modal; keep ids |
+| Account Status (`#account-status`, `#account-status-text`, `#account-badges`, `.status-*`, `.badge-*`) | hero card at top: UID/Shell/Home as meta; keep every id/class; actions `#account-actions` with `.btn-lock`/`.btn-unlock`/`.btn-logout` plus `.btn-bonus-open` ("Add bonus time") which opens the `#pc-bonus` modal |
 | Lock/Unlock | primary; `.pc-dialog` confirm |
 | Emergency logout `.btn-logout` | overflow `⋯` menu → dedicated danger dialog ("Terminates ALL sessions — type the username to confirm" / Redundant-Entry-friendly copy); keep class |
 | Budgets table (Category, Limit`#budget-<cat>-hours`/`-minutes`+Set, `#budget-used-<cat>`, `#budget-left-<cat>`, `#budget-status-<cat>` + Freeze/Unfreeze + Window) | `.pc-table--stack`; on phone = budget cards with `.pc-meter`; keep every id incl. `#budget-status-<cat> .btn-freeze/.btn-unlock`; status chips keep text "OK"/"Frozen"/"Paused"/"Exhausted" (pinned glob texts) and `<span title="Set a limit first">OK</span>` |
@@ -795,10 +793,26 @@ pinned for the per-user page, which still carries it.
 Note the inventory match is prefix-lenient for templated ids (`budget-` matches
 `#budget-games`) — keep real ids.
 
+Note **Bonus time is now a shared shell modal** (`#pc-bonus`, from
+`templates/_partials/bonus_dialog.html`, included by `base.html`) opened by the
+hero's "Add bonus time" button (`.btn-bonus-open`), mirroring the `#pc-override`
+editor. Its pinned ids/classes/text (`#bonus-section`, `#bonus-status`,
+`#bonus-hours`, `#bonus-minutes`, `.badge-bonus`, `.btn-bonus`, `.btn-lock`,
+`.pc-duration`, the `+15m…+2h` / `Grant custom` / `Revoke` labels) are
+unchanged — `#bonus-section` now sits on the dialog body rather than a
+`<details>`. The §7.4 pins are satisfied by the rendered page (the shell
+partial is included on the user page).
+
+Note the Time rules countdown readout is now **`aria-live="off"`** (it ticks at
+1 Hz; a polite live region would announce it every second). It stays a
+`role="timer"` element; the status/toast region remains the announced one, as on
+the Overview. This is the one intentional `aria-live` value change.
+
 Additive selectors (not part of the pinned inventory, so keeping them is not a
 contract break): `#countdown-card` / `#countdown-heading` / `#bedtime-countdown`
-/ `#countdown-note` on the Time rules page, and `.pc-account__countdown` /
-`.pc-timer--sm` + `data-countdown-seconds` on the Overview (§11.10). They are
+/ `#countdown-note` on the Time rules page, `.pc-account__countdown` /
+`.pc-timer--sm` + `data-countdown-seconds` on the Overview (§11.10), and the
+bonus-modal hooks `#pc-bonus` / `#pc-bonus-title` / `.btn-bonus-open`. They are
 pinned by the per-page stdlib modules, not by §7.4.
 
 ### 7.5 New / updated tests
@@ -933,7 +947,7 @@ this project's stack.
 | Screen | Route | Shape |
 |---|---|---|
 | 1 Overview | `/` | shared shell (sidebar + app bar; tab bar below 768 px); sync banner, system summary, one **account card** per user (2-col grid ≥1100 px) each with a compact **live countdown** next to its badges, confirmation specimen, design thesis, empty state |
-| 2 Time rules | `/user/<u>` | **live countdown card first** (directly under the page title), then manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), bonus shortcuts, clear-schedule confirm, state specimen |
+| 2 Time rules | `/user/<u>` | **live countdown card first** (directly under the page title, ticking silently), then manual override, bedtime schedule (12-hour inputs, `aria-pressed` day toggles in a fieldset), a bonus-time button in the hero that opens the shared `#pc-bonus` modal, clear-schedule confirm, state specimen |
 | 3 Time budgets | `/budgets` | app budgets as **category cards** (not a table), weekly-window rows, hours+minutes specimen, states, implementation aside |
 | 4 Processes | `/processes` | grouped process **table** (table→card under the breakpoint), Visible/Hidden/All tabs, reduced-motion switch, row-launched override dialog + visibility card |
 | 5 Admin console | `/admin/audit` | audit log (filters, integrity, export) + admin accounts + type-`REMOVE` confirm dialog + specimens |
@@ -1092,6 +1106,20 @@ distilled starter prompt. This pass implements that intent.
   `data-comm`/`data-mode`/`data-minutes` and the inline Screen-4 editor card is
   gone, so the pinned `.override-mode`/`.override-minutes` controls now resolve
   from `_partials/override_dialog.html`.
+- **Bonus time is a modal too (owner request).** The Time rules screen's
+  always-open `<details id="bonus-section">` card became the shared shell modal
+  `#pc-bonus` (`_partials/bonus_dialog.html`, included from `base.html`),
+  opened by an "Add bonus time" button (`.btn-bonus-open`) in the hero's action
+  row and closed on a successful grant/revoke. It follows the `#pc-override`
+  rule: the dialog lives outside the 10s-refreshed regions (a live poll can
+  never wipe a half-typed custom allowance), and it is presentation only — the
+  same `grantBonus`/`grantCustomBonus`/`revokeBonus` handlers, endpoints,
+  payloads, toasts and refresh are unchanged, and Cancel/Esc/backdrop post
+  nothing. The pinned `#bonus-section`/`#bonus-status`/`#bonus-hours`/
+  `#bonus-minutes`, `.badge-bonus`/`.btn-bonus`/`.btn-lock`, `.pc-duration` and
+  the `+15m`…`+2h`/`Grant custom`/`Revoke` labels are unchanged. The hero keeps
+  the `.badge-bonus` chip so bonus state stays visible at a glance now that the
+  card is behind a button.
 - **Overview actions are a real no-JS POST path.** Every Overview account action
   (lock / unlock) and the admin add/remove controls are
   server-rendered `<form method="post">` submissions to `/overview/lock`,
@@ -1168,7 +1196,9 @@ this is a real-device/owner check, not a suite assertion.
 - **The Time rules card moved to the top.** `#countdown-card` is now the first
   card in the content area, directly under `#pc-user-title` and above the
   Account hero (it used to sit after the Bedtime/Bonus disclosures). Every
-  pinned id/class/role/`aria-live` literal is unchanged.
+  pinned id/class/role literal is unchanged; its `aria-live` moved from
+  `polite` to `off` (§7.4) so the 1 Hz tick is silent and the status region
+  remains the announced one.
 - **The Overview carries it too.** `index()` and `api_users()` gain a
   `countdown` object per user (same `countdown_state`); both the Jinja markup
   and the JS `accountHtml` rebuild render it as `.pc-account__countdown`
