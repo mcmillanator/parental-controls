@@ -201,13 +201,15 @@ Recovery CLI on `PATH`:
 
 ## Open / deferred
 
-- **Time-tracking fix status (2026-10-17):** FIX-1..3 merged
-  (`90e7bb8..b5a40dc`); owner decisions recorded: billing unchanged (tick
+- **Time-tracking fix status (2026-10-17):** FIX-1..3 merged, pushed and
+  deployed (`0969c47`); owner decisions recorded: billing unchanged (tick
   snapshots do NOT mark `user_app`) and **FIX-4 deferred** (stale-cgroup
   reconciliation, option (a)/(b) undecided). FIX-5 (Other-category UI) not
-  started. Post-deploy live verification of the new journal/audit output is
-  pending — watch `journalctl -u parental-controls-enforce.service` and
-  `audit.jsonl`.
+  started. Journal observability confirmed live; still to watch: a child
+  launching Minecraft must show up billed under Games with display name
+  "Minecraft", and any future freeze failure will now appear as
+  `budget-tick` notes + `budget.auto_pause_failed` / `budget.save_failed`
+  audit events.
 - **Overview actions are a real no-JS POST path** (resolved): every Overview
   account action (Lock / Unlock) and the admin add/remove controls are
   `<form method="post">` submissions to `/overview/*`,
@@ -314,8 +316,9 @@ must use the `wsgi` entrypoint (or blank the runtime JSON in an isolated copy).
 
 ## Status right now
 
-`master` = `b5a40dc` (time-tracking FIX-1..3) over `80bfce7` (QA report),
-over `de566ec` (docs correction) — originally `567fcb9` (atop `3af46f0`): the tablet-band sidebar token, the
+`master` = `0969c47` — pushed and deployed (time-tracking FIX-1..3 =
+`90e7bb8..b5a40dc`, QA report `80bfce7`, docs correction `de566ec`,
+originally `567fcb9` atop `3af46f0`): the tablet-band sidebar token, the
 row-launched Processes override dialog, the Overview no-JS POST forms, the auth
 store ownership fix, the removal of the browser-recorder QA suite and the
 Overview Emergency logout button (owner request, 2026-10-15), the live countdown
@@ -346,14 +349,16 @@ SSH bootstrap). Live-box checks: enforce timer fires every minute and ticks
 `parental-*` cgroups exist** (so no stale-member deadlock in play today),
 no stale `resumed` flags; `used_seconds` is 0 for both kids (tester logged
 out; bluefox idle Steam only), so nothing has actually reached exhaustion —
-symptom 2's enforcement gate is still unproven live. FIX-1..3 are now
-implemented and merged (`90e7bb8..b5a40dc`, worktree/branch removed); the
-release (sync → VM suite → push → deploy) is running. Post-deploy
-expectation: `budget-tick <user> …` lines in the enforce journal each
-minute (locked accounts produce a note line per run — intended, trim if
-noisy) and new `budget.auto_pause_failed` / `budget.save_failed` audit
-events. FIX-4 stays deferred (owner); the F9 stale-member deadlock remains
-documented live behavior.
+symptom 2's enforcement gate is still unproven live. FIX-1..3 are
+implemented, merged and **released** (2026-10-17: origin/master and the
+live box at `0969c47`; VM suite 1334 OK, 20 skips; post-deploy: 302/401,
+timers active, deployed greps confirm the attribution keywords, tick index
+and summary emitter; the enforce journal now prints `budget-tick` lines —
+first one observed: `budget-tick bluefox note=skipped bluefox: account
+locked`). FIX-4 stays deferred (owner); the F9 stale-member deadlock remains
+documented live behavior. Remaining real-world confirmation: a child must
+actually launch Minecraft and see it billed under Games (tests prove the
+attribution; nobody has watched a live JVM row yet).
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
