@@ -1,0 +1,102 @@
+{# Shared bonus-time editor — one native <dialog> in the shell.
+
+   The Bonus time card used to be an always-open ``<details id="bonus-section">``
+   disclosure in ``templates/user.html`` (status + five one-tap shortcuts +
+   custom h/m entry + Grant custom/Revoke). It now lives here, behind an
+   "Add bonus time" button in the hero's action row, exactly like the shared
+   ``#pc-override`` editor (``_partials/override_dialog.html``).
+
+   Like ``#pc-override`` this <dialog> is included from ``templates/base.html``,
+   deliberately OUTSIDE the 10s-refreshed ``#process-section`` / ``#account-actions``
+   regions: a live poll can never wipe a half-typed custom allowance and there is
+   no open state in the refreshed markup to preserve.
+
+   ``window.pcBonusDialog()`` -> Promise<null>
+     * Opens the one shared editor (populated by the server on first paint and
+       refreshed in place by the page's ``renderBonus``).
+     * Resolves null on Cancel / Esc / backdrop: no grant, nothing posted.
+   Granting/revoking keeps using the page's existing ``grantBonus`` /
+   ``grantCustomBonus`` / ``revokeBonus`` handlers (unchanged endpoints, payloads
+   and toasts); on success the page closes this dialog.
+
+   It renders only when the page carries a ``user`` (the Time rules page); the
+   guard keeps the shell safe on every other route. #}
+{% if user is defined and user %}
+<dialog id="pc-bonus" class="pc-dialog" aria-labelledby="pc-bonus-title" aria-modal="true">
+  <div class="pc-dialog__header" id="pc-bonus-title">Bonus time</div>
+  <div class="pc-dialog__body" id="bonus-section">
+    <p id="bonus-status" class="pc-meta">
+      {% if user.bonus and user.bonus.active %}
+      <span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}">Bonus active</span>
+      {{ user.bonus.remaining_minutes|hm }} left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
+      <button type="button" class="btn-lock{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" onclick="revokeBonus('{{ username }}')">Revoke</button>
+      {% else %}
+      No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
+      {% endif %}
+    </p>
+    <p class="pc-hint">One-tap choices</p>
+    <div class="pc-row">
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 15)">+15m</button>
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 30)">+30m</button>
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 60)">+1h</button>
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 90)">+1h30</button>
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 120)">+2h</button>
+    </div>
+    <div class="pc-row">
+      <span class="pc-duration">
+        <input type="number" id="bonus-hours" min="0" max="99" placeholder="hours" aria-label="Bonus hours">
+        <span class="pc-duration__unit">h</span>
+        <input type="number" id="bonus-minutes" min="0" max="59" placeholder="minutes" aria-label="Bonus minutes">
+        <span class="pc-duration__unit">m</span>
+      </span>
+      <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
+    </div>
+  </div>
+  <div class="pc-dialog__footer">
+    <button type="button" class="pc-btn pc-btn--neutral" data-pc-dialog-cancel>Cancel</button>
+  </div>
+</dialog>
+
+<script>
+/* window.pcBonusDialog() -> Promise<null>. One shared editor: it carries no
+   per-grant state and is populated fresh from the server markup / renderBonus.
+   Cancel, Esc and a backdrop click resolve null and post nothing; the page's
+   own grant/revoke handlers own every network call (this partial never
+   fetches). */
+(function () {
+  'use strict';
+  function pcBonusDialog() {
+    var dialog = document.getElementById('pc-bonus');
+    if (!dialog || typeof dialog.showModal !== 'function') {
+      // No native <dialog>: fail closed — open nothing, grant nothing.
+      return Promise.resolve(null);
+    }
+    var cancelBtn = dialog.querySelector('[data-pc-dialog-cancel]');
+    return new Promise(function (resolve) {
+      var settled = false;
+      function finish() {
+        if (settled) { return; }
+        settled = true;
+        if (cancelBtn) { cancelBtn.removeEventListener('click', onCancel); }
+        dialog.removeEventListener('close', onClose);
+        dialog.removeEventListener('click', onBackdrop);
+        if (dialog.open) { dialog.close(); }
+        resolve(null);
+      }
+      function onCancel() { finish(); }
+      function onClose() { finish(); }
+      // A native <dialog> does not close on a backdrop click by itself; the
+      // click target is the dialog element when the padding is hit.
+      function onBackdrop(e) { if (e.target === dialog) { finish(); } }
+      if (cancelBtn) { cancelBtn.addEventListener('click', onCancel); }
+      dialog.addEventListener('close', onClose);
+      dialog.addEventListener('click', onBackdrop);
+      dialog.showModal();
+      var first = dialog.querySelector('.btn-bonus');
+      if (first) { first.focus(); }
+    });
+  }
+  window.pcBonusDialog = pcBonusDialog;
+})();
+</script>
+{% endif %}

@@ -3,9 +3,14 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-14, after three local workstreams were merged to `master`
-but **not yet pushed or deployed**: the tablet-band sidebar token, the
-row-launched Processes override dialog, and the Overview no-JS POST forms.
+Last updated: 2026-10-17, on branch `feature/bonus-modal` (not yet merged): the
+per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
+`_partials/bonus_dialog.html`, opened from the hero's "Add bonus time" button)
+and the user-page countdown is `aria-live="off"` (it ticks at 1 Hz).
+That sits on top of the 2026-10-14 state, after three local workstreams were
+merged to `master` but **not yet pushed or deployed**: the tablet-band sidebar
+token, the row-launched Processes override dialog, and the Overview no-JS POST
+forms.
 On 2026-10-15 the browser-recorder QA suite (a third-party browser-recorder
 Selenium-IDE HTML suite plus its CI validator) was **removed** at the owner's
 request — it is no longer used. The pinned-selector guard is now the stdlib
@@ -99,9 +104,25 @@ exports (a `design-exports/` directory was deleted on purpose; don't recreate it
   `accountHtml` rebuild) — never re-derived in JS. A single 1 Hz ticker in
   `static/js/app.js` decrements every `[data-countdown-seconds]` element and
   each 10s poll re-seeds it, so the Time rules readout is genuinely live (it
-  used to change only on reload). The Overview countdowns carry no `aria-live`
-  (N cards at 1 Hz would flood a screen reader) and render nothing when there
-  is nothing to count down to, or on wheel "Protected" cards.
+  used to change only on reload). **Both readouts are `role="timer"
+  aria-live="off"`** (owner decision, `feature/bonus-modal`): the Time rules
+  readout used to be `aria-live="polite"` and, at 1 Hz, made a screen reader
+  announce the time every second. The status/toast region remains the announced
+  one. Both render nothing when there is nothing to count down to, or on wheel
+  "Protected" cards (the user page keeps its `--:--:--` placeholder).
+- **Bonus time is a shared shell modal** (`feature/bonus-modal`): the Time
+  rules page's always-open `<details id="bonus-section">` card is gone. The
+  hero's "Add bonus time" button (`.btn-bonus-open` in `#account-actions`)
+  opens `#pc-bonus` from `templates/_partials/bonus_dialog.html` (included from
+  `base.html`), the same model as `#pc-override`: one native `<dialog>` in the
+  shell, **outside the 10s-refreshed regions**, opened by
+  `window.pcBonusDialog()` and outside-rebuilt by `renderAccount`. It holds the
+  status + Revoke, the five shortcuts, and the custom h/m entry + Grant custom;
+  all pinned ids/classes/labels are unchanged (`#bonus-section` now names the
+  dialog body). Grant/revoke keep the same handlers, endpoints, payloads,
+  toasts and refresh, and the dialog closes on success; Cancel/Esc/backdrop post
+  nothing. The hero `.badge-bonus` chip stays so bonus state is visible at a
+  glance (its `title` carries the 12h end time).
 
 ## Verifying work
 
@@ -186,6 +207,16 @@ Recovery CLI on `PATH`:
 - **Processes override is a row-launched modal** (resolved): the inline editor
   card is gone; the row's Override button opens the shared `#pc-override`
   dialog (`_partials/override_dialog.html`).
+- **Bonus time is a row/hero-launched modal** (resolved): the user page's
+  always-open Bonus disclosure is gone; the hero's "Add bonus time" button
+  (`.btn-bonus-open` in `#account-actions`) opens the shared `#pc-bonus` dialog
+  (`_partials/bonus_dialog.html`, included from `base.html`), with the same
+  `grantBonus`/`grantCustomBonus`/`revokeBonus` handlers and pinned
+  ids/classes/labels unchanged (`#bonus-section` now names the dialog body).
+- **The user-page countdown is silent** (resolved): `#bedtime-countdown` is
+  `role="timer" aria-live="off"` — the open question *"should it keep
+  `aria-live="polite"` at 1 Hz?"* is answered no; the status/toast region stays
+  the announced one. See `UI_UX_PLAN.md` §7.4.
 - Add-app-only-admin is still a `<details>` disclosure on the audit page, not
   the shared dialog.
 - **No-JS coverage is incomplete outside the Overview:** `budgets`, `processes`
@@ -274,9 +305,19 @@ skill). Outbound SSH port 22 is filtered from **both** boxes — push over
 `ssh.github.com:443`. All feature worktrees and branches are deleted; nothing is
 in flight.
 
+**In flight (not merged, not pushed, not deployed):** branch
+`feature/bonus-modal` (worktree `../bonus-modal`) — the per-user Bonus time
+card becomes the shared shell modal `#pc-bonus` (opened from the hero's
+"Add bonus time" button) and the user-page countdown switches to
+`aria-live="off"`. Container `test_ui_*` suite green (364 tests); the VM full
+suite has not been re-run and the live box still runs the pre-change build.
+
 Still unverified: the no-JS toggle in a real browser, the 236px tablet sidebar at
 768–959px (measured correct by the harness, never eyeballed), and the countdown
-(static renders + tests only — nobody has watched it tick). Open owner questions:
-the no-JS scope above, and whether the user-page countdown should keep
-`aria-live="polite"` now that it updates once a second (the Overview uses
-`aria-live="off"`; changing the user page means changing pinned markup).
+(static renders + tests only — nobody has watched it tick). The `feature/bonus-modal`
+worktree moves the bonus card into a shared shell modal and switches the
+user-page countdown to `aria-live="off"` (static renders + tests only — **nobody
+has opened the bonus modal in a real browser**, so the `showModal()`/Esc/Cancel
+interactions are unverified). Open owner question: the no-JS scope above. The
+countdown `aria-live` question is **resolved** — it is now `off` as on the
+Overview.

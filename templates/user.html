@@ -84,11 +84,13 @@
    and above the Account hero, so the time-to-bedtime is the first thing the
    parent sees. The readout is genuinely live: `data-countdown-seconds` seeds
    the shared 1 Hz ticker in static/js/app.js and the 10s poll re-syncs it from
-   the /live payload (`renderCountdown`). The markup string (ids/classes/roles)
-   stays byte-identical to what tests/test_ui_user.py pins. #}
+   the /live payload (`renderCountdown`). It ticks *silently* (`aria-live="off"`):
+   a 1 Hz live region would make a screen reader announce the time every second,
+   so the status region (toasts) stays the announced one — same as the
+   Overview's per-card countdowns. #}
 <section class="pc-card pc-card--muted" id="countdown-card" aria-labelledby="countdown-heading">
     <h2 class="pc-card__title" id="countdown-heading">Live countdown</h2>
-    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="polite"{% if countdown %} data-countdown-seconds="{{ countdown.seconds }}"{% endif %}>{{ countdown_text }}</p>
+    <p class="pc-timer" id="bedtime-countdown" role="timer" aria-live="off"{% if countdown %} data-countdown-seconds="{{ countdown.seconds }}"{% endif %}>{{ countdown_text }}</p>
     <p class="pc-meta" id="countdown-note">{% if user.bonus and user.bonus.active %}Bonus time remaining{% else %}Until the next bedtime window{% endif %}{% if user.in_bedtime %} · Desktop warning sent{% endif %}</p>
     <p class="pc-hint">The countdown respects reduced-motion preferences.</p>
 </section>
@@ -104,7 +106,7 @@
     </div>
     <p class="subtitle{{ ' pc-subtitle' }}">Account management and process details</p>
     <p class="pc-meta">UID: {{ user.uid }} · Shell: {{ user.shell }} · Home: {{ user.home }}</p>
-    <p class="pc-row" id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime{{ ' pc-chip pc-chip--bedtime' }}">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}">Bonus ({{ user.bonus.remaining_minutes|hm }})</span>{% endif %}</p>
+    <p class="pc-row" id="account-badges">{% if user.in_bedtime %}<span class="badge-bedtime{{ ' pc-chip pc-chip--bedtime' }}">In Bedtime</span>{% endif %}{% if user.in_bedtime and bedtime.manual_override %}<span class="badge-override{{ ' pc-chip pc-chip--override' }}">Override</span>{% endif %}{% if user.bonus and user.bonus.active %}<span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}"{% if user.bonus.until %} title="Bonus until {{ user.bonus.until[11:16]|twelve }}"{% endif %}>Bonus ({{ user.bonus.remaining_minutes|hm }})</span>{% endif %}</p>
     <div class="actions pc-card__footer" id="account-actions">
         {% if user.locked != True %}
         <button type="button" class="btn-lock{{ ' pc-btn pc-btn--danger' }}" onclick="lockUser('{{ username }}')">Lock</button>
@@ -112,6 +114,7 @@
         {% if user.locked == True %}
         <button type="button" class="btn-unlock{{ ' pc-btn pc-btn--primary' }}" onclick="unlockUser('{{ username }}')">Unlock</button>
         {% endif %}
+        <button type="button" class="btn-bonus-open{{ ' pc-btn pc-btn--neutral' }}" onclick="openBonusDialog()" aria-haspopup="dialog" aria-label="Add bonus time for {{ username }}">Add bonus time</button>
         <button type="button" class="btn-logout{{ ' pc-btn pc-btn--danger' }}" onclick="logoutUser('{{ username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
     </div>
 </section>
@@ -236,41 +239,14 @@
     </div>
 </details>
 
-<!-- Bonus time: one-click shortcuts + a custom minutes entry -->
-<details class="pc-disclosure" id="bonus-section" open>
-    <summary>
-        <span>Bonus time</span>
-        <span class="pc-disclosure__summary-value">{% if user.bonus and user.bonus.active %}{{ user.bonus.remaining_minutes|hm }} left{% else %}None active{% endif %}</span>
-    </summary>
-    <div class="pc-disclosure__body">
-        <p id="bonus-status" class="pc-meta">
-            {% if user.bonus and user.bonus.active %}
-            <span class="badge-bonus{{ ' pc-chip pc-chip--bonus' }}">Bonus active</span>
-            {{ user.bonus.remaining_minutes|hm }} left (until {{ user.bonus.until[11:16]|twelve }}{% if user.bonus.granted_by %}, granted by {{ user.bonus.granted_by }}{% endif %})
-            <button type="button" class="btn-lock{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" onclick="revokeBonus('{{ username }}')">Revoke</button>
-            {% else %}
-            No bonus time active. The account stays unlocked past bedtime only while a bonus lasts.
-            {% endif %}
-        </p>
-        <p class="pc-hint">One-tap choices</p>
-        <div class="pc-row">
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 15)">+15m</button>
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 30)">+30m</button>
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 60)">+1h</button>
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 90)">+1h30</button>
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantBonus('{{ username }}', 120)">+2h</button>
-        </div>
-        <div class="pc-row">
-            <span class="pc-duration">
-                <input type="number" id="bonus-hours" min="0" max="99" placeholder="hours" aria-label="Bonus hours">
-                <span class="pc-duration__unit">h</span>
-                <input type="number" id="bonus-minutes" min="0" max="59" placeholder="minutes" aria-label="Bonus minutes">
-                <span class="pc-duration__unit">m</span>
-            </span>
-            <button type="button" class="btn-bonus{{ ' pc-btn pc-btn--sm pc-btn--primary' }}" onclick="grantCustomBonus('{{ username }}')">Grant custom</button>
-        </div>
-    </div>
-</details>
+<!-- Bonus time moved into the shared shell modal `#pc-bonus`
+     (templates/_partials/bonus_dialog.html), opened by the "Add bonus time"
+     button in the hero's action row. The status, the five one-tap shortcuts,
+     the custom h/m entry and Grant custom/Revoke now live there; the pinned
+     ids/classes/text (bonus-section/bonus-status/bonus-hours/bonus-minutes,
+     badge-bonus/btn-bonus/btn-lock, +15m…+2h/Grant custom/Revoke) are unchanged
+     and still resolve on the page. Keeping the editor OUTSIDE the 10s-refreshed
+     regions means a live poll can never wipe a half-typed allowance. -->
 
 <!-- Time budgets -->
 <details class="pc-disclosure" id="budgets-section" open>
@@ -610,7 +586,7 @@
             </h3>
             <p>Flask + Jinja server-rendered, vanilla JavaScript only, with Bootstrap 5 vendored locally under <code>static/vendor/bootstrap/</code>. Product tokens/theme load from <code>static/css/app.css</code> after Bootstrap (the mockup's <code>static/css/tokens.css</code>).</p>
             <p>Save, grant, revoke and clear POST form-encoded data to the existing Flask endpoints; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
-            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, <code>aria-live</code> countdown and status, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
+            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, a silent (<code>aria-live="off"</code>) countdown readout, the status/toast region as the announced one, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
         </aside>
     </div>
 </details>
@@ -954,7 +930,7 @@
             let badges = '';
             if (data.in_bedtime) badges += '<span class="badge-bedtime pc-chip pc-chip--bedtime">In Bedtime</span>';
             if (data.in_bedtime && data.manual_override) badges += '<span class="badge-override pc-chip pc-chip--override">Override</span>';
-            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus pc-chip pc-chip--bonus">Bonus (${fmtHM(data.bonus.remaining_minutes)})</span>`;
+            if (data.bonus && data.bonus.active) badges += `<span class="badge-bonus pc-chip pc-chip--bonus"${data.bonus.until ? ` title="Bonus until ${fmt12(data.bonus.until.slice(11, 16))}"` : ''}>Bonus (${fmtHM(data.bonus.remaining_minutes)})</span>`;
             badgesEl.innerHTML = badges;
         }
         const actions = document.getElementById('account-actions');
@@ -966,6 +942,7 @@
             if (data.locked === true) {
                 html += `<button type="button" class="btn-unlock pc-btn pc-btn--primary" onclick="unlockUser('${PAGE_USERNAME}')">Unlock</button>`;
             }
+            html += `<button type="button" class="btn-bonus-open pc-btn pc-btn--neutral" onclick="openBonusDialog()" aria-haspopup="dialog" aria-label="Add bonus time for ${PAGE_USERNAME}">Add bonus time</button>`;
             html += `<button type="button" class="btn-logout pc-btn pc-btn--danger" onclick="logoutUser('${PAGE_USERNAME}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>`;
             actions.innerHTML = html;
         }
@@ -1387,6 +1364,22 @@
         }
     }
 
+    // Bonus time is a shared shell modal (templates/_partials/bonus_dialog.html),
+    // like the per-app override editor: the "Add bonus time" button opens the
+    // one #pc-bonus dialog via the partial's imperative opener. The dialog owns
+    // presentation only — these grant/revoke handlers keep the same endpoints,
+    // payloads and toasts, and close the dialog once the server confirms.
+    function openBonusDialog() {
+        if (typeof window.pcBonusDialog === 'function') {
+            window.pcBonusDialog();
+        }
+    }
+
+    function closeBonusDialog() {
+        const dialog = document.getElementById('pc-bonus');
+        if (dialog && dialog.open) { dialog.close(); }
+    }
+
     async function grantBonus(username, minutes) {
         // One-click shortcut grants are deliberate parent actions — no confirm.
         try {
@@ -1398,6 +1391,7 @@
             const data = await resp.json();
             if (data.success) {
                 showToast(`Granted ${fmtHM(minutes)} bonus to ${username}`, false);
+                closeBonusDialog();
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.message || data.error || 'unknown'), true);
@@ -1448,6 +1442,7 @@
             const data = await resp.json();
             if (data.success) {
                 showToast('Bonus time revoked for ' + username, false);
+                closeBonusDialog();
                 refreshUserLive();
             } else {
                 showToast('Error: ' + (data.message || data.error || 'unknown'), true);
