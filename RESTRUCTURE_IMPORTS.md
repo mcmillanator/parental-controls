@@ -21,7 +21,8 @@ are what the execution phase must preserve byte-for-byte.
 | `app.py` | 3037 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`remote` _(module only)_<br>`store` _(module only)_ |
 | `audit.py` | 180 | _(none)_ |
 | `auth.py` | 482 | _(none)_ |
-| `budgets.py` | 2878 | `audit` _(module only)_<br>`budgets_filter` (DEFAULT_HIDDEN_COMMS, DEFAULT_HIDDEN_PATHS, DEFAULT_HIDDEN_PATH_PREFIXES, NEVER_PAUSE_COMMS, _argv0_basename, apply_filter, is_default_hidden, is_never_pause, load_prefs, save_prefs, set_pref)<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`focus_feed` _(module only)_<br>`store` _(module only)_ |
+| `budgets.py` | 2485 | `audit` _(module only)_<br>`budgets_attribution` (CATEGORY_OVERRIDES, _DESKTOP_INDEX_CACHE, _DESKTOP_INDEX_TTL_SECONDS, _DESKTOP_TOKEN_MAP, _GENERIC_DOT_PARTS, _GENERIC_INTERPRETERS, _JVM_APP_NAMES, _JVM_APP_RES, _OVERRIDE_RES, _cmdline_app_tokens, _desktop_category, _exec_candidates, _flatpak_appid_parts, _scan_desktop_files, annotate_display_names, build_desktop_index, build_desktop_names, categorize, desktop_dirs_for, group_by_category, is_user_app, mark_user_apps, parse_desktop_file)<br>`budgets_filter` (DEFAULT_HIDDEN_COMMS, DEFAULT_HIDDEN_PATHS, DEFAULT_HIDDEN_PATH_PREFIXES, NEVER_PAUSE_COMMS, _argv0_basename, apply_filter, is_default_hidden, is_never_pause, load_prefs, save_prefs, set_pref)<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`focus_feed` _(module only)_<br>`store` _(module only)_ |
+| `budgets_attribution.py` | 431 | `budgets` _(module only)_ |
 | `budgets_filter.py` | 207 | `budgets` _(module only)_<br>`store` _(module only)_ |
 | `budgets_format.py` | 129 | _(none)_ |
 | `budgets_guards.py` | 88 | `budgets` _(module only)_ |
@@ -61,12 +62,13 @@ Flask-free stdlib-only modules (no third-party imports):
 
 ### 2.2 Everything bound FROM `budgets`
 
-`budgets` is imported by **9 runtime module(s)**:
+`budgets` is imported by **10 runtime module(s)**:
 
 | consumer | names |
 |---|---|
 | `agent.py` | _(module only)_ |
 | `app.py` | _(module only)_ |
+| `budgets_attribution.py` | _(module only)_ |
 | `budgets_filter.py` | _(module only)_ |
 | `budgets_guards.py` | _(module only)_ |
 | `budgets_proc.py` | _(module only)_ |
@@ -268,8 +270,14 @@ import y` at module import time is banned across a split seam.
 
 | module:line | imports | why it is deferred |
 |---|---|---|
-| `budgets.py:1889` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
-| `budgets.py:1913` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets.py:1484` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets.py:1508` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets_attribution.py:149` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_attribution.py:169` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_attribution.py:334` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_attribution.py:378` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_attribution.py:404` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_attribution.py:425` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_filter.py:141` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_filter.py:147` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_filter.py:157` | `budgets` (module) | cycle avoidance / optional dep |
@@ -353,23 +361,21 @@ _remote_users                   _remove_app_admin               _req_actor      
 _session_supports_lock          _shell_context                  _twelve_parts                   _unlock_account                 _wheel_target_refused
 ```
 
-### `budgets.py` — 82 public, 44 private top-level names
+### `budgets.py` — 72 public, 31 private top-level names
 
 **public**
 
 ```
 ACTIVE_THRESHOLD_SECONDS        APP_BUCKET_PREFIX               BASE_DIR                        BUDGETS_FILE                    CATEGORIES
-CATEGORY_LABELS                 CATEGORY_OVERRIDES              CGROUP_ROOT                     FOCUS_ENGINES                   FOCUS_ENGINE_CPU
-FOCUS_ENGINE_FOCUS              FOCUS_ENGINE_NO_DATA            FOCUS_FAMILY                    LOW_WARN_SECONDS                MAX_TICK_WALL_SECONDS
-OVERRIDES_FILE                  PROCESS_PREFS_FILE              TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce
-active_window                   annotate_display_names          app_budget_status               blank_entry                     boottime_now
-budget_reset_needed             budget_status                   build_desktop_index             build_desktop_names             categorize
+CATEGORY_LABELS                 CGROUP_ROOT                     FOCUS_ENGINES                   FOCUS_ENGINE_CPU                FOCUS_ENGINE_FOCUS
+FOCUS_ENGINE_NO_DATA            FOCUS_FAMILY                    LOW_WARN_SECONDS                MAX_TICK_WALL_SECONDS           OVERRIDES_FILE
+PROCESS_PREFS_FILE              TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce             active_window
+app_budget_status               blank_entry                     boottime_now                    budget_reset_needed             budget_status
 cgroup_members                  cgroup_members_app              cgroup_path                     cgroup_path_app                 clear_window
-desktop_dirs_for                emit_tick_summaries             ensure_cgroup                   ensure_cgroup_app               focus_engine_of
-focus_status                    freezable_app_members           freezable_members               freeze_category                 group_by_category
-group_usage_minutes             is_user_app                     iter_overrides                  iter_windows                    load_budgets
-load_overrides                  mark_user_apps                  migrate_pid                     migrate_pid_app                 normalize_override
-normalize_window                override_map                    overrides_view                  parse_days                      parse_desktop_file
+emit_tick_summaries             ensure_cgroup                   ensure_cgroup_app               focus_engine_of                 focus_status
+freezable_app_members           freezable_members               freeze_category                 group_usage_minutes             iter_overrides
+iter_windows                    load_budgets                    load_overrides                  migrate_pid                     migrate_pid_app
+normalize_override              normalize_window                override_map                    overrides_view                  parse_days
 parse_managed_cgroup            read_freeze                     read_freeze_app                 resume_category                 save_budgets
 save_overrides                  set_app_override                set_frozen                      set_frozen_app                  set_limit
 set_window                      split_bucket                    summary_line                    thaw_bucket                     tick_budgets
@@ -380,14 +386,12 @@ watchdog_tick                   window_id_for
 **private**
 
 ```
-_COMM_RE                        _DESKTOP_INDEX_CACHE            _DESKTOP_INDEX_TTL_SECONDS      _DESKTOP_TOKEN_MAP              _FOCUS_ENGINE_ALIASES
-_GENERIC_DOT_PARTS              _GENERIC_INTERPRETERS           _JVM_APP_NAMES                  _JVM_APP_RES                    _LAST_AUTO_PAUSE_SIGS
-_LAST_SUMMARY_SIGS              _OVERRIDE_RES                   _USERNAME_RE                    _app_bucket                     _audit_auto_pause_failed
-_cgroup_members_path            _clear_app_runtime              _clear_window_target_freeze     _cmdline_app_tokens             _config_entry
-_default_focus_provider         _desktop_category               _enforce_target                 _ensure_cgroup_dir              _exec_candidates
-_feed_cursor_update             _flatpak_appid_parts            _focus_billing                  _in_bedtime                     _in_window
-_locked_feed_bookkeeping        _locked_tick_bookkeeping        _parse_hhmm                     _read_desired_frozen            _read_effective_frozen
-_read_freeze_path               _release_window_freeze          _reset_window_runtime           _scan_desktop_files             _set_frozen_path
-_sudo_read_file                 _sudo_write_file                _summary_signature              _visible_category_members
+_COMM_RE                        _FOCUS_ENGINE_ALIASES           _LAST_AUTO_PAUSE_SIGS           _LAST_SUMMARY_SIGS              _USERNAME_RE
+_app_bucket                     _audit_auto_pause_failed        _cgroup_members_path            _clear_app_runtime              _clear_window_target_freeze
+_config_entry                   _default_focus_provider         _enforce_target                 _ensure_cgroup_dir              _feed_cursor_update
+_focus_billing                  _in_bedtime                     _in_window                      _locked_feed_bookkeeping        _locked_tick_bookkeeping
+_parse_hhmm                     _read_desired_frozen            _read_effective_frozen          _read_freeze_path               _release_window_freeze
+_reset_window_runtime           _set_frozen_path                _sudo_read_file                 _sudo_write_file                _summary_signature
+_visible_category_members
 ```
 
