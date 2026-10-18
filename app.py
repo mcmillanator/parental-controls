@@ -150,6 +150,253 @@ BONUS_HISTORY_CAP = 20
 
 
 # ---------------------------------------------------------------------------
+# Status-detail sanitization (the ONE parent-safe mapping)
+#
+# Bug (owner report, 2026-10-18): the child cards on the Overview showed a
+# warning box full of raw system text --
+#
+#     sudo: pam_open_session: Permission denied
+#     sudo: policy plugin failed session initialization
+#
+# `get_lock_status` above captures the probe's stderr verbatim whenever
+# `sudo passwd -S` exits non-zero, and every payload below copied that
+# string straight into `status_detail`, which accountHtml()'s status pill
+# and `templates/user.html` render to the parent. A parent can do nothing
+# with "pam_open_session"; the raw text belongs in the admin-only audit
+# log, never on a card.
+#
+# So the RAW probe output never crosses the payload boundary. Every
+# producer below runs `status_display()` and puts its RETURN VALUE in
+# `status_detail`. The helper is pure (text in, text + class out) so the
+# Jinja/JS renderers cannot leak: by the time a row leaves app.py it
+# already carries parent-safe copy, and there is no code path left that
+# hands raw stderr to a template.
+#
+# agent.py carries a byte-identical mirror of this block (the agent must
+# never import app -- see its module docstring), pinned by
+# tests/test_status_detail.py::StatusDetailMirrorTest.
+
+# Probe outcome classes. Only UNAVAILABLE ever reaches a parent as the
+# "needs help" copy; OK is a real status the pill already had; VERBATIM is
+# already-human product copy that must survive untouched.
+STATUS_OK = 'ok'
+STATUS_UNAVAILABLE = 'unavailable'
+STATUS_VERBATIM = 'verbatim'
+
+STATUS_UNAVAILABLE_COPY = 'Status check needs help — ask your admin'
+
+# Sentinel: "no probe ran behind this detail". Distinct from None, which
+# is a real probe outcome (get_lock_status returns None for "could not
+# determine") and must therefore NOT be treated as "status succeeded".
+_UNSET = object()
+
+# BENIGN NOISE. These markers mean the probe's *session* layer (sudo's PAM
+# stack / logind / systemd-logind via Varlink) was unhappy while the
+# password-status read itself was fine. A line containing one of these is
+# DROPPED before the detail is judged: with a real status word left over
+# the parent keeps the normal pill and sees no warning box at all. This is
+# the exact pair the VM produced -- pam_systemd's login policy answered
+# `io.systemd.Login.TooManySessions`, `passwd -S` still reported the
+# account status. Matched case-insensitively against each line.
+STATUS_NOISE_PATTERNS = (
+    'pam_open_session',
+    'pam_close_session',
+    'pam_unix',
+    'pam_systemd',
+    'policy plugin',
+    'session initialization',
+    'session opened',
+    'session closed',
+    'toomanysessions',
+    'too many sessions',
+    'io.systemd.login',
+    'varlink',
+)
+
+# NEVER PARENT-SAFE. Anything still carrying one of these after the noise
+# lines are dropped is a genuine probe failure or a leak: a missing
+# binary, a permission error, a timeout, a malformed status line, or an
+# exception string with a path/cgroup in it. Treated fail-closed --
+# UNAVAILABLE -- so the parent gets the friendly copy and the raw text goes
+# to the audit log.
+STATUS_TECHNICAL_PATTERNS = (
+    'sudo',
+    'pam_',
+    'policy plugin',
+    'cgroup',
+    '/sys/',
+    '/usr/',
+    '/bin/',
+    '/sbin/',
+    '/etc/',
+    '/var/',
+    'errno',
+    'traceback',
+    'exception',
+    'command not found',
+    'not found',
+    'no such file',
+    'permission denied',
+    'not permitted',
+    'operation not permitted',
+    'access denied',
+    'authentication failure',
+    'incorrect password',
+    'is not in the sudoers',
+    'sorry, user',
+    'timed out',
+    'timeout',
+    'unexpected passwd output',
+    'unknown status',
+    'failed',
+    'error',
+)
+
+# The status words `get_lock_status` produces on a successful read. A
+# residual line that is one of these is a real status (OK), which is what
+# keeps the parent's pill reading "Unlocked"/"Locked"/"No password" even
+# when the probe also logged PAM noise.
+STATUS_HUMAN_WORDS = (
+    'locked',
+    'unlocked',
+    'no password',
+    'unreachable',
+)
+
+
+def status_residual_lines(detail):
+    """The detail's lines with the BENIGN noise lines dropped.
+
+    Split on newlines, strip empties, and drop any line carrying a
+    `STATUS_NOISE_PATTERNS` marker. Pure and total: never raises, whatever
+    `detail` is (None, a number, a multi-kilobyte blob).
+    """
+    try:
+        lines = str(detail if detail is not None else '').splitlines()
+    except Exception:
+        return []
+    kept = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if any(pattern in low for pattern in STATUS_NOISE_PATTERNS):
+            continue
+        kept.append(line)
+    return kept
+
+
+def classify_status_detail(detail):
+    """Classify one probe detail: OK / UNAVAILABLE / VERBATIM.
+
+    The table, in order:
+      1. noise lines dropped -> nothing left ......... UNAVAILABLE
+         (pure PAM/systemd chatter with no usable status behind it: the
+         probe told the parent nothing, so say so kindly)
+      2. anything left carries a technical marker .... UNAVAILABLE
+         (command not found, permission error, timeout, paths, cgroups)
+      3. what is left is a known human status word .... OK
+         (the normal pill, no warning box -- even when the probe also
+         logged benign session noise)
+      4. anything else ............................... VERBATIM
+         (already-human product copy: passed through UNCHANGED)
+
+    Pure function of the text: no I/O, no globals, no exception.
+    """
+    residual = status_residual_lines(detail)
+    if not residual:
+        return STATUS_UNAVAILABLE
+    text = ' '.join(residual)
+    low = text.lower()
+    if any(pattern in low for pattern in STATUS_TECHNICAL_PATTERNS):
+        return STATUS_UNAVAILABLE
+    if any(low == word or low.startswith(word + ':')
+           for word in STATUS_HUMAN_WORDS):
+        return STATUS_OK
+    return STATUS_VERBATIM
+
+
+def status_display(detail, locked=_UNSET):
+    """(parent_safe_text, klass) for one probe detail.
+
+    This is the ONLY function that writes a `status_detail` value into a
+    payload. Raw probe output can therefore not reach a rendered page for
+    ANY input: OK details render the status word, UNAVAILABLE renders
+    `STATUS_UNAVAILABLE_COPY`, VERBATIM renders the text unchanged
+    because the table has already established it is non-technical.
+
+    `locked` is the probe's other return value, and is consulted for exactly
+    one degenerate case: the probe succeeded but produced no text at all.
+    Then the status IS the answer and the parent should see it rather than
+    the warning copy. Omit it for details with no probe behind them
+    (remote rows, where `locked` may legitimately be None/unreachable).
+    """
+    residual = status_residual_lines(detail)
+    klass = classify_status_detail(detail)
+    if klass == STATUS_UNAVAILABLE:
+        if not residual and locked is not _UNSET and locked is not None:
+            # No text at all, but the probe told us a status: render it.
+            return ('Locked' if locked else 'Unlocked'), STATUS_OK
+        return STATUS_UNAVAILABLE_COPY, STATUS_UNAVAILABLE
+    return ' '.join(residual), klass
+
+
+# Dedup state for the admin audit hook: username -> (klass, raw detail).
+# Process-local by design, exactly like budgets._LAST_AUTO_PAUSE_SIGS and
+# budgets._LAST_SUMMARY_SIGS: the Overview polls every 10s, so without a
+# "log only when it CHANGES" rule one broken account would append an
+# identical line forever. The per-minute enforce timer process keeps its
+# own fresh state and re-emits, so a persistent problem still surfaces in
+# the journal; the long-running app thread stays quiet until the text
+# changes.
+_LAST_STATUS_PROBE_SIGS = {}
+
+
+def audit_status_probe(username, klass, raw, state=None):
+    """Audit one status-probe outcome that a parent must not see raw.
+
+    Fires for UNAVAILABLE (the probe genuinely failed) and for OK-with-
+    noise (the status is fine but the probe logged session chatter) --
+    both carry text that belongs in the admin log, not on a card. A plain
+    OK/VERBATIM outcome is not worth a line. Deduped to once per
+    (username, class, raw) CHANGE, mirroring
+    budgets._audit_auto_pause_failed's `state=None` injection so tests
+    can pass their own map.
+    """
+    if klass not in (STATUS_UNAVAILABLE, STATUS_OK):
+        return False
+    noisy = any(pattern in str(raw if raw is not None else '').lower()
+                for pattern in STATUS_NOISE_PATTERNS)
+    if klass == STATUS_OK and not noisy:
+        return False
+    if state is None:
+        state = _LAST_STATUS_PROBE_SIGS
+    sig = (klass, raw)
+    if state.get(username) == sig:
+        return False
+    state[username] = sig
+    _safe_audit('system', 'account.status_probe', username,
+                {'ok': klass == STATUS_OK, 'class': klass, 'raw': raw})
+    return True
+
+
+def status_row(username):
+    """(locked, parent_safe_detail, status_ok) for one local account.
+
+    The single payload-boundary helper: it probes once, sanitizes the
+    detail, records the raw text in the admin audit log when the class
+    demands it, and returns only parent-safe values. index(), api_users(),
+    get_user_live() and time_rules() all build their rows from this, so
+    no producer can forget the mapping.
+    """
+    locked, detail = get_lock_status(username)
+    safe, klass = status_display(detail, locked)
+    audit_status_probe(username, klass, detail)
+    return locked, safe, klass != STATUS_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
 # Bedtime settings storage (SQLite via store.py; BEDTIME_FILE is kept as the
 # legacy import source and rollback mirror — the db is the single source
 # of truth and the JSON file is never read back after migration)
@@ -985,15 +1232,39 @@ def _remote_proxy(entry, method, subpath, params=None):
                         panel_actor=_req_actor())
 
 
+def _sanitize_remote_status(row):
+    """Re-run the status mapping over ONE remote row's status_detail.
+
+    The agent applies `status_display` on its own box, but the hub must not
+    TRUST that: an agent predating this fix would ship raw `sudo:`/PAM text
+    straight into the Overview cards. Running the same pure mapping here
+    makes the parent-facing contract a property of the HUB, not of which
+    agent build happens to be registered. Non-dict rows pass through
+    untouched (the payload contract tests cover the shape).
+    """
+    if not isinstance(row, dict) or 'status_detail' not in row:
+        return row
+    safe, klass = status_display(row.get('status_detail'),
+                                 row.get('locked', _UNSET))
+    row['status_detail'] = safe
+    row.setdefault('status_ok', klass != STATUS_UNAVAILABLE)
+    return row
+
+
 def _remote_users(entry):
-    """Return (users, error). users is None on failure (fail visible)."""
+    """Return (users, error). users is None on failure (fail visible).
+
+    Each row's `status_detail` is re-sanitized (see
+    `_sanitize_remote_status`) so an older agent cannot leak raw system
+    text into a parent-facing card.
+    """
     status, payload, rejected = _remote_proxy(entry, 'GET', '/users')
     if rejected:
         return None, f'{entry.get("name")}: token rejected — re-register'
     if status != 200 or not isinstance(payload, list):
         return None, (f'{entry.get("name")}: '
                       f'{payload.get("error") or "unexpected response"}')
-    return payload, None
+    return [_sanitize_remote_status(row) for row in payload], None
 
 
 # ---------------------------------------------------------------------------
@@ -1055,7 +1326,7 @@ def index():
         # summary counters, or the rebuild list.
         if _is_admin_account(u['username'], store_names):
             continue
-        locked, detail = get_lock_status(u['username'])
+        locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
         user_data.append({
@@ -1065,6 +1336,7 @@ def index():
             'shell': u['shell'],
             'locked': locked,
             'status_detail': detail,
+            'status_ok': status_ok,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus,
@@ -1281,7 +1553,7 @@ def api_users():
     for u in users:
         if _is_admin_account(u['username'], store_names):
             continue
-        locked, detail = get_lock_status(u['username'])
+        locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
         user_data.append({
@@ -1289,6 +1561,7 @@ def api_users():
             'uid': u['uid'],
             'locked': locked,
             'status_detail': detail,
+            'status_ok': status_ok,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus,
@@ -1977,7 +2250,13 @@ def _remote_live_context(username, payload):
             'home': payload.get('home', ''),
             'shell': payload.get('shell', ''),
             'locked': payload.get('locked'),
-            'status_detail': payload.get('status_detail'),
+            # Same re-sanitizing as the Overview rows: a remote box running
+            # an older agent must not be able to put raw sudo/PAM text on
+            # this child's Time rules page.
+            'status_detail': _sanitize_remote_status({
+                'status_detail': payload.get('status_detail'),
+                'locked': payload.get('locked'),
+            }).get('status_detail'),
             'bedtime': payload.get('bedtime') or {},
             'in_bedtime': payload.get('in_bedtime'),
             'bonus': payload.get('bonus') or {},
@@ -2021,7 +2300,7 @@ def get_user_live(username):
     user_data = []
     for u in users:
         if u['username'] == username:
-            locked, detail = get_lock_status(u['username'])
+            locked, detail, status_ok = status_row(u['username'])
             entry = bedtime.get(u['username'], {})
             user_data.append({
                 'username': u['username'],
@@ -2030,6 +2309,7 @@ def get_user_live(username):
                 'shell': u['shell'],
                 'locked': locked,
                 'status_detail': detail,
+                'status_ok': status_ok,
                 'bedtime': entry,
                 'in_bedtime': is_in_bedtime(entry),
                 'bonus': bonus_state(entry),
@@ -2616,13 +2896,14 @@ def time_rules():
     bedtime = load_bedtime()
     children = []
     for u in users:
-        locked, detail = get_lock_status(u['username'])
+        locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         children.append({
             'username': u['username'],
             'uid': u['uid'],
             'locked': locked,
             'status_detail': detail,
+            'status_ok': status_ok,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus_state(entry),

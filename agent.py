@@ -190,6 +190,161 @@ def get_lock_status(username):
         return None, str(e)
 
 
+# ---------------------------------------------------------------------------
+# Status-detail sanitization — MIRROR of app.py's block
+#
+# The agent must never import app (module docstring, MULTIDEVICE_PLAN §4.1),
+# so this block is duplicated verbatim. It is NOT optional: without it a
+# managed box would ship raw `sudo: pam_open_session: Permission denied`
+# text to the hub, which renders it straight onto the parent's account
+# cards. tests/test_status_detail.py::StatusDetailMirrorTest compares every
+# constant and function source here against app.py, so the two cannot
+# drift apart silently.
+#
+# Rationale for each piece is in app.py beside the original.
+# ---------------------------------------------------------------------------
+
+STATUS_OK = 'ok'
+STATUS_UNAVAILABLE = 'unavailable'
+STATUS_VERBATIM = 'verbatim'
+
+STATUS_UNAVAILABLE_COPY = 'Status check needs help — ask your admin'
+
+_UNSET = object()
+
+STATUS_NOISE_PATTERNS = (
+    'pam_open_session',
+    'pam_close_session',
+    'pam_unix',
+    'pam_systemd',
+    'policy plugin',
+    'session initialization',
+    'session opened',
+    'session closed',
+    'toomanysessions',
+    'too many sessions',
+    'io.systemd.login',
+    'varlink',
+)
+
+STATUS_TECHNICAL_PATTERNS = (
+    'sudo',
+    'pam_',
+    'policy plugin',
+    'cgroup',
+    '/sys/',
+    '/usr/',
+    '/bin/',
+    '/sbin/',
+    '/etc/',
+    '/var/',
+    'errno',
+    'traceback',
+    'exception',
+    'command not found',
+    'not found',
+    'no such file',
+    'permission denied',
+    'not permitted',
+    'operation not permitted',
+    'access denied',
+    'authentication failure',
+    'incorrect password',
+    'is not in the sudoers',
+    'sorry, user',
+    'timed out',
+    'timeout',
+    'unexpected passwd output',
+    'unknown status',
+    'failed',
+    'error',
+)
+
+STATUS_HUMAN_WORDS = (
+    'locked',
+    'unlocked',
+    'no password',
+    'unreachable',
+)
+
+
+def status_residual_lines(detail):
+    """The detail's lines with the BENIGN noise lines dropped."""
+    try:
+        lines = str(detail if detail is not None else '').splitlines()
+    except Exception:
+        return []
+    kept = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if any(pattern in low for pattern in STATUS_NOISE_PATTERNS):
+            continue
+        kept.append(line)
+    return kept
+
+
+def classify_status_detail(detail):
+    """Classify one probe detail: OK / UNAVAILABLE / VERBATIM."""
+    residual = status_residual_lines(detail)
+    if not residual:
+        return STATUS_UNAVAILABLE
+    text = ' '.join(residual)
+    low = text.lower()
+    if any(pattern in low for pattern in STATUS_TECHNICAL_PATTERNS):
+        return STATUS_UNAVAILABLE
+    if any(low == word or low.startswith(word + ':')
+           for word in STATUS_HUMAN_WORDS):
+        return STATUS_OK
+    return STATUS_VERBATIM
+
+
+def status_display(detail, locked=_UNSET):
+    """(parent_safe_text, klass) for one probe detail."""
+    residual = status_residual_lines(detail)
+    klass = classify_status_detail(detail)
+    if klass == STATUS_UNAVAILABLE:
+        if not residual and locked is not _UNSET and locked is not None:
+            return ('Locked' if locked else 'Unlocked'), STATUS_OK
+        return STATUS_UNAVAILABLE_COPY, STATUS_UNAVAILABLE
+    return ' '.join(residual), klass
+
+
+# Dedup state: username -> (klass, raw detail). Process-local by design,
+# exactly like budgets._LAST_AUTO_PAUSE_SIGS — the hub polls every 10s, so
+# an identical persistent failure must be logged once, not forever.
+_LAST_STATUS_PROBE_SIGS = {}
+
+
+def audit_status_probe(username, klass, raw, state=None):
+    """Audit one status-probe outcome the parent must not see raw."""
+    if klass not in (STATUS_UNAVAILABLE, STATUS_OK):
+        return False
+    noisy = any(pattern in str(raw if raw is not None else '').lower()
+                for pattern in STATUS_NOISE_PATTERNS)
+    if klass == STATUS_OK and not noisy:
+        return False
+    if state is None:
+        state = _LAST_STATUS_PROBE_SIGS
+    sig = (klass, raw)
+    if state.get(username) == sig:
+        return False
+    state[username] = sig
+    _safe_audit('system', 'account.status_probe', username,
+                {'ok': klass == STATUS_OK, 'class': klass, 'raw': raw})
+    return True
+
+
+def status_row(username):
+    """(locked, parent_safe_detail, status_ok) for one local account."""
+    locked, detail = get_lock_status(username)
+    safe, klass = status_display(detail, locked)
+    audit_status_probe(username, klass, detail)
+    return locked, safe, klass != STATUS_UNAVAILABLE
+
+
 def load_bedtime():
     return store.load_table(store.db_path_for(BEDTIME_FILE), 'bedtime')
 
@@ -556,12 +711,13 @@ def read_users():
     admin_names = _admin_store_names()
     data = []
     for u in users:
-        locked, detail = get_lock_status(u['username'])
+        locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         wheel = auth.is_wheel_member(u['username'])
         data.append({
             'username': u['username'], 'uid': u['uid'],
             'locked': locked, 'status_detail': detail,
+            'status_ok': status_ok,
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus_state(entry),
@@ -592,12 +748,13 @@ def read_user_live(username):
     user_row = None
     for u in users:
         if u['username'] == username:
-            locked, detail = get_lock_status(u['username'])
+            locked, detail, status_ok = status_row(u['username'])
             entry = bedtime.get(u['username'], {})
             user_row = {
                 'username': u['username'], 'uid': u['uid'],
                 'home': u['home'], 'shell': u['shell'],
                 'locked': locked, 'status_detail': detail,
+                'status_ok': status_ok,
                 'bedtime': entry, 'in_bedtime': is_in_bedtime(entry),
                 'bonus': bonus_state(entry),
             }

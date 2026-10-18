@@ -16,7 +16,20 @@ names, tick builds the per-user .desktop index TTL-cached 300s, enforcement
 observability) landed as `90e7bb8..b5a40dc` — every freeze/save failure now
 surfaces as `budget-tick` journal lines + `budget.auto_pause_failed` /
 `budget.save_failed` audit events. FIX-4 (stale-cgroup reconciliation) is
-deferred by owner; F9 stays documented as live behavior.
+deferred by owner; F9 stays documented as live behavior. 2026-10-18 landed
+three more merged units: the **wheel-parity payload fix** (the 10s rebuild
+rendered wheel admins as lockable children because `/api/users` lacked
+`wheel`; `tests/test_ui_overview_parity.py` is now a payload-contract guard
+for every field the JS consumes), **admins hidden from the Overview with
+the Admins card consolidated onto `/admin/audit`** (shared
+`_is_admin_account` predicate in `index()`+`api_users()`, agent payload
+gained `admin`, selector contract migrated in `UI_UX_PLAN.md` §7.4), and
+**`install.sh --deploy-webserver`** (implies bind 0.0.0.0 + TLS + :443 +
+an :80 301-redirect listener + firewall 80/443 + `CAP_NET_BIND_SERVICE`;
+default installs render byte-identical units). The VM now runs in
+webserver mode — panel URL is **`https://192.168.122.201/`** (plain http
+301s; the old :5000 listener is gone). A restructure plan for the
+`app.py`/`budgets.py` giants is in flight (`feature/restructure-plan`).
 That sits on top of the `feature/bonus-modal` work (merged
 as `567fcb9`): the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
@@ -359,6 +372,59 @@ locked`). FIX-4 stays deferred (owner); the F9 stale-member deadlock remains
 documented live behavior. Remaining real-world confirmation: a child must
 actually launch Minecraft and see it billed under Games (tests prove the
 attribution; nobody has watched a live JVM row yet).
+
+**Release 2026-10-18 (`ead99e3`, pushed to origin/master and deployed).** VM
+suite **1409 tests, OK, 22 skips** (the 2 new env-gated installer dry-runs
+execute on the VM; the VM is authoritative). Deployed with
+`sudo ./install.sh --deploy-webserver` on the VM: 8/8 verify green incl.
+`GET http://127.0.0.1:80/ -> 301 https://…`; post-deploy checks: 443 → 302
+`/login?next=/`, 80 → 301 with path+query preserved, ONE service process
+holds both privileged ports, firewall `80/tcp 443/tcp`, **no SELinux
+denials**, cert kept (fingerprint unchanged → browser TOFU trust carries
+over), unit shows `AmbientCapabilities=CAP_NET_BIND_SERVICE` +
+`CapabilityBoundingSet=` allow-list (which includes `CAP_SYS_ADMIN` for the
+cgroup freezer). The **capability-regression gate** (the narrowed bounding
+set must not break the sudo children) passed: replicating the unit's exact
+bounding set via `prctl(PR_CAPBSET_DROP)` as `parental-controls`,
+`sudo passwd -S pcagent` and `usermod -L/-U` all succeed (pcagent left
+unlocked). ⚠️ **`systemd-run` transients are NOT a valid probe for this**:
+systemd-run implies `NoNewPrivileges`+`RestrictSUIDSGID`, which break the
+setuid `sudo` exec (203/EXEC "Unable to locate executable") — the installed
+unit's own comment says the same about the real unit. Screenshot evidence
+for the UI move: `.scratch/screens/{overview,admin-audit}-desktop-dark-ui-move*.png`
+(first paint vs after the 10s poll; js errors none). aiden-pc has NOT been
+switched yet (owner runs it there: `git pull && sudo ./install.sh
+--deploy-webserver` + the same probes).
+
+**Merged locally 2026-10-18, NOT yet pushed/deployed: the friendly-status fix
+(`f0a8ecb`, branch deleted).** Every raw probe detail is classified at the
+payload boundary (`status_display()` — one table: PAM/systemd chatter + a
+parsed status → the normal pill; genuine probe failure → "Status check needs
+help — ask your admin"; human copy verbatim), so `sudo: pam_open_session…`
+can no longer reach any rendered page; raw text goes to the admin audit log
+as `account.status_probe`, deduped per change; `tests/test_status_detail.py`
+(36 tests) mutation-verifies it. **Root cause of the live warning box is NOT
+this fix**: `get_lock_status` only leaks stderr when `sudo passwd -S` exits
+non-zero — on the live boxes sudo's PAM session policy fails
+(`TooManySessions`, seen in the journal), so the probe genuinely fails. Next
+queued workstream (own branch, one writer per region): a 30s TTL cache for
+the lock-status probe (~6× fewer sudo PAM sessions; the 10s Overview poll runs
+one per account) + active-session counts via the EXISTING sudoers rules
+(`loginctl show-user -p Sessions --value`, `show-session -p Class -p Type`;
+"active" = Class `user`, which excludes the per-user manager session —
+verified live: bluefox had `21 unspecified/manager` + `20 wayland/user`) +
+"Accounts"→"Child Accounts" heading + UID removed from the Overview cards
+(details page keeps UID/Shell/Home). After that deploy, the
+`account.status_probe` audit events quantify whether the probe still fails.
+
+**VM state: powered OFF by owner request 2026-10-18 (network adapter
+changes).** Push (needs the VM — the container's key is not a repo deploy
+key), the VM authoritative suite and the deploy of `f0a8ecb` + the queued
+workstream are all pending its return. If the VM's address/hostname changes,
+the container's `~/.ssh/known_hosts` may need a re-pin (`accept-new` — see
+the deploy skill's SSH bootstrap). The panel/enforce/health units live on that
+box and were paused with it (frozen cgroups do not survive a power cycle; the
+timer re-locks on the first tick if bedtime is open).
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
