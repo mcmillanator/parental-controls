@@ -545,6 +545,15 @@ def read_users():
             'bedtime': entry,
             'in_bedtime': is_in_bedtime(entry),
             'bonus': bonus_state(entry),
+            # The hub's Overview rebuilds remote cards from this payload with
+            # accountHtml(), which branches on `u.wheel`; without it a remote
+            # wheel admin renders as a lockable child on every 10s poll. Same
+            # source as the refusal policy: auth.is_wheel_member reads THIS
+            # box's wheel group live (device_policy uses the same call).
+            'wheel': auth.is_wheel_member(u['username']),
+            # TODO(multidevice): no `countdown` key here yet — accepted
+            # degradation (see the note in app.index()): accountHtml renders
+            # no chip when the key is absent, never crashes.
         })
     return data
 

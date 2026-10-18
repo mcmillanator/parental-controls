@@ -1498,6 +1498,11 @@ def api_users():
             # the per-user Time rules page, so the 10s JS rebuild can never
             # disagree with the first paint.
             'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
+            # Wheel flag must mirror index(): accountHtml() branches on
+            # `u.wheel` for the Protected pill, the "wheel admin" label and
+            # the disabled actions. Without it the 10s JS rebuild renders
+            # wheel admins as lockable children.
+            'wheel': auth.is_wheel_member(u['username']),
         })
     return jsonify(user_data)
 
