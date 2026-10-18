@@ -25,6 +25,19 @@ mkdir -p .scratch
 # 5 files over 500 lines. The count may only go down.
 BASELINE_VIOLATIONS=5
 
+# Known WALL-CLOCK-dependent result, not a regression.
+# tests/test_countdown.py asserts a bedtime countdown is > 0 minutes for a
+# 21:00-07:00 window, but `minutes_until_bedtime()` returns 0 while the clock
+# is INSIDE that window (21:00-07:00 local). The test passes before 21:00 and
+# fails after, every day, on any tree — including untouched master. Excluded
+# from the drift comparison so a clock flip can neither masquerade as a split
+# regression nor hide one; its result is still printed with the suite above.
+KNOWN_CLOCK_FLAKES='test_bedtime_is_used_when_no_bonus_is_active'
+
+strip_clock_flakes() {
+    grep -vF "$KNOWN_CLOCK_FLAKES" "$1" || true
+}
+
 run_suite() {
     TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests -v \
         > .scratch/run.txt 2>&1 || true
@@ -35,8 +48,13 @@ rc=0
 echo '== full container suite =='
 run_suite
 grep -E '^Ran |^FAILED|^OK' .scratch/run.txt | tail -2 | sed 's/^/  /'
+grep -F "$KNOWN_CLOCK_FLAKES" .scratch/failures.txt \
+    | sed 's/^/  (known clock flake, excluded: /;s/$/)/'
 if [ -f .scratch/baseline_failures.txt ]; then
-    if diff -u .scratch/baseline_failures.txt .scratch/failures.txt > .scratch/failures.diff; then
+    strip_clock_flakes .scratch/baseline_failures.txt > .scratch/base_filtered.txt
+    strip_clock_flakes .scratch/failures.txt > .scratch/failures_filtered.txt
+    if diff -u .scratch/base_filtered.txt .scratch/failures_filtered.txt \
+            > .scratch/failures.diff; then
         echo "  failure set IDENTICAL to baseline"
     else
         echo "  FAILURE SET DRIFTED"; rc=1
