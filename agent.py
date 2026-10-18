@@ -35,6 +35,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler  # noqa: F401 (documented stdlib base)
@@ -480,32 +481,98 @@ def bonus_state(entry, now=None):
     }
 
 
-def _session_supports_lock(session_id):
+def _user_session_ids(username):
+    """The logind session IDs currently attached to `username` ([] if none).
+
+    Mirrors app._user_session_ids: one `sudo loginctl show-user <u> -p
+    Sessions --value` call, which is already on the scoped allowlist the
+    agent runs under (sudoers-parental-controls) — the agent needs no new
+    grant to count its own sessions. A timeout is re-raised so the screen
+    lock still reports it; anything else degrades to [].
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
+             '--value'], capture_output=True, text=True, timeout=15)
+        return result.stdout.split() if result.returncode == 0 else []
+    except subprocess.TimeoutExpired:
+        raise
+    except Exception:
+        return []
+
+
+def _session_properties(session_id):
+    """`{'Class': ..., 'Type': ...}` for one logind session, {} if unknown.
+
+    Mirrors app._session_properties — the second scoped allowlist entry,
+    shared with the screen-lock filter so neither adds a rule. Timeout
+    re-raised; every other failure is {}.
+    """
     try:
         result = subprocess.run(
             ['sudo', 'loginctl', 'show-session', session_id,
              '-p', 'Class', '-p', 'Type'],
             capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        raise
     except Exception:
-        return False
+        return {}
     if result.returncode != 0:
-        return False
+        return {}
     props = {}
     for line in result.stdout.splitlines():
         if '=' in line:
             key, _, value = line.partition('=')
             props[key.strip()] = value.strip()
+    return props
+
+
+def _session_supports_lock(session_id):
+    try:
+        props = _session_properties(session_id)
+    except subprocess.TimeoutExpired:
+        return False
     return (props.get('Class') == 'user'
             and props.get('Type') in ('wayland', 'x11'))
+
+
+# Active login sessions for the hub's Overview Summary card (mirrors
+# app.active_session_count): only `Class=user` sessions count — every user
+# running a systemd user manager also has a `Class=manager` session that is
+# NOT a login, which is why the raw `show-user` list overstates. Cached
+# 30s per user for the same sudo-session reason as the panel's probe cache;
+# the emergency logout is the one call site that invalidates it.
+SESSION_COUNT_TTL_SECONDS = 30.0
+_SESSION_COUNT_CACHE = {}  # username -> (monotonic time, count)
+
+
+def active_session_count(username):
+    """How many ACTIVE LOGIN sessions `username` has (cached, 30s TTL)."""
+    now = time.monotonic()
+    hit = _SESSION_COUNT_CACHE.get(username)
+    if hit is not None and now - hit[0] < SESSION_COUNT_TTL_SECONDS:
+        return hit[1]
+    try:
+        count = sum(1 for sid in _user_session_ids(username)
+                    if _session_properties(sid).get('Class') == 'user')
+    except Exception:
+        count = 0
+    _SESSION_COUNT_CACHE[username] = (now, count)
+    return count
+
+
+def invalidate_session_count(username=None):
+    """Drop cached session counts: one account, or all when None."""
+    if username is None:
+        _SESSION_COUNT_CACHE.clear()
+    else:
+        _SESSION_COUNT_CACHE.pop(username, None)
 
 
 def lock_user_sessions(username):
     """Screen-lock the target's graphical sessions (never terminates)."""
     try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
-             '--value'], capture_output=True, text=True, timeout=15)
-        session_ids = result.stdout.split() if result.returncode == 0 else []
+        session_ids = _user_session_ids(username)
         if not session_ids:
             return 'no active session'
         lockable = [sid for sid in session_ids if _session_supports_lock(sid)]
@@ -734,6 +801,11 @@ def read_users():
             # local auth store rows). The agent never withholds children
             # here: every human account stays reported, flagged.
             'admin': wheel or u['username'] in admin_names,
+            # Active login sessions on THIS box (Class=user only, so the
+            # per-user `manager` session is not counted). The hub's Summary
+            # card sums this key across the painted rows; a hub that never
+            # sees it just totals nothing from this device.
+            'sessions': active_session_count(u['username']),
             # TODO(multidevice): no `countdown` key here yet — accepted
             # degradation (see the note in app.index()): accountHtml renders
             # no chip when the key is absent, never crashes.
@@ -932,6 +1004,9 @@ def do_logout(username, actor):
         _safe_audit(actor, 'account.logout', username,
                     {'success': False, 'message': msg, 'via': 'remote'})
         return 400, {'success': False, 'message': msg}
+    # Every session of this account is gone: the hub's Summary card must
+    # not keep showing the pre-logout count for a whole TTL.
+    invalidate_session_count(username)
     _safe_audit(actor, 'account.logout', username,
                 {'success': True, 'via': 'remote'})
     return 200, {'success': True,

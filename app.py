@@ -396,6 +396,133 @@ def status_row(username):
     return locked, safe, klass != STATUS_UNAVAILABLE
 
 
+def _user_session_ids(username):
+    """The logind session IDs currently attached to `username`.
+
+    One `sudo loginctl show-user <u> -p Sessions --value` call — already on
+    the scoped allowlist (sudoers-parental-controls), so reading sessions
+    costs the service user no new privilege. Returns [] when the account is
+    offline, logind refuses the call or anything else goes wrong; never
+    raises. A timeout is re-raised so a caller that reports it (the screen
+    lock) still says so.
+
+    The screen-lock consumer lives in locks.py and reaches this helper as
+    `app._user_session_ids` at call time (RESTRUCTURE_PLAN.md §1.1).
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
+             '--value'],
+            capture_output=True, text=True, timeout=15
+        )
+        return result.stdout.split() if result.returncode == 0 else []
+    except subprocess.TimeoutExpired:
+        raise
+    except Exception:
+        return []
+
+
+def _session_properties(session_id):
+    """`{'Class': ..., 'Type': ...}` for one logind session, {} if unknown.
+
+    One `sudo loginctl show-session <id> -p Class -p Type` call — the other
+    scoped allowlist entry, shared by the screen-lock filter and the
+    active-session count so neither adds a rule. A vanished session, a
+    refused probe or an empty answer is {}; a timeout is re-raised for the
+    same reason as `_user_session_ids`. (Consumed by locks.py through
+    `app._session_properties`, call time, per §1.1.)
+    """
+    try:
+        result = subprocess.run(
+            ['sudo', 'loginctl', 'show-session', session_id,
+             '-p', 'Class', '-p', 'Type'],
+            capture_output=True, text=True, timeout=15
+        )
+    except subprocess.TimeoutExpired:
+        raise
+    except Exception:
+        return {}
+    if result.returncode != 0:
+        return {}
+    props = {}
+    for line in result.stdout.splitlines():
+        if '=' in line:
+            key, _, value = line.partition('=')
+            props[key.strip()] = value.strip()
+    return props
+
+
+# ---------------------------------------------------------------------------
+# Active-session counts (Overview "System summary" card, owner request
+# 2026-10-18)
+#
+# The card used to print a hardcoded "1 active session" next to a
+# placeholder line admitting the real number was not exposed yet. The
+# number is now measured with the SAME two loginctl calls the screen-lock
+# path already makes -- `show-user <u> -p Sessions --value` and
+# `show-session <id> -p Class -p Type` -- so this adds NO new sudoers rule
+# and NO new privileged argv.
+#
+# WHAT COUNTS: logind reports one extra `Class=manager` session for every
+# user running a systemd user manager (verified live: bluefox -> "21 20",
+# where 21 is unspecified/manager and 20 is wayland/user). A manager
+# session is not a login, so only `Class=user` sessions count; greeter/tty
+# sessions are excluded the same way, exactly as the screen-lock filter
+# already excludes them. An offline user reports 0.
+#
+# SCOPE: the summary card is the "This box" card, so the number is the sum
+# over the rows currently painted (children only, admin-filtered). Remote
+# rows contribute when the agent reports a `sessions` key and are skipped
+# otherwise — the same accepted degradation as the missing `countdown`
+# chip. See the note in agent.read_users.
+#
+# CACHE: one 30s entry per user (`_SESSION_COUNT_CACHE`) — the same TTL and
+# the same module-dict + time.monotonic pattern as the lock-status probe
+# (users.py), because this is the same sudo-session pressure: /api/users
+# is polled every 10s and an uncached count would add 1 + (sessions per
+# account) sudo calls per poll. Logins and logouts are picked up within one
+# TTL. The one invalidation that matters is the emergency logout, which
+# ends every session of an account by itself; that core lives in locks.py
+# and reaches this cache as `app.invalidate_session_count` at call time
+# (RESTRUCTURE_PLAN.md §1.1), so the facade stays the patch surface.
+# ---------------------------------------------------------------------------
+
+SESSION_COUNT_TTL_SECONDS = 30.0
+_SESSION_COUNT_CACHE = {}  # username -> (monotonic time, count)
+
+
+def active_session_count(username):
+    """How many ACTIVE LOGIN sessions `username` has (cached, 30s TTL).
+
+    Returns an int. 0 for an offline account, a refused probe, a vanished
+    session or any failure — a cosmetic counter must never break a render.
+    """
+    now = time.monotonic()
+    hit = _SESSION_COUNT_CACHE.get(username)
+    if hit is not None and now - hit[0] < SESSION_COUNT_TTL_SECONDS:
+        return hit[1]
+    try:
+        count = sum(1 for sid in _user_session_ids(username)
+                    if _session_properties(sid).get('Class') == 'user')
+    except Exception:
+        count = 0
+    _SESSION_COUNT_CACHE[username] = (now, count)
+    return count
+
+
+def invalidate_session_count(username=None):
+    """Drop cached session counts: one account, or all when None.
+
+    The emergency logout is the only app action that changes a session
+    count by itself (it terminates them), so that is the only call site
+    (locks.py resolves it through the facade).
+    """
+    if username is None:
+        _SESSION_COUNT_CACHE.clear()
+    else:
+        _SESSION_COUNT_CACHE.pop(username, None)
+
+
 # ---------------------------------------------------------------------------
 # Bedtime settings storage (SQLite via store.py; BEDTIME_FILE is kept as the
 # legacy import source and rollback mirror — the db is the single source
@@ -1359,6 +1486,12 @@ def index():
             # always False here; kept as a payload-contract field (see
             # api_users()).
             'admin': u['username'] in store_names,
+            # Active login sessions right now (Class=user only; the
+            # per-user `manager` session is not a login). The Summary
+            # card totals these, and updateSummary() recomputes the same
+            # total from this key on every 10s rebuild, so the first paint
+            # and the rebuild can never disagree.
+            'sessions': active_session_count(u['username']),
         })
     devices = _device_entries()
     selected_device = (request.args.get('device', '') or '').strip()
@@ -1586,6 +1719,11 @@ def api_users():
             # remote rows alike (contract field + defence; filtered rows
             # never appear, so this is always False on surviving rows).
             'admin': u['username'] in store_names,
+            # Active login sessions, same value as index()'s rows: the
+            # Summary card's total must survive the 10s rebuild unchanged
+            # (the parity contract in tests/test_ui_overview_parity.py
+            # now requires this key because updateSummary() reads it).
+            'sessions': active_session_count(u['username']),
         })
     return jsonify(user_data)
 

@@ -14,9 +14,12 @@ every name here by name. `subprocess.run` resolves `app.subprocess.run` at
 call time (65 patch sites in 8 test modules depend on it), and the audit /
 ownership hooks resolve `app._safe_audit` / `app.note_manual_lock` /
 `app.run_lock_command` the same way — as do the lock-status cache drops
-(`app.invalidate_lock_status`, users.py) and the screen-lock call itself
-(`app.lock_user_sessions`), so the tests' patches on the app module still
-reach this code — see the cross-seam convention in users.py.
+(`app.invalidate_lock_status`, users.py), the screen-lock call itself
+(`app.lock_user_sessions`) and the session probes / session-count cache
+drop (`app._user_session_ids` / `app._session_properties` /
+`app.invalidate_session_count`, defined in the facade), so the tests'
+patches on the app module still reach this code — see the cross-seam
+convention in users.py.
 """
 
 import subprocess  # the TimeoutExpired class; calls are app.subprocess.run
@@ -33,19 +36,14 @@ def lock_user_sessions(username):
     Only graphical (`wayland`/`x11`) sessions of class `user` are locked:
     manager/greeter/tty sessions reject the call with "Session does not
     support lock screen", which previously surfaced as a Lock Screen
-    failure even when a lockable session existed.
+    failure even when a lockable session existed (`app._session_properties`).
 
     Returns a short human-readable note describing what happened.
     Never raises; screen lock is best-effort and must not fail a lock.
     """
     import app
     try:
-        result = app.subprocess.run(
-            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
-             '--value'],
-            capture_output=True, text=True, timeout=15
-        )
-        session_ids = result.stdout.split() if result.returncode == 0 else []
+        session_ids = app._user_session_ids(username)
         if not session_ids:
             return 'no active session'
         lockable = [sid for sid in session_ids
@@ -70,24 +68,15 @@ def _session_supports_lock(session_id):
 
     Anything else (manager/greeter sessions, tty logins, vanished
     sessions) is skipped: locking those fails with "Session does not
-    support lock screen". Never raises.
+    support lock screen". Never raises. The probe itself is the facade's
+    `app._session_properties`, shared with the active-session count so
+    neither adds a sudoers rule.
     """
     import app
     try:
-        result = app.subprocess.run(
-            ['sudo', 'loginctl', 'show-session', session_id,
-             '-p', 'Class', '-p', 'Type'],
-            capture_output=True, text=True, timeout=15
-        )
-    except (subprocess.TimeoutExpired, Exception):
+        props = app._session_properties(session_id)
+    except subprocess.TimeoutExpired:
         return False
-    if result.returncode != 0:
-        return False
-    props = {}
-    for line in result.stdout.splitlines():
-        if '=' in line:
-            key, _, value = line.partition('=')
-            props[key.strip()] = value.strip()
     return (props.get('Class') == 'user'
             and props.get('Type') in ('wayland', 'x11'))
 
@@ -290,6 +279,10 @@ def _emergency_logout(username):
         app._safe_audit(app._req_actor(), 'account.logout', username,
                     {'success': False, 'message': msg})
         return False, msg
+
+    # Every session of this account is gone: the Summary card's active
+    # count must not keep showing the pre-logout number for a whole TTL.
+    app.invalidate_session_count(username)
 
     app._safe_audit(app._req_actor(), 'account.logout', username,
                     {'success': True})

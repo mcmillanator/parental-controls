@@ -90,7 +90,15 @@
     </div>
     <p class="pc-account__name">{{ machine_name }}</p>
     <p class="pc-meta">{{ users|length }} human accounts</p>
-    <p class="pc-meta" id="summary-sessions">1 active session</p>
+    {# Active login sessions, measured live (owner request, 2026-10-18).
+       Every row carries `sessions` (Class=user sessions only — the per-user
+       `manager` session is not a login), and the sum is taken over the rows
+       painted here: this card is scoped to the box on screen ("This box").
+       Rows that omit the key (remote agent without the field) contribute
+       nothing, exactly like updateSummary()'s rebuild below. #}
+    {% set active_sessions = users | selectattr('sessions', 'defined') | map(attribute='sessions') | sum %}
+    {% set session_label = 'No active sessions' if active_sessions == 0 else ('1 active session' if active_sessions == 1 else active_sessions ~ ' active sessions') %}
+    <p class="pc-meta" id="summary-sessions">{{ session_label }}</p>
     {# Glanceable KPI strip — computed from the existing user list, no new data.
        The ids/classes here are pinned by tests/test_ui_home.py. #}
     <div class="pc-summary" id="summary" aria-label="Status summary">
@@ -98,7 +106,6 @@
         <span class="pc-summary__item"><span class="pc-summary__count" id="summary-locked">{{ users|selectattr('locked', 'equalto', true)|list|length }}</span> locked</span>
         <span class="pc-summary__item"><span class="pc-summary__count" id="summary-bedtime">{{ users|selectattr('in_bedtime')|list|length }}</span> in bedtime</span>
     </div>
-    <p class="pc-hint">Active-session counts are not exposed by the local service yet.</p>
 </section>
 
 <span id="pc-stale" class="pc-chip pc-chip--stale" role="status" hidden>stale — retrying</span>
@@ -269,11 +276,23 @@
         return locked === true ? 'lock' : locked === false ? 'unlock' : 'alert';
     }
 
+    // Active sessions for the box on screen: the sum of the per-row
+    // `sessions` counts the payload carries. Rows without the key (a
+    // remote agent that does not report it) contribute 0, exactly like
+    // the server-rendered first paint above.
+    function sessionsLabel(total) {
+        if (!total) { return 'No active sessions'; }
+        return total === 1 ? '1 active session' : `${total} active sessions`;
+    }
+
     function updateSummary(users) {
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
         set('summary-total', users.length);
         set('summary-locked', users.filter(u => u.locked === true).length);
         set('summary-bedtime', users.filter(u => u.in_bedtime).length);
+        const sessions = users.reduce(
+            (total, u) => total + (typeof u.sessions === 'number' ? u.sessions : 0), 0);
+        set('summary-sessions', sessionsLabel(sessions));
     }
 
     // --- Progressive enhancement: confirm, then let the real POST form submit.

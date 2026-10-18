@@ -275,12 +275,21 @@ Recovery CLI on `PATH`:
   "server-rendered POST/fetch path" wording were corrected to this split on
   2026-10-17. Converging the remaining pages onto plain-POST twins stays an
   OPEN DEFERRED owner option; not started.
-- Honest placeholders: "1 active session" and specimen values are illustrative;
-  per-account "using 1h 42m today" isn't in the payload; notification lead-time,
+- Honest placeholders: the design-specimen values are illustrative; per-account
+  "using 1h 42m today" isn't in the payload; notification lead-time,
   the HTTPS toggle and multi-device are disabled. **The Overview's per-account
   live countdown is NOT a placeholder** — it is derived from `bedtime`/`bonus`,
   which *are* in the `/api/users` payload (`app.countdown_state()`), so it shows
   a real, ticking value; it is the first per-account live data on the Overview.
+- The System-summary card's **active-session count is REAL, not a placeholder**
+  (owner request, 2026-10-18). It replaced a hardcoded "1 active session" plus a
+  "not exposed yet" hint: every `/api/users` and `/` row now carries an integer
+  `sessions` (`app.active_session_count()`, mirrored in `agent.py`), counted as
+  `Class=user` logind sessions only — the per-user `Class=manager` session is not
+  a login. Measured with the two loginctl calls the screen-lock path already made
+  (`show-user <u> -p Sessions --value`, `show-session <id> -p Class -p Type`), so
+  **no new sudoers grant**; cached 30 s per user like the lock-status probe, and
+  invalidated by the emergency logout.
 - Tablet (768–959) sidebar sizing is **resolved** — `app.css` pins the tablet
   band to `--sidebar-w: 236px` (canvas S3/S4); see `UI_UX_PLAN.md` §11.9.
 - Multi-device implementation is parked (owner: not soon). The session agent is
