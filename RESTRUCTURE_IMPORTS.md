@@ -21,8 +21,10 @@ are what the execution phase must preserve byte-for-byte.
 | `app.py` | 3037 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`remote` _(module only)_<br>`store` _(module only)_ |
 | `audit.py` | 180 | _(none)_ |
 | `auth.py` | 482 | _(none)_ |
-| `budgets.py` | 3201 | `audit` _(module only)_<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`focus_feed` _(module only)_<br>`store` _(module only)_ |
+| `budgets.py` | 3058 | `audit` _(module only)_<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`focus_feed` _(module only)_<br>`store` _(module only)_ |
 | `budgets_format.py` | 129 | _(none)_ |
+| `budgets_guards.py` | 88 | `budgets` _(module only)_ |
+| `budgets_proc.py` | 105 | `budgets` _(module only)_ |
 | `cli.py` | 245 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_ |
 | `device_policy.py` | 65 | `auth` _(module only)_<br>`budgets` _(module only)_ |
 | `enforce_bedtime_timer.py` | 51 | `app` (enforce_bedtime, get_lock_status, load_bedtime, notify_user)<br>`budgets` _(module only)_ |
@@ -58,12 +60,14 @@ Flask-free stdlib-only modules (no third-party imports):
 
 ### 2.2 Everything bound FROM `budgets`
 
-`budgets` is imported by **6 runtime module(s)**:
+`budgets` is imported by **8 runtime module(s)**:
 
 | consumer | names |
 |---|---|
 | `agent.py` | _(module only)_ |
 | `app.py` | _(module only)_ |
+| `budgets_guards.py` | _(module only)_ |
+| `budgets_proc.py` | _(module only)_ |
 | `cli.py` | _(module only)_ |
 | `device_policy.py` | _(module only)_ |
 | `enforce_bedtime_timer.py` | _(module only)_ |
@@ -261,8 +265,13 @@ import y` at module import time is banned across a split seam.
 
 | module:line | imports | why it is deferred |
 |---|---|---|
-| `budgets.py:2236` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
-| `budgets.py:2260` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets.py:2077` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets.py:2101` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
+| `budgets_guards.py:37` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_guards.py:61` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_guards.py:67` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_guards.py:81` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_proc.py:53` | `budgets` (module) | cycle avoidance / optional dep |
 | `focus_feed.py:332` | `budgets` (module) | `budgets` imports `focus_feed` back — a deliberate mutual lazy import |
 | `focus_feed.py:347` | `budgets` (module) | `budgets` imports `focus_feed` back — a deliberate mutual lazy import |
 | `focus_feed.py:384` | `budgets` (module) | `budgets` imports `focus_feed` back — a deliberate mutual lazy import |
@@ -338,32 +347,30 @@ _remote_users                   _remove_app_admin               _req_actor      
 _session_supports_lock          _shell_context                  _twelve_parts                   _unlock_account                 _wheel_target_refused
 ```
 
-### `budgets.py` — 101 public, 45 private top-level names
+### `budgets.py` — 92 public, 45 private top-level names
 
 **public**
 
 ```
-ACTIVE_THRESHOLD_SECONDS        ADMIN_GROUP                     APP_BUCKET_PREFIX               BASE_DIR                        BUDGETS_FILE
-CATEGORIES                      CATEGORY_LABELS                 CATEGORY_OVERRIDES              CGROUP_ROOT                     DEFAULT_HIDDEN_COMMS
-DEFAULT_HIDDEN_PATHS            DEFAULT_HIDDEN_PATH_PREFIXES    FOCUS_ENGINES                   FOCUS_ENGINE_CPU                FOCUS_ENGINE_FOCUS
-FOCUS_ENGINE_NO_DATA            FOCUS_FAMILY                    LOW_WARN_SECONDS                MAX_TICK_WALL_SECONDS           NEVER_PAUSE_COMMS
-OVERRIDES_FILE                  PROCESS_PREFS_FILE              TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce
-active_window                   annotate_display_names          app_budget_status               apply_filter                    blank_entry
-boottime_now                    budget_reset_needed             budget_status                   build_desktop_index             build_desktop_names
-categorize                      cgroup_members                  cgroup_members_app              cgroup_path                     cgroup_path_app
-clear_window                    compute_deltas                  desktop_dirs_for                emit_tick_summaries             ensure_cgroup
-ensure_cgroup_app               focus_engine_of                 focus_status                    freezable_app_members           freezable_members
-freeze_category                 group_by_category               group_usage_minutes             is_admin_protected              is_default_hidden
-is_never_pause                  is_user_app                     iter_overrides                  iter_windows                    list_user_processes
-load_budgets                    load_overrides                  load_prefs                      mark_user_apps                  migrate_pid
-migrate_pid_app                 normalize_override              normalize_window                override_map                    overrides_view
-parse_cpu_seconds               parse_days                      parse_desktop_file              parse_managed_cgroup            read_cmdline
-read_freeze                     read_freeze_app                 resume_category                 save_budgets                    save_overrides
-save_prefs                      set_app_override                set_frozen                      set_frozen_app                  set_limit
-set_pref                        set_window                      split_bucket                    summary_line                    thaw_bucket
-tick_budgets                    tick_desktop_index              unfreeze_all_user               unfreeze_category               update_window
-valid_category                  valid_comm                      valid_username                  verify_freeze_safety            watchdog_tick
-window_id_for
+ACTIVE_THRESHOLD_SECONDS        APP_BUCKET_PREFIX               BASE_DIR                        BUDGETS_FILE                    CATEGORIES
+CATEGORY_LABELS                 CATEGORY_OVERRIDES              CGROUP_ROOT                     DEFAULT_HIDDEN_COMMS            DEFAULT_HIDDEN_PATHS
+DEFAULT_HIDDEN_PATH_PREFIXES    FOCUS_ENGINES                   FOCUS_ENGINE_CPU                FOCUS_ENGINE_FOCUS              FOCUS_ENGINE_NO_DATA
+FOCUS_FAMILY                    LOW_WARN_SECONDS                MAX_TICK_WALL_SECONDS           NEVER_PAUSE_COMMS               OVERRIDES_FILE
+PROCESS_PREFS_FILE              TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce             active_window
+annotate_display_names          app_budget_status               apply_filter                    blank_entry                     boottime_now
+budget_reset_needed             budget_status                   build_desktop_index             build_desktop_names             categorize
+cgroup_members                  cgroup_members_app              cgroup_path                     cgroup_path_app                 clear_window
+desktop_dirs_for                emit_tick_summaries             ensure_cgroup                   ensure_cgroup_app               focus_engine_of
+focus_status                    freezable_app_members           freezable_members               freeze_category                 group_by_category
+group_usage_minutes             is_default_hidden               is_never_pause                  is_user_app                     iter_overrides
+iter_windows                    load_budgets                    load_overrides                  load_prefs                      mark_user_apps
+migrate_pid                     migrate_pid_app                 normalize_override              normalize_window                override_map
+overrides_view                  parse_days                      parse_desktop_file              parse_managed_cgroup            read_freeze
+read_freeze_app                 resume_category                 save_budgets                    save_overrides                  save_prefs
+set_app_override                set_frozen                      set_frozen_app                  set_limit                       set_pref
+set_window                      split_bucket                    summary_line                    thaw_bucket                     tick_budgets
+tick_desktop_index              unfreeze_all_user               unfreeze_category               update_window                   verify_freeze_safety
+watchdog_tick                   window_id_for
 ```
 
 **private**

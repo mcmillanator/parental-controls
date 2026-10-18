@@ -127,73 +127,6 @@ _COMM_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
 
 
 # ---------------------------------------------------------------------------
-# Admin self-protection (lockout safeguard, MVP)
-# ---------------------------------------------------------------------------
-# Rule-based, no hardcoded names: members of the admin (`wheel`) group are
-# never auto-locked by bedtime enforcement nor auto-frozen by budget
-# enforcement. Manual lock via the UI still works (behind its confirm
-# dialog). Every skip logs a note so it is visible in the service journal.
-
-ADMIN_GROUP = 'wheel'
-
-
-def is_admin_protected(username):
-    """True if `username` is an admin (member of the `wheel` group).
-
-    Covers both supplementary membership (gr_mem) and a wheel primary GID.
-    Returns False when the group or user is unknown.
-    """
-    if not username:
-        return False
-    try:
-        wheel = grp.getgrnam(ADMIN_GROUP)
-    except Exception:
-        return False
-    if username in wheel.gr_mem:
-        return True
-    try:
-        return pwd.getpwnam(username).pw_gid == wheel.gr_gid
-    except Exception:
-        return False
-
-
-def valid_username(username):
-    """Guard against path traversal before a username touches cgroup paths.
-
-    Beyond the charset check this rejects a leading '-': usernames reach
-    privileged commands as bare argv elements, and a name like '-x'
-    would be parsed as an option rather than a login. No real account
-    can begin with '-' (mirrors app.valid_username), so this costs
-    nothing and closes an argument-injection path.
-    """
-    return (bool(username) and not username.startswith('-')
-            and bool(_USERNAME_RE.match(username)))
-
-
-def valid_category(category):
-    return category in CATEGORIES
-
-
-def valid_comm(comm):
-    """Guard for per-app override keys and ``parental-<user>-app-<comm>``.
-
-    comm originates from ``ps -o comm`` (already truncated to 15 chars)
-    and reaches privileged cgroup paths and argv as a bare element, so it
-    must stay inside the same charset the sudoers grant is anchored on
-    (``[A-Za-z0-9_.-]``, no leading ``-``), be non-empty and not made
-    only of dots (``.``/``..`` would be path segments), and fit a real
-    comm (1-15 chars). Checked BEFORE any cgroup path/argv construction.
-    """
-    if not comm or len(comm) > 15:
-        return False
-    if comm.startswith('-') or not _COMM_RE.match(comm):
-        return False
-    if not comm.strip('.'):
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Process filtering
 # ---------------------------------------------------------------------------
 # Curated default denylist. `ps -o comm` truncates to 15 chars, so the set
@@ -784,98 +717,6 @@ def group_by_category(procs, index=None):
         proc['category'] = cat
         groups[cat].append(proc)
     return groups
-
-
-# ---------------------------------------------------------------------------
-# Process listing (read-only ps + /proc cmdline enrichment)
-# ---------------------------------------------------------------------------
-
-def parse_cpu_seconds(value):
-    """Parse ps TIME ([[dd-]hh:]mm:ss) into float seconds. None if invalid."""
-    try:
-        rest = value.strip()
-        days = 0
-        if '-' in rest:
-            days_part, rest = rest.split('-', 1)
-            days = int(days_part)
-        fields = [int(f) for f in rest.split(':')]
-        if len(fields) == 3:
-            h, m, s = fields
-        elif len(fields) == 2:
-            h, m, s = 0, fields[0], fields[1]
-        else:
-            return None
-        return float(days * 86400 + h * 3600 + m * 60 + s)
-    except (ValueError, AttributeError):
-        return None
-
-
-def read_cmdline(pid):
-    """Full command line from /proc (readable cross-user); '' on failure."""
-    try:
-        with open(f'/proc/{int(pid)}/cmdline', 'rb') as f:
-            raw = f.read()
-        parts = [p.decode('utf-8', 'replace') for p in raw.split(b'\0') if p]
-        return ' '.join(parts)
-    except (OSError, ValueError):
-        return ''
-
-
-def list_user_processes(username):
-    """Read-only snapshot: [{pid, comm, etime, cpu_seconds, args, cmdline}]."""
-    procs = []
-    try:
-        result = subprocess.run(
-            ['ps', '-u', username, '-o', 'pid,comm,etime,time,args',
-             '--cols', '1000'],
-            capture_output=True, text=True, timeout=10
-        )
-    except Exception:
-        return procs
-    lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
-    for line in lines[1:]:  # skip header
-        parts = line.split(None, 4)
-        if len(parts) < 4:
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
-            continue
-        cpu = parse_cpu_seconds(parts[3])
-        args = parts[4] if len(parts) > 4 else ''
-        cmdline = read_cmdline(pid) or args
-        procs.append({
-            'pid': pid,
-            'comm': parts[1],
-            'etime': parts[2],
-            'cpu_seconds': cpu if cpu is not None else 0.0,
-            'args': args,
-            'cmdline': cmdline,
-        })
-    return procs
-
-
-def compute_deltas(last_cpu, procs):
-    """CPU-time deltas since the previous tick.
-
-    last_cpu: {pid_str: {'comm': str, 'cpu': float}} from the prior tick.
-    Returns (deltas, new_last_cpu) where deltas maps pid -> delta seconds
-    (>= 0). First sightings and PID-reuse (comm changed) yield delta 0 —
-    we only bill CPU we actually observed accumulate.
-    """
-    deltas = {}
-    new_last = {}
-    for proc in procs:
-        pid = str(proc['pid'])
-        cur = float(proc.get('cpu_seconds') or 0.0)
-        prev = last_cpu.get(pid)
-        if prev is not None and prev.get('comm') == proc.get('comm'):
-            delta = max(0.0, cur - float(prev.get('cpu', 0.0)))
-        else:
-            delta = 0.0
-        deltas[proc['pid']] = delta
-        new_last[pid] = {'comm': proc.get('comm'), 'cpu': cur}
-    return deltas, new_last
 
 
 # ---------------------------------------------------------------------------
@@ -3192,6 +3033,10 @@ def _in_bedtime(entry, now):
 # the consumer that needs it named in the comment. Concern modules never
 # import from here at module level; they resolve `budgets.<name>` at CALL
 # time so a patch on this module still reaches them (plan §1.1).
+#
+# Code still DEFINED in this file keeps calling the bare name: this module's
+# own global binding IS the attribute the suite patches, so it needs no
+# rewrite.
 # ---------------------------------------------------------------------------
 
 # budgets_format.py — canonical duration display. Needs: agent.py, app.py,
@@ -3199,3 +3044,15 @@ def _in_bedtime(entry, now):
 # `test_budgets`).
 from budgets_format import (  # noqa: E402
     etime_to_minutes, format_hm, format_minutes, group_by_comm)
+
+# budgets_guards.py — validation + admin self-protection. Needs:
+# device_policy.py (is_admin_protected), app.py (all four + ADMIN_GROUP),
+# cli.py/agent.py through `budgets.<name>`, 5 test modules.
+from budgets_guards import (  # noqa: E402
+    ADMIN_GROUP, is_admin_protected, valid_category, valid_comm,
+    valid_username)
+
+# budgets_proc.py — reading `ps` and CPU deltas. Needs: agent.py and app.py
+# (list_user_processes), `test_budgets` (parse_cpu_seconds/compute_deltas).
+from budgets_proc import (  # noqa: E402
+    compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)
