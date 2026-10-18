@@ -21,11 +21,12 @@ are what the execution phase must preserve byte-for-byte.
 | `app.py` | 3037 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`remote` _(module only)_<br>`store` _(module only)_ |
 | `audit.py` | 180 | _(none)_ |
 | `auth.py` | 482 | _(none)_ |
-| `budgets.py` | 1122 | `audit` _(module only)_<br>`budgets_actions` (_in_bedtime, _in_window, _parse_hhmm, freeze_category, resume_category, unfreeze_category)<br>`budgets_attribution` (CATEGORY_OVERRIDES, _DESKTOP_INDEX_CACHE, _DESKTOP_INDEX_TTL_SECONDS, _DESKTOP_TOKEN_MAP, _GENERIC_DOT_PARTS, _GENERIC_INTERPRETERS, _JVM_APP_NAMES, _JVM_APP_RES, _OVERRIDE_RES, _cmdline_app_tokens, _desktop_category, _exec_candidates, _flatpak_appid_parts, _scan_desktop_files, annotate_display_names, build_desktop_index, build_desktop_names, categorize, desktop_dirs_for, group_by_category, is_user_app, mark_user_apps, parse_desktop_file)<br>`budgets_cgroup` (APP_BUCKET_PREFIX, _app_bucket, _cgroup_members_path, _ensure_cgroup_dir, _read_freeze_path, _set_frozen_path, _sudo_read_file, _sudo_write_file, cgroup_members, cgroup_members_app, cgroup_path, cgroup_path_app, ensure_cgroup, ensure_cgroup_app, migrate_pid, migrate_pid_app, read_freeze, read_freeze_app, set_frozen, set_frozen_app, split_bucket, thaw_bucket, unfreeze_all_user)<br>`budgets_filter` (DEFAULT_HIDDEN_COMMS, DEFAULT_HIDDEN_PATHS, DEFAULT_HIDDEN_PATH_PREFIXES, NEVER_PAUSE_COMMS, _argv0_basename, apply_filter, is_default_hidden, is_never_pause, load_prefs, save_prefs, set_pref)<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_overrides` (_clear_app_runtime, _config_entry, _release_window_freeze, _reset_window_runtime, active_window, clear_window, iter_overrides, iter_windows, load_overrides, normalize_override, normalize_window, override_map, overrides_view, parse_days, save_overrides, set_app_override, set_window, update_window, window_id_for)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`budgets_state` (app_budget_status, blank_entry, budget_reset_needed, budget_status, group_usage_minutes, load_budgets, save_budgets, set_limit)<br>`budgets_watchdog` (_read_desired_frozen, _read_effective_frozen, _visible_category_members, freezable_app_members, freezable_members, parse_managed_cgroup, verify_freeze_safety, watchdog_tick)<br>`focus_feed` _(module only)_<br>`store` _(module only)_ |
+| `budgets.py` | 959 | `audit` _(module only)_<br>`budgets_actions` (_in_bedtime, _in_window, _parse_hhmm, freeze_category, resume_category, unfreeze_category)<br>`budgets_attribution` (CATEGORY_OVERRIDES, _DESKTOP_INDEX_CACHE, _DESKTOP_INDEX_TTL_SECONDS, _DESKTOP_TOKEN_MAP, _GENERIC_DOT_PARTS, _GENERIC_INTERPRETERS, _JVM_APP_NAMES, _JVM_APP_RES, _OVERRIDE_RES, _cmdline_app_tokens, _desktop_category, _exec_candidates, _flatpak_appid_parts, _scan_desktop_files, annotate_display_names, build_desktop_index, build_desktop_names, categorize, desktop_dirs_for, group_by_category, is_user_app, mark_user_apps, parse_desktop_file)<br>`budgets_cgroup` (APP_BUCKET_PREFIX, _app_bucket, _cgroup_members_path, _ensure_cgroup_dir, _read_freeze_path, _set_frozen_path, _sudo_read_file, _sudo_write_file, cgroup_members, cgroup_members_app, cgroup_path, cgroup_path_app, ensure_cgroup, ensure_cgroup_app, migrate_pid, migrate_pid_app, read_freeze, read_freeze_app, set_frozen, set_frozen_app, split_bucket, thaw_bucket, unfreeze_all_user)<br>`budgets_filter` (DEFAULT_HIDDEN_COMMS, DEFAULT_HIDDEN_PATHS, DEFAULT_HIDDEN_PATH_PREFIXES, NEVER_PAUSE_COMMS, _argv0_basename, apply_filter, is_default_hidden, is_never_pause, load_prefs, save_prefs, set_pref)<br>`budgets_focus` (_default_focus_provider, _feed_cursor_update, _focus_billing, _locked_feed_bookkeeping, boottime_now, focus_engine_of, focus_status)<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_overrides` (_clear_app_runtime, _config_entry, _release_window_freeze, _reset_window_runtime, active_window, clear_window, iter_overrides, iter_windows, load_overrides, normalize_override, normalize_window, override_map, overrides_view, parse_days, save_overrides, set_app_override, set_window, update_window, window_id_for)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`budgets_state` (app_budget_status, blank_entry, budget_reset_needed, budget_status, group_usage_minutes, load_budgets, save_budgets, set_limit)<br>`budgets_watchdog` (_read_desired_frozen, _read_effective_frozen, _visible_category_members, freezable_app_members, freezable_members, parse_managed_cgroup, verify_freeze_safety, watchdog_tick)<br>`store` _(module only)_ |
 | `budgets_actions.py` | 183 | `audit` _(module only)_<br>`budgets` _(module only)_ |
 | `budgets_attribution.py` | 431 | `budgets` _(module only)_ |
 | `budgets_cgroup.py` | 302 | `audit` _(module only)_<br>`budgets` _(module only)_ |
 | `budgets_filter.py` | 208 | `budgets` _(module only)_<br>`store` _(module only)_ |
+| `budgets_focus.py` | 198 | `budgets` _(module only)_<br>`focus_feed` _(module only)_ |
 | `budgets_format.py` | 129 | _(none)_ |
 | `budgets_guards.py` | 88 | `budgets` _(module only)_ |
 | `budgets_overrides.py` | 449 | `audit` _(module only)_<br>`budgets` _(module only)_<br>`store` _(module only)_ |
@@ -67,7 +68,7 @@ Flask-free stdlib-only modules (no third-party imports):
 
 ### 2.2 Everything bound FROM `budgets`
 
-`budgets` is imported by **15 runtime module(s)**:
+`budgets` is imported by **16 runtime module(s)**:
 
 | consumer | names |
 |---|---|
@@ -77,6 +78,7 @@ Flask-free stdlib-only modules (no third-party imports):
 | `budgets_attribution.py` | _(module only)_ |
 | `budgets_cgroup.py` | _(module only)_ |
 | `budgets_filter.py` | _(module only)_ |
+| `budgets_focus.py` | _(module only)_ |
 | `budgets_guards.py` | _(module only)_ |
 | `budgets_overrides.py` | _(module only)_ |
 | `budgets_proc.py` | _(module only)_ |
@@ -284,8 +286,6 @@ import y` at module import time is banned across a split seam.
 
 | module:line | imports | why it is deferred |
 |---|---|---|
-| `budgets.py:238` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
-| `budgets.py:262` | `focus_feed` (module) | `focus_feed` imports `budgets` back — a deliberate mutual lazy import |
 | `budgets_actions.py:34` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_actions.py:103` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_actions.py:133` | `budgets` (module) | cycle avoidance / optional dep |
@@ -307,6 +307,12 @@ import y` at module import time is banned across a split seam.
 | `budgets_filter.py:147` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_filter.py:157` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_filter.py:194` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:37` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:65` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:137` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:138` | `focus_feed` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:162` | `budgets` (module) | cycle avoidance / optional dep |
+| `budgets_focus.py:163` | `focus_feed` (module) | cycle avoidance / optional dep |
 | `budgets_guards.py:37` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_guards.py:61` | `budgets` (module) | cycle avoidance / optional dep |
 | `budgets_guards.py:67` | `budgets` (module) | cycle avoidance / optional dep |
@@ -411,7 +417,7 @@ _remote_users                   _remove_app_admin               _req_actor      
 _session_supports_lock          _shell_context                  _twelve_parts                   _unlock_account                 _wheel_target_refused
 ```
 
-### `budgets.py` — 25 public, 14 private top-level names
+### `budgets.py` — 22 public, 10 private top-level names
 
 **public**
 
@@ -419,15 +425,14 @@ _session_supports_lock          _shell_context                  _twelve_parts   
 ACTIVE_THRESHOLD_SECONDS        BASE_DIR                        BUDGETS_FILE                    CATEGORIES                      CATEGORY_LABELS
 CGROUP_ROOT                     FOCUS_ENGINES                   FOCUS_ENGINE_CPU                FOCUS_ENGINE_FOCUS              FOCUS_ENGINE_NO_DATA
 FOCUS_FAMILY                    LOW_WARN_SECONDS                MAX_TICK_WALL_SECONDS           OVERRIDES_FILE                  PROCESS_PREFS_FILE
-TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce             boottime_now                    emit_tick_summaries
-focus_engine_of                 focus_status                    summary_line                    tick_budgets                    tick_desktop_index
+TICK_SECONDS                    WINDOW_MIN_MINUTES              account_and_enforce             emit_tick_summaries             summary_line
+tick_budgets                    tick_desktop_index
 ```
 
 **private**
 
 ```
 _COMM_RE                        _FOCUS_ENGINE_ALIASES           _LAST_AUTO_PAUSE_SIGS           _LAST_SUMMARY_SIGS              _USERNAME_RE
-_audit_auto_pause_failed        _clear_window_target_freeze     _default_focus_provider         _enforce_target                 _feed_cursor_update
-_focus_billing                  _locked_feed_bookkeeping        _locked_tick_bookkeeping        _summary_signature
+_audit_auto_pause_failed        _clear_window_target_freeze     _enforce_target                 _locked_tick_bookkeeping        _summary_signature
 ```
 

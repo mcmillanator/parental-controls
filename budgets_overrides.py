@@ -29,7 +29,8 @@ from datetime import datetime
 
 def load_overrides():
     import budgets
-    return store.load_table(store.db_path_for(budgets.OVERRIDES_FILE), 'overrides')
+    return store.load_table(store.db_path_for(budgets.OVERRIDES_FILE),
+                            'overrides')
 
 
 def save_overrides(data):
@@ -442,5 +443,7 @@ def _release_window_freeze(username, window, actor='system'):
     """Thaw a window's target group (open/close/disable/clear)."""
     import budgets
     if window['target_type'] == 'category':
-        return budgets.set_frozen(username, window['target'], False, actor=actor)
-    return budgets.set_frozen_app(username, window['target'], False, actor=actor)
+        return budgets.set_frozen(username, window['target'], False,
+                                   actor=actor)
+    return budgets.set_frozen_app(username, window['target'], False,
+                                   actor=actor)
