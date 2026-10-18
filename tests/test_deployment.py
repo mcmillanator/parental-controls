@@ -554,7 +554,15 @@ class TestSudoersCoversTheCode(unittest.TestCase):
     fails here instead of the failure surfacing on a child's locked screen.
     """
 
-    MODULES = ('app.py', 'budgets.py')
+    # The sudo-argv scan follows the code, not the file. Slice 6 moved the
+    # freezer's last privileged argv out of budgets.py into budgets_cgroup.py,
+    # so budgets.py left this list (it now has no `sudo` argv at all, and the
+    # per-module "the scanner is broken" guard below requires one). The union
+    # of scanned command shapes is unchanged, which is what
+    # test_scanner_sees_every_pinned_command compares. Whenever a privileged
+    # argv moves to another module, add that module here — a module missing
+    # from this list silently loses its coverage.
+    MODULES = ('app.py', 'budgets_cgroup.py')
 
     def test_required_commands_are_authorized(self):
         for origin, argv, expected in REQUIRED_COMMANDS:
