@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""No-JS Overview action forms (UI_UX_PLAN.md progressive enhancement).
+"""No-JS action forms (UI_UX_PLAN.md progressive enhancement).
 
-Every Overview account action — Lock / Unlock — and the admin
-add/remove controls are plain ``<form method="post">`` submissions to
-``/overview/*``.
-Those routes run the *same* core as their ``/api/*`` twins, flash the outcome
-and redirect back to the Overview (POST/Redirect/GET). The page script only
-adds the shared confirmation dialog on top; with JavaScript disabled the forms
-still submit and the server still acts and audits.
+Every Overview account action — Lock / Unlock — is a plain ``<form
+method="post">`` submission to ``/overview/*``. Those routes run the *same*
+core as their ``/api/*`` twins, flash the outcome and redirect back to the
+Overview (POST/Redirect/GET). The admin add/remove forms moved to the Admin
+console (``/admin/audit``) on 2026-10-18 (owner decision: admins are hidden
+from the Overview); they keep the pinned ``/overview/admins[/remove]`` PATHS
+but redirect back to the console. The page scripts only add the shared
+confirmation dialog on top; with JavaScript disabled the forms still submit
+and the server still acts and audits.
 
 These tests exercise the form endpoints directly with the ``csrf_token`` form
 field (the genuine no-JS path), the server-rendered markup, the wheel-admin
@@ -235,17 +237,77 @@ class TestAccountActionForms(_OverviewFormsBase):
 
 
 class TestAdminForms(_OverviewFormsBase):
-    """Admin add/remove work as real POST forms; wheel-only, wheel-safe."""
+    """Admin add/remove work as real POST forms on the ADMIN CONSOLE.
+
+    The forms moved from the Overview to /admin/audit (owner decision,
+    2026-10-18): the endpoints keep their pinned /overview/admins[/remove]
+    paths but PRG back to the console, where the flash (including the
+    one-time password) renders ONCE.
+    """
+
+    def _page_mocks(self, users=USERS, lock=None, wheel=()):
+        """Mocks for rendering /admin/audit deterministically."""
+        return self._home_mocks(users, lock, wheel)
+
+    def _render_audit(self, wheel=()):
+        mocks = self._page_mocks(wheel=wheel)
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
+            resp = self.client.get('/admin/audit')
+        self.assertEqual(200, resp.status_code)
+        return resp.get_data(as_text=True)
+
+    def test_add_form_posts_from_the_audit_page_markup(self):
+        html = self._render_audit()
+        self.assertIn('id="admin-add"', html)
+        self.assertIn('action="/overview/admins"', html)
+        self.assertIn('name="csrf_token"', html)
+        self.assertIn('id="new-admin-username"', html)
+        # The audit page's own pinned field copy is the surviving variant
+        # (the Overview card's wording died with the card).
+        self.assertIn('New app-only admin username:', html)
+        self.assertIn('placeholder="new app-only admin username"', html)
+        # Per-row Remove is a plain POST form too, gated only by the
+        # confirm-dialog handler.
+        self._add_row('helper')
+        html = self._render_audit()
+        idx = html.index('data-username="helper"')
+        row = html[idx:html.index('</tr>', idx)]
+        self.assertIn('action="/overview/admins/remove"', row)
+        self.assertIn('onsubmit="return removeAdmin(this)"', row)
+        self.assertIn('name="username" value="helper"', row)
+
+    def test_add_form_redirects_to_the_console(self):
+        resp = self._post_raw('/overview/admins', {'username': 'helper'})
+        self.assertEqual(302, resp.status_code)
+        self.assertTrue(resp.headers['Location'].endswith('/admin/audit'))
+
+    def test_remove_form_redirects_to_the_console(self):
+        self._add_row('helper')
+        resp = self._post_raw('/overview/admins/remove',
+                              {'username': 'helper'})
+        self.assertEqual(302, resp.status_code)
+        self.assertTrue(resp.headers['Location'].endswith('/admin/audit'))
 
     def test_add_form_creates_admin_and_flashes_one_time_password(self):
         resp = self._post_follow('/overview/admins', {'username': 'helper'})
         self.assertEqual(200, resp.status_code)
         html = resp.get_data(as_text=True)
+        # The follow landed on the console…
+        self.assertIn('id="admin-table"', html)
+        # …where the OTP flash renders, ONCE.
         self.assertIn('One-time password:', html)
-        self.assertIn('pc-banner pc-banner--ok', html)
+        self.assertEqual(1, html.count('One-time password:'),
+                         'the one-time password must render exactly once')
         row = auth.load_store()['users']['helper']
         self.assertTrue(row['must_change'])
         self.assertFalse(row['locked'])
+        # Flashes are consumed: a second GET shows no OTP banner (the audit
+        # page's own chain-status banner carries pc-banner--ok too, so the
+        # flash must be verified by its text, not by the banner class).
+        html2 = self.client.get('/admin/audit',
+                                 headers=self.csrf_headers).get_data(
+                                     as_text=True)
+        self.assertNotIn('One-time password:', html2)
 
     def test_add_form_refuses_wheel_target(self):
         with mock.patch.object(app.auth, 'is_wheel_member',
@@ -280,30 +342,36 @@ class TestAdminForms(_OverviewFormsBase):
         self.assertEqual(302, resp.status_code)
         self.assertNotIn('helper', auth.load_store()['users'])
 
-    def test_admin_panel_markup_present_for_wheel_actor(self):
-        wheel_html = self._render_home()
-        self.assertIn('id="admin-add"', wheel_html)
-        self.assertIn('id="admin-list"', wheel_html)
-        self.assertIn('id="admin-panel"', wheel_html)
+    def test_admin_mutating_forms_require_csrf(self):
+        for path in ('/overview/admins', '/overview/admins/remove'):
+            with self.subTest(path=path):
+                resp = self.client.post(path, data={'username': 'helper'})
+                self.assertEqual(403, resp.status_code)
+        self.assertNotIn('helper', auth.load_store()['users'])
 
-    def test_admin_add_visible_for_non_wheel_actor_but_post_refused(self):
-        self._login_app_only()
-        mocks = self._home_mocks(users=[])
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
-            resp = self.client.get('/')
-        self.assertEqual(200, resp.status_code)
-        html = resp.get_data(as_text=True)
-        # The selector contract asserts these on the index page for every admin;
-        # they must stay visible even though the endpoint refuses non-wheel
-        # actors. The refusal is covered by
+    def test_admin_panel_markup_is_gone_from_the_overview(self):
+        # Owner asked to hide this UI: the card died with the move, and the
+        # ids must not come back on '/'.
+        html = self._render_home()
+        for gone in ('id="admin-panel"', 'id="admin-list"',
+                     'id="admin-count"', 'id="admin-add"',
+                     'id="new-admin-username"', 'action="/overview/admins"'):
+            with self.subTest(needle=gone):
+                self.assertNotIn(gone, html)
+
+    def test_admin_add_absent_for_non_wheel_actor_on_the_console(self):
+        # The console gates the add form by tier (wheel-actor only): the
+        # Overview's "visible to every admin, refused server-side" variant
+        # did not survive the move — test_admin_console pins the console's
+        # conditional, the refusal is covered by
         # test_non_wheel_actor_cannot_add_or_remove above.
-        self.assertIn('id="admin-add"', html)
-        self.assertIn('id="new-admin-username"', html)
-        self.assertIn('id="admin-panel"', html)
-        self.assertIn('id="admin-list"', html)
-        # ...and the add form is a real POST form.
-        self.assertIn('action="/overview/admins"', html)
-        self.assertIn('name="csrf_token"', html)
+        self._login_app_only()
+        mocks = self._page_mocks(users=[])
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+            resp = self.client.get('/admin/audit')
+        self.assertEqual(200, resp.status_code)
+        markup = resp.get_data(as_text=True).split('<script>')[0]
+        self.assertNotIn('id="admin-add"', markup)
 
 
 class TestServerRenderedForms(_OverviewFormsBase):
@@ -337,14 +405,19 @@ class TestServerRenderedForms(_OverviewFormsBase):
         rebuild = src.index('list.innerHTML = users.map(accountHtml)', fn)
         self.assertLess(guard, rebuild)
 
-    def test_wheel_card_offers_no_action_forms(self):
+    def test_wheel_account_gets_no_card_at_all(self):
+        # Was: "wheel card offers no action forms". Superseded 2026-10-18:
+        # the wheel row is filtered out of the Overview entirely — no card,
+        # no badges, nothing to disable. The endpoints still refuse wheel
+        # targets independently (defence in depth).
         html = self._render_home(users=USERS, lock=LOCK, wheel=('kidfree',))
-        idx = html.index('id="row-kidfree"')
-        card = html[idx:html.index('</article>', idx)]
-        self.assertIn('badge-protected', card)
-        for cls in ('btn-lock', 'btn-unlock', 'btn-logout'):
-            self.assertNotIn(cls, card)
-        self.assertNotIn('<form', card)
+        self.assertNotIn('id="row-kidfree"', html)
+        # the child that is NOT wheel still renders with its real forms
+        # (kidlocked carries the Unlock form; kidfree — the Lock carrier —
+        # is the wheel admin that vanished).
+        self.assertIn('id="row-kidlocked"', html)
+        self.assertIn('action="/overview/unlock"', html)
+        self.assertNotIn('action="/overview/lock"', html)
 
     def test_remote_device_forms_carry_the_device_field(self):
         entry = {'name': 'boxb', 'url': 'http://localhost:5001'}

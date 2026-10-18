@@ -694,8 +694,8 @@ class ConvertedPageTest(unittest.TestCase):
     PINNED = {
         'index.html': (
             '{% extends "base.html" %}', 'id="row-', 'class="pc-btn pc-btn--ghost btn-details"',
-            'btn-lock', 'btn-unlock', 'id="admin-panel"', 'id="admin-list"',
-            'id="new-admin-username"', 'class="refresh-info"',
+            'btn-lock', 'btn-unlock',
+            'class="refresh-info"',
             'Status updates automatically every 10 seconds',
             'id="device-selector"', 'switchDevice',
             'pc-summary', 'pc-account', 'pc-pill--online',
@@ -713,6 +713,17 @@ class ConvertedPageTest(unittest.TestCase):
             'pc-field__error error',
         ),
     }
+
+    # Admin-management ids that MOVED off index.html to admin_audit.html
+    # (owner decision, 2026-10-18 — UI_UX_PLAN.md §7.4): the Overview is
+    # children-only; `/` must never carry them again, the console must.
+    ADMIN_UI_IDS = ('id="admin-add"', 'id="new-admin-username"',
+                    'id="admin-table"', 'id="admin-section"',
+                    'id="admin-heading"')
+    # Retired outright with the no-JS duplicate card (the console uses its
+    # own ids; nothing may revive these on either page).
+    RETIRED_ADMIN_IDS = ('id="admin-panel"', 'id="admin-list"',
+                         'id="admin-count"')
 
     def test_converted_pages_extend_base_and_are_offline(self):
         for name in self.PINNED:
@@ -733,6 +744,28 @@ class ConvertedPageTest(unittest.TestCase):
                     self.assertIn(needle, body,
                                   '%s lost pinned literal %r' % (name, needle))
 
+    def test_admin_ui_ownership_after_the_move(self):
+        # 2026-10-18 (owner decision): every admin-management selector is
+        # asserted on /admin/audit, NOT on `/`. index.html must stay free
+        # of them; admin_audit.html must carry them. The Overview-era
+        # duplicates (#admin-panel/#admin-list/#admin-count) are retired —
+        # gone from the whole template corpus.
+        home = read(TEMPLATE_DIR / 'index.html')
+        console = read(TEMPLATE_DIR / 'admin_audit.html')
+        for needle in self.ADMIN_UI_IDS:
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, home,
+                                 'admin UI crept back onto the Overview')
+                self.assertIn(needle, console,
+                              '%s left the admin console' % needle)
+        for needle in self.RETIRED_ADMIN_IDS:
+            for name, body in (('index.html', home),
+                               ('admin_audit.html', console)):
+                with self.subTest(page=name, needle=needle):
+                    self.assertNotIn(needle, body,
+                                     '%s is retired — it must not live on '
+                                     '%s' % (needle, name))
+
     def test_converted_scripts_drop_window_confirm(self):
         for name in self.PINNED:
             body = read(TEMPLATE_DIR / name)
@@ -745,14 +778,20 @@ class PinnedSelectorInventoryTest(unittest.TestCase):
     """The §7.4 inventory that still lives in the un-converted pages.
 
     Resolved directly against the templates + ``app.py`` (no external suite).
-    This is the selector half of what was the browser-suite validator; the
-    inventory itself is unchanged.
+    This is the selector half of what was the browser-suite validator.
+    Inventory change 2026-10-18 (owner decision, UI_UX_PLAN.md §7.4): the
+    Overview-era ``#admin-panel`` / ``#admin-list`` are RETIRED (the no-JS
+    duplicate card was deleted with the admin move to /admin/audit; the
+    console's own ids — #admin-section/#admin-table — are pinned by
+    tests/test_ui_admin.py + AdminConsoleConversionTest above).
+    ``#new-admin-username`` stays pinned and now resolves against
+    ``admin_audit.html``.
     """
 
     def test_pinned_selectors_that_have_not_moved_yet_still_exist(self):
         pinned_ids = (
             'username', 'password', 'current', 'new', 'confirm', 'row-',
-            'admin-panel', 'admin-list', 'new-admin-username', 'toast',
+            'new-admin-username', 'toast',
             'account-status', 'account-status-text', 'account-badges',
             'account-actions', 'bonus-status', 'bonus-hours', 'bonus-minutes',
             'budget-', 'hidden-procs', 'process-section',

@@ -11,10 +11,19 @@
    * the chain status is a `.pc-banner--ok` / `.pc-banner--danger` with the
      legacy `.chain-intact` / `.chain-broken` classes preserved,
    * "Load more entries" shows a busy state (skeleton + aria-busy),
-   * "Remove" goes through the native <dialog> helper (window.pcConfirm() —
-     no blocking browser confirm),
+   * "Remove" is a plain server-rendered POST form (no-JS path, like the
+     Overview's account actions) that the shared <dialog> helper
+     (window.pcConfirm()) only gates with a confirmation — no blocking
+     browser confirm. The add-admin form is a plain POST too; both target
+     the pinned /overview/admins[/remove] paths and redirect back here with
+     the flash, so the one-time password shows ONCE on this page (owner
+     decision 2026-10-18: this table is the product's one admin UI; the
+     Overview no longer renders admin accounts),
    * the one-time password is a native <dialog> (ids + `.otp-box` kept),
-   * the admin rows are `.pc-chip` cards with a "Protected" wheel pill.
+   * the admin rows are `.pc-chip` cards with a "Protected" wheel pill;
+     rows backed by a real system account carry a Details link to
+     /user/<name> (app-only admins have no system account — their per-user
+     page would 404, so none is offered).
 
    Every id/class/attr/text pinned by UI_UX_PLAN.md §7.4, tests/test_ui_admin.py,
    tests/test_admin_console.py and tests/test_time12h.py is preserved literally.
@@ -166,12 +175,25 @@
                 <td data-label="Tier"><span class="pc-chip pc-chip--neutral">{{ 'wheel' if a.tier == 'wheel' else 'app-only' if a.tier == 'app-only' else 'revoked' }}</span></td>
                 <td data-label="Status">{% if a.must_change %}must change password{% if a.locked %}, {% endif %}{% endif %}{% if a.locked %}locked{% endif %}{% if not a.must_change and not a.locked %}—{% endif %}</td>
                 <td data-label="Actions">
+                    {# Details rides on rows backed by a real system account
+                       (the Overview's account cards went admin-free on
+                       2026-10-18, so this is the path to the per-user page).
+                       App-only admins have no system user — /user/<name>
+                       404s for them; their password flows stay self-serve
+                       via /change-password after login. #}
+                    {% if a.system_user %}
+                    <a class="pc-btn pc-btn--sm pc-btn--ghost btn-details" href="/user/{{ a.username }}">Details</a>
+                    {% endif %}
                     {% if a.tier == 'wheel' %}
                     <span class="badge-protected pc-chip pc-chip--ok"><svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-shield"/></svg>Protected — wheel admin</span>
                     {% elif a.username == g.admin %}
                     <span class="pc-meta">(you)</span>
                     {% elif g.tier == 'wheel' %}
-                    <button type="button" class="btn-lock pc-btn pc-btn--sm pc-btn--danger" onclick="removeAdmin('{{ a.username }}')">Remove</button>
+                    <form class="pc-inline-form" method="post" action="{{ url_for('overview_admin_remove') }}" onsubmit="return removeAdmin(this)">
+                        <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
+                        <input type="hidden" name="username" value="{{ a.username }}">
+                        <button type="submit" class="btn-lock pc-btn pc-btn--sm pc-btn--danger">Remove</button>
+                    </form>
                     {% else %}
                     <span class="pc-meta">—</span>
                     {% endif %}
@@ -199,18 +221,26 @@
     </dialog>
 
     {% if g.tier == 'wheel' %}
+    {# Plain no-JS POST form to the pinned /overview/admins path (the card
+       moved here from the Overview on 2026-10-18; see §7.4). The server
+       redirects back to this page and flashes the one-time password ONCE.
+       The page script adds nothing to this form — no confirmation exists
+       for "add" (the Overview precedent kept add friction-free). #}
     <details class="pc-disclosure" id="admin-add">
         <summary>Add admin</summary>
         <div class="pc-disclosure__body">
-            <div class="pc-field">
-                <label class="pc-field__label" for="new-admin-username">New app-only admin username:</label>
-                <input type="text" id="new-admin-username" class="pc-input" placeholder="new app-only admin username"
-                    autocomplete="off" spellcheck="false">
-            </div>
-            <div class="pc-card__footer">
-                <button type="button" class="btn-unlock pc-btn pc-btn--primary" onclick="addAdmin()">Add admin</button>
-            </div>
-            <p class="pc-hint">App-only admins only. System accounts (except wheel) and wheel members can never be added from the console.</p>
+            <form method="post" action="{{ url_for('overview_admin_add') }}">
+                <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
+                <div class="pc-field">
+                    <label class="pc-field__label" for="new-admin-username">New app-only admin username:</label>
+                    <input type="text" id="new-admin-username" name="username" class="pc-input" placeholder="new app-only admin username"
+                        autocomplete="off" spellcheck="false">
+                </div>
+                <div class="pc-card__footer">
+                    <button type="submit" class="btn-unlock pc-btn pc-btn--primary">Add admin</button>
+                </div>
+            </form>
+            <p class="pc-hint">App-only admins only. System accounts (except wheel) and wheel members can never be added from the console. The one-time password is shown once in the banner above.</p>
         </div>
     </details>
     {% endif %}
@@ -254,7 +284,6 @@
 
 {% block scripts %}
 <script>
-    const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
     const MAX_AUDIT_LIMIT = 1000;
     const AUDIT_STEP = 100;
 
@@ -423,44 +452,33 @@
         }
     }
 
-    function adminRowHtml(a, self, canManage) {
-        const status = [];
-        if (a.must_change) status.push('must change password');
-        if (a.locked) status.push('locked');
-        const tier = a.tier === 'wheel' ? 'wheel' : a.tier === 'app-only' ? 'app-only' : 'revoked';
-        let action;
-        if (a.tier === 'wheel') {
-            action = '<span class="badge-protected pc-chip pc-chip--ok">Protected — wheel admin</span>';
-        } else if (a.username === self) {
-            action = '<span class="pc-meta">(you)</span>';
-        } else if (canManage) {
-            action = '<button type="button" class="btn-lock pc-btn pc-btn--sm pc-btn--danger" onclick="removeAdmin(\'' +
-                esc(a.username) + '\')">Remove</button>';
-        } else {
-            action = '<span class="pc-meta">—</span>';
-        }
-        return '<tr class="admin-row" data-username="' + esc(a.username) + '">' +
-            '<td data-label="Username"><strong>' + esc(a.username) + '</strong></td>' +
-            '<td data-label="Tier"><span class="pc-chip pc-chip--neutral">' + esc(tier) + '</span></td>' +
-            '<td data-label="Status">' + (status.length ? esc(status.join(', ')) : '—') + '</td>' +
-            '<td data-label="Actions">' + action + '</td></tr>';
+    // --- Admin accounts: progressive enhancement only (owner decision,
+    // 2026-10-18). The table is server-rendered and authoritative; the
+    // add/remove forms are plain POSTs to the pinned /overview/admins[/remove]
+    // paths that PRG back to this page (the one-time password shows ONCE in
+    // the flash banner). The old fetch flow (/api/admins list-refresh +
+    // addAdmin/removeAdmin round-trips) is gone — no JS list rebuild that
+    // could drift from the server rows. What remains is the window.pcConfirm
+    // gate on the Remove form, matching the Overview precedent: the dialog
+    // never replaces the submit, it defers it (form.submit() bypasses this
+    // handler, so an unconfirmed submit is stopped with `return false`).
+
+    // One no-JS action form gated by the shared confirmation dialog (the
+    // Overview's confirmThenSubmit pattern).
+    function confirmThenSubmit(form, opts) {
+        window.pcConfirm(opts).then(function (ok) { if (ok) { form.submit(); } });
+        return false;
     }
 
-    async function refreshAdmins() {
-        try {
-            const resp = await fetch('/api/admins');
-            const data = await resp.json();
-            if (!data.success) return;
-            const tbody = document.querySelector('#admin-table tbody');
-            if (!tbody) return;
-            const canManage = data.tier === 'wheel';
-            tbody.innerHTML = (data.admins || []).map(
-                a => adminRowHtml(a, data.self, canManage)).join('') ||
-                '<tr><td colspan="4" data-label="">No admins.</td></tr>';
-        } catch (e) { /* leave the server-rendered table as-is */ }
+    function formUsername(form) {
+        const field = form.elements ? form.elements['username'] : null;
+        return field ? field.value : '';
     }
 
     function showOtp(username, password) {
+        // Pinned OTP dialog surface (kept for the §7.4 id/`showModal()`
+        // contract). The plain-POST flow delivers the password as a flash;
+        // this dialog stays the structured display when opened.
         const el = document.getElementById('onetime-password');
         if (!el) return;
         document.getElementById('otp-user').textContent = username;
@@ -495,54 +513,19 @@
         }
     }
 
-    async function addAdmin() {
-        const input = document.getElementById('new-admin-username');
-        const username = input.value.trim();
-        if (!username) return;
-        try {
-            const resp = await fetch('/api/admins', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: 'username=' + encodeURIComponent(username)
-            });
-            const data = await resp.json();
-            if (data.success) {
-                input.value = '';
-                showOtp(username, data.password);
-                refreshAdmins();
-            } else {
-                showToast('Error: ' + (data.error || 'unknown'), true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
-    }
-
-    async function removeAdmin(username) {
-        const ok = await window.pcConfirm({
+    // Per-row Remove: the form below is the real action (plain POST to
+    // /overview/admins/remove). With JS enabled the shared dialog gates the
+    // submit behind the typed REMOVE confirmation; with JS off the browser
+    // submits the form directly. The server PRGs back here with the flash.
+    function removeAdmin(form) {
+        const username = formUsername(form);
+        return confirmThenSubmit(form, {
             title: 'Remove app-only admin?',
             body: username + ' will lose app-only admin access. This action is recorded and cannot be undone.',
             confirmLabel: 'Remove admin',
             danger: true,
             requireText: 'REMOVE',
         });
-        if (!ok) { return; }
-        try {
-            const resp = await fetch('/api/admins/remove', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: 'username=' + encodeURIComponent(username)
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast('Removed ' + username, false);
-                refreshAdmins();
-            } else {
-                showToast('Error: ' + (data.error || 'unknown'), true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
     }
 
     // Design Screen 5: open the add-admin disclosure and focus its field.
@@ -595,10 +578,11 @@
         }
     }
 
-    // First paint: decorate the server-rendered rows (local 12h + day groups)
-    // and refresh the admin list.
+    // First paint: decorate the server-rendered rows (local 12h + day
+    // groups). The admin table is server-rendered authoritative — there is
+    // deliberately no JS list refresh (mutations arrive via the PRG page
+    // load; the audit page has no background poll to keep in lockstep).
     decorateRows();
-    refreshAdmins();
     applyAuditFilters();
 </script>
 {% endblock %}

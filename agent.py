@@ -532,13 +532,33 @@ def read_health():
     }
 
 
+def _admin_store_names():
+    """Usernames with a dict row in THIS box's admin store.
+
+    The adminstore half of the admin flag (mirrors app.py: dict rows only,
+    same store `_admin_rows()`/the console list). Read failures are
+    non-fatal here: the flag is display metadata for the hub's Overview
+    filter (which drops admin rows consumer-side), not an auth decision —
+    and this runs on every poll, so stay quiet instead of spamming the
+    journal. Worst case a hub keeps an app-only admin row it cannot hide.
+    """
+    try:
+        store = auth.load_store()
+    except auth.AuthStoreError:
+        return set()
+    return {name for name, row in store.get('users', {}).items()
+            if isinstance(row, dict)}
+
+
 def read_users():
     users = get_human_users()
     bedtime = load_bedtime()
+    admin_names = _admin_store_names()
     data = []
     for u in users:
         locked, detail = get_lock_status(u['username'])
         entry = bedtime.get(u['username'], {})
+        wheel = auth.is_wheel_member(u['username'])
         data.append({
             'username': u['username'], 'uid': u['uid'],
             'locked': locked, 'status_detail': detail,
@@ -550,7 +570,14 @@ def read_users():
             # wheel admin renders as a lockable child on every 10s poll. Same
             # source as the refusal policy: auth.is_wheel_member reads THIS
             # box's wheel group live (device_policy uses the same call).
-            'wheel': auth.is_wheel_member(u['username']),
+            'wheel': wheel,
+            # Admin flag for the hub's consumer-side Overview filter
+            # (2026-10-18: admins are hidden from the Overview): wheel OR
+            # admin-store membership — the same two sources this box's
+            # admin/refusal policy uses (auth.is_wheel_member live + the
+            # local auth store rows). The agent never withholds children
+            # here: every human account stays reported, flagged.
+            'admin': wheel or u['username'] in admin_names,
             # TODO(multidevice): no `countdown` key here yet — accepted
             # degradation (see the note in app.index()): accountHtml renders
             # no chip when the key is absent, never crashes.

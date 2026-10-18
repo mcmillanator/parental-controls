@@ -764,7 +764,14 @@ templates + `app.py`) by the stdlib suite (`tests/test_ui_assets.py`
 literally present:
 
 - ids: `#username #password #current #new #confirm #row-<user> #row-<user>
-  .btn-details #admin-panel #admin-list #new-admin-username #toast`
+  .btn-details #new-admin-username #toast`
+  *(2026-10-18, owner decision: `#admin-panel` / `#admin-list` are RETIRED —
+  the Overview's no-JS duplicate Admins card was deleted when admin
+  management consolidated onto `/admin/audit`. The console's own admin
+  selectors — `#admin-section`, `#admin-heading`, `#admin-table`,
+  `#admin-add`, `#new-admin-username` — are asserted on `/admin/audit`,
+  never on `/`. `#new-admin-username` keeps its pin (it lives on the
+  console now); `/` must not carry ANY admin-management selector.)*
 - ids (user): `#account-status #account-status-text #account-badges
   #account-actions #bonus-status #bonus-hours #bonus-minutes
   #budget-<cat>-hours #budget-<cat>-minutes #budget-used-<cat>
@@ -1125,15 +1132,18 @@ distilled starter prompt. This pass implements that intent.
   the `+15m`…`+2h`/`Grant custom`/`Revoke` labels are unchanged. The hero keeps
   the `.badge-bonus` chip so bonus state stays visible at a glance now that the
   card is behind a button.
-- **Overview actions are a real no-JS POST path.** Every Overview account action
-  (lock / unlock) and the admin add/remove controls are
-  server-rendered `<form method="post">` submissions to `/overview/lock`,
-  `/overview/unlock`, `/overview/admins` and
-  `/overview/admins/remove`. Each runs the same core as its `/api/*` twin — so
-  the JSON contract and the audit trail are unchanged — then flashes and
-  redirects (POST/Redirect/GET). `static/js/app.js` and the page script only add
-  the shared confirmation dialog on top; with JS disabled the forms still
-  submit, act and audit. **Emergency logout is no longer on the Overview**
+- **Account and admin actions are a real no-JS POST path.** Every Overview
+  account action (lock / unlock) is a server-rendered
+  `<form method="post">` submission to `/overview/lock` /
+  `/overview/unlock`; the admin add/remove forms — moved onto the Admin
+  console (`/admin/audit`) on 2026-10-18 — post to `/overview/admins` and
+  `/overview/admins/remove` (paths kept: a pinned endpoint contract) and
+  redirect back to the console. Each runs the same core as its `/api/*`
+  twin — so the JSON contract and the audit trail are unchanged — then
+  flashes and redirects (POST/Redirect/GET). `static/js/app.js` and the
+  page scripts only add the shared confirmation dialog on top; with JS
+  disabled the forms still submit, act and audit. **Emergency logout is no
+  longer on the Overview**
   (removed 2026-10-15 at the owner's request): it stays on the per-user page as
   a JS/fetch action against `/api/logout`, which is part of the no-JS coverage
   gap noted below. **Lock screen is no longer a separate Overview control**
@@ -1142,21 +1152,36 @@ distilled starter prompt. This pass implements that intent.
   dropped and the redundant `.btn-lockscreen` / `lockScreen()` handler with it.
   `/api/lock-screen` deliberately **remains** as a documented endpoint with no
   UI button (it is mirrored by the agent's `/api/v1/lock-screen` verb), so the
-  JSON/agent contract is unchanged. `#admin-add` / `#new-admin-username` stay
-  visible for every
-  admin (the selector contract asserts them on `/`); the endpoint refuses
+  JSON/agent contract is unchanged. `#admin-add` / `#new-admin-username` are
+  asserted on `/admin/audit` and gated wheel-actor-only (the console's own
+  conditional — the Overview's "visible for every admin, refused server-side"
+  variant was deleted with the card on 2026-10-18); the endpoint refuses
   non-wheel actors server-side, and the per-row Remove buttons are wheel-actor
   only.
+- **Admins are hidden from the Overview (owner decision, 2026-10-18).** An
+  account is an admin when it is a live wheel member OR has an admin-store
+  row — one shared predicate (`app._is_admin_account`) applied by `index()`
+  and `api_users()` so the first paint and the 10s JS rebuild drop the same
+  usernames. The device agent keeps REPORTING its admins (the `/users`
+  payload now carries `wheel` AND `admin`); the hub filters remote rows
+  consumer-side (server-side for the first paint, in `refreshTable()` for
+  rebuilds). The Overview's KPI counters therefore count children only, and
+  the Admin Accounts table on `/admin/audit` is the product's one admin UI
+  (wheel rows link to `/user/<name>` via Details when a system account
+  backs them).
 - **No-JS coverage outside the Overview is a recorded gap (owner decision,
-  2026-10-17: document accurately, do not converge).** The budgets, processes,
-  admin-audit and per-user (time-rules) pages render and navigate with
+  2026-10-17: document accurately, do not converge; narrowed 2026-10-18 when
+  the admin forms became plain POSTs).** The budgets, processes and
+  per-user (time-rules) pages render and navigate with
   JavaScript disabled — server-rendered content, links and the admin
   sign-out `<form method="post">` to `/logout` (appbar / tabbar) all work —
   but their mutations go through page-script `fetch` calls with a CSRF header
-  (`/api/budgets*`, `/api/process-prefs`, `/api/admins`,
-  `/api/admins/remove`, `/api/bedtime`, `/api/bonus`, `/api/lock`,
+  (`/api/budgets*`, `/api/process-prefs`, `/api/bedtime`, `/api/bonus`,
+  `/api/lock`,
   `/api/unlock`, `/api/logout`), so **those actions do NOT submit without
-  JS**. Emergency logout is one of them: JS/fetch against `/api/logout`,
+  JS**. (The `/admin/audit` admin mutations left this list on 2026-10-18:
+  `/api/admins[/remove]` stay as the JSON API surface, but the console's
+  add/remove controls are plain forms now.) Emergency logout is one of them: JS/fetch against `/api/logout`,
   per-user page only. The `/time-rules` home is a read-only picker — its
   edits live on the per-user page, which is JS-gated. `/api/lock-screen` has
   no UI button at all (agent-contract endpoint). Building `/overview/*`-style

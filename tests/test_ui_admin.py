@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app
 import audit
+import auth
 from test_lock_regression import _AdminSessionMixin, KID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -223,6 +224,13 @@ class AdminConsoleRenderTest(_AdminSessionMixin, _AuditEnvMixin,
 
     def test_all_pinned_classes_present(self):
         self.log()
+        # A removable app-only admin row: the pinned .btn-lock class rides
+        # the per-row Remove form, which renders only for removable rows
+        # (the admin UI moved here from the Overview on 2026-10-18).
+        store = auth.load_store()
+        store['users']['helper'] = {'hash': 'x-not-a-real-hash',
+                                    'must_change': False, 'locked': False}
+        auth.save_store(store)
         html = self.page()
         for cls in PINNED_CLASSES:
             with self.subTest(cls=cls):

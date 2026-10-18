@@ -1276,14 +1276,61 @@ def _remote_users(entry):
 # Routes
 # ---------------------------------------------------------------------------
 
+def _admin_store_names(store):
+    """Usernames with a dict row in the auth/admin store.
+
+    This is the adminstore half of the admin-account predicate (the other
+    half is live wheel membership, ``auth.is_wheel_member``). Built from the
+    same rows ``_admin_rows()`` lists on the admin console, so the Overview
+    hides exactly the accounts the console shows.
+    """
+    return {name for name, row in store.get('users', {}).items()
+            if isinstance(row, dict)}
+
+
+def _load_admin_store():
+    """Auth store for the admin predicate, fail-soft to an empty store.
+
+    An unreadable store means no *app-only* admins are known; wheel members
+    are still filtered from the live group. Mirrors index()'s historical
+    behaviour (empty admin panel on failure), never a hard 500 on a poll.
+    """
+    try:
+        return auth.load_store()
+    except auth.AuthStoreError as e:
+        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
+        return {'users': {}}
+
+
+def _is_admin_account(username, store_names):
+    """THE admin-account predicate — one definition, shared by every path.
+
+    `index()` and `api_users()` filter Overview rows with exactly this call
+    (parity is the whole point: first paint and the 10s JS rebuild must drop
+    the same usernames). The remote rows carry the same decision precomputed
+    as their `wheel`/`admin` flags; the hub filters those consumer-side.
+    """
+    return auth.is_wheel_member(username) or username in store_names
+
+
 @app.route('/')
 @require_admin
 def index():
-    """Render the main page with user list (optionally a remote device)."""
+    """Render the main page with user list (optionally a remote device).
+
+    Admin accounts (wheel members + admin-store rows) are HIDDEN here
+    (owner decision 2026-10-18): the Overview is the children board. The
+    admin console at /admin/audit lists and manages them instead.
+    """
     users = get_human_users()
     bedtime = load_bedtime()
+    store_names = _admin_store_names(_load_admin_store())
     user_data = []
     for u in users:
+        # Same predicate as api_users(): admins never reach the cards, the
+        # summary counters, or the rebuild list.
+        if _is_admin_account(u['username'], store_names):
+            continue
         locked, detail = get_lock_status(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
@@ -1302,8 +1349,15 @@ def index():
             'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
             # Wheel admins are system-protected: the UI disables their
             # lock/unlock/logout actions and shows a Protected pill. The
-            # endpoints refuse them anyway (defence in depth).
+            # endpoints refuse them anyway (defence in depth). Since the
+            # Overview filter (2026-10-18) these rows never carry a wheel
+            # member, but the flags stay on the payload: accountHtml()'s
+            # wheel branch remains as defence and remote rows carry them.
             'wheel': auth.is_wheel_member(u['username']),
+            # App-only admin (admin-store member). Filtered out above, so
+            # always False here; kept as a payload-contract field (see
+            # api_users()).
+            'admin': u['username'] in store_names,
         })
     devices = _device_entries()
     selected_device = (request.args.get('device', '') or '').strip()
@@ -1319,36 +1373,40 @@ def index():
             except remote.RemoteError as e:
                 remote_users, device_error = None, str(e)
             user_data = remote_users if remote_users is not None else []
-    # Remote rows are passed through untouched: the Overview's own 10s poll
-    # re-fetches them from the agent via the device proxy, so a countdown
-    # invented here for the first paint would vanish on the first rebuild.
-    # `index.html` (and accountHtml) render the countdown only when the row
-    # carries a `countdown` key; a remote row that lacks it (the agent's
-    # /users payload does not include one yet) simply shows no countdown —
-    # degrade, never crash. Local rows always get one just above.
-    # Admin panel is server-rendered so admin add/remove work without JS
-    # (the redesign's no-JS-post rule). Admin accounts are always local to
-    # this box, even when a remote device's users are being shown.
-    try:
-        admin_store = auth.load_store()
-    except auth.AuthStoreError as e:
-        print(f'AUTH FAIL-CLOSED: {e}', flush=True)
-        admin_store = {'users': {}}
+            # Consumer-side admin filter for remote rows: the agent still
+            # REPORTS its wheel/admin accounts (never change what a device
+            # says about its children), the hub just drops those rows before
+            # render. Same predicate the local path applies, precomputed on
+            # the payload. Old agent payloads without the keys keep their
+            # rows (flag absent is not a signal to hide an account).
+            user_data = [r for r in user_data
+                         if not (r.get('wheel') or r.get('admin'))]
+    # Remote rows otherwise pass through untouched: the Overview's own 10s
+    # poll re-fetches them from the agent via the device proxy, so a
+    # countdown invented here for the first paint would vanish on the first
+    # rebuild. `index.html` (and accountHtml) render the countdown only when
+    # the row carries a `countdown` key; a remote row that lacks it (the
+    # agent's /users payload does not include one yet) simply shows no
+    # countdown — degrade, never crash. Local rows always get one just above.
     return render_template('index.html', users=user_data, day_labels=DAY_LABELS,
                            devices=devices, selected_device=selected_device,
-                           device_error=device_error,
-                           admins=_admin_rows(admin_store), admin_self=g.admin)
+                           device_error=device_error)
 
 
 # ---------------------------------------------------------------------------
 # Overview action forms (no-JS path)
 #
-# The Overview's lock / unlock and admin
-# add/remove controls are plain <form method="post"> submissions, so every
-# action works with JavaScript disabled. Each route runs the same core as its
-# /api/* twin, flashes the outcome and redirects back to the Overview
-# (POST/Redirect/GET). `static/js/app.js` + the page script only add the
-# confirmation dialog on top; they never replace the server round-trip.
+# The Overview's lock / unlock account actions are plain
+# <form method="post"> submissions, so every action works with JavaScript
+# disabled. Each route runs the same core as its /api/* twin, flashes the
+# outcome and redirects back to the Overview (POST/Redirect/GET).
+# `static/js/app.js` + the page script only add the confirmation dialog on
+# top; they never replace the server round-trip.
+#
+# The admin add/remove forms moved to the Admin console (/admin/audit) on
+# 2026-10-18 (owner decision: admins are hidden from the Overview). Their
+# route PATHS stay /overview/admins[/remove] — a pinned endpoint contract —
+# but they redirect back to the console. See UI_UX_PLAN.md §7.4.
 # ---------------------------------------------------------------------------
 
 def _overview_redirect():
@@ -1447,10 +1505,12 @@ def overview_unlock():
 @app.route('/overview/admins', methods=['POST'])
 @require_admin
 def overview_admin_add():
-    """No-JS Overview form: create an app-only admin (PRG + flash).
+    """No-JS Admin-console form: create an app-only admin (PRG + flash).
 
-    The one-time generated password is flashed back so the wheel admin can
-    copy it; it is never shown again.
+    The form lives on /admin/audit (the route path predates the move and is
+    a pinned contract). The one-time generated password is flashed back so
+    the wheel admin can copy it; it is shown ONCE, on the console the form
+    redirects to, and never again.
     """
     username = request.form.get('username', '').strip()
     _status, payload = _add_app_admin(username)
@@ -1459,30 +1519,44 @@ def overview_admin_add():
               f'{payload.get("password")} — shown ONCE; copy it now.', 'ok')
     else:
         flash(payload.get('error') or 'Could not add admin.', 'danger')
-    return _overview_redirect()
+    return redirect(url_for('admin_audit'))
 
 
 @app.route('/overview/admins/remove', methods=['POST'])
 @require_admin
 def overview_admin_remove():
-    """No-JS Overview form: remove an app-only admin (PRG + flash)."""
+    """No-JS Admin-console form: remove an app-only admin (PRG + flash).
+
+    Same contract note as overview_admin_add: the path is pinned, the form
+    and the redirect live on /admin/audit.
+    """
     username = request.form.get('username', '').strip()
     _status, payload = _remove_app_admin(username)
     if payload.get('success'):
         flash(payload.get('message') or f'Admin {username} removed.', 'ok')
     else:
         flash(payload.get('error') or 'Could not remove admin.', 'danger')
-    return _overview_redirect()
+    return redirect(url_for('admin_audit'))
 
 
 @app.route('/api/users')
 @require_admin
 def api_users():
-    """JSON endpoint returning current user list with lock status."""
+    """JSON endpoint returning current child accounts with lock status.
+
+    Filters admin accounts (wheel members + admin-store rows) with the
+    EXACT predicate `index()` uses (`_is_admin_account`), so the first
+    paint and the 10s JS rebuild never disagree about who is on the
+    Overview. Remote-device rows are filtered consumer-side by the page
+    script on the same `wheel`/`admin` payload flags.
+    """
     users = get_human_users()
     bedtime = load_bedtime()
+    store_names = _admin_store_names(_load_admin_store())
     user_data = []
     for u in users:
+        if _is_admin_account(u['username'], store_names):
+            continue
         locked, detail = get_lock_status(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
@@ -1501,8 +1575,15 @@ def api_users():
             # Wheel flag must mirror index(): accountHtml() branches on
             # `u.wheel` for the Protected pill, the "wheel admin" label and
             # the disabled actions. Without it the 10s JS rebuild renders
-            # wheel admins as lockable children.
+            # wheel admins as lockable children. Rows that survive the
+            # admin filter never fire that branch — it stays as defence and
+            # because remote rows carry the flag.
             'wheel': auth.is_wheel_member(u['username']),
+            # Admin flag mirrors the agent payload's `admin` key so the
+            # page script's filter reads one predicate shape for local and
+            # remote rows alike (contract field + defence; filtered rows
+            # never appear, so this is always False on surviving rows).
+            'admin': u['username'] in store_names,
         })
     return jsonify(user_data)
 
@@ -2513,8 +2594,11 @@ def change_password():
 def _admin_rows(store):
     """Admin rows with live tier resolution.
 
-    Shared by the JSON list endpoint and the server-rendered Overview admin
-    panel, so both show exactly the same accounts.
+    Shared by the JSON list endpoint and the server-rendered Admin-console
+    table, so both show exactly the same accounts. `system_user` tells the
+    console which rows have a real account behind them (only those get a
+    Details link to the per-user page; app-only admins have no system
+    account, so /user/<name> would 404 for them).
     """
     admins = []
     for username, row in store.get('users', {}).items():
@@ -2748,10 +2832,13 @@ def admin_audit():
     Read-only audit table (newest-first) with chain status and a
     limit-based "load more" control (the button grows the limit via the
     existing /api/audit endpoint, capped at 1000 — nothing is deletable).
-    The admin-management section lists every store row (wheel rows are
-    shown as protected); the add/remove actions are wheel-actor only and
-    target app-only admins only, enforced server-side by
-    adminstore.add_admin/remove_admin.
+    The admin-management section is the ONE admin UI (moved here from the
+    Overview, 2026-10-18): it lists every store row (wheel rows are shown
+    as protected) and owns the add/remove controls. Those are plain
+    server-rendered POST forms to /overview/admins[/remove] (pinned paths)
+    that redirect back here with the flash; the page script only adds the
+    confirmation dialog on remove. Wheel-actor only, targeting app-only
+    admins only, enforced server-side by adminstore.add_admin/remove_admin.
     """
     try:
         limit = int(request.args.get('limit', '100'))
@@ -2773,16 +2860,9 @@ def admin_audit():
         print(f'AUTH FAIL-CLOSED: {e}', flush=True)
         store = None
     if store is not None:
-        for username, row in store.get('users', {}).items():
-            if not isinstance(row, dict):
-                continue
-            admins.append({
-                'username': username,
-                'tier': auth.classify_admin(username, store),
-                'locked': bool(row.get('locked', False)),
-                'must_change': bool(row.get('must_change', False)),
-            })
-        admins.sort(key=lambda a: a['username'])
+        # One builder for the console table and the JSON list endpoint
+        # (the Overview no longer renders admin rows at all).
+        admins = _admin_rows(store)
     # Per-entry integrity (design Screen 5): every entry at or before the
     # first bad link is verified when the chain is intact; otherwise only
     # entries whose seq precedes the first bad seq are trusted.

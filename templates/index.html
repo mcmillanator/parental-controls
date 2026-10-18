@@ -12,21 +12,28 @@
    phone bottom tab bar below 768px (hidden >=768px like every sidebar screen).
    It no longer overrides layout_class / sidebar / appbar.
 
-   NO-JS ACTIONS: every Overview account action (Lock / Unlock) and the admin
-   add/remove controls are real <form method="post"> submissions
-   to /overview/*, which run the same core as the /api/* twins, flash the
-   outcome and redirect back here (POST/Redirect/GET). The page script only adds
-   the shared confirmation dialog on top (the dialog is itself a real POST
-   form); with JavaScript disabled the forms still submit and the server still
-   acts and audits. See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must work
-   as a plain server-rendered POST". Emergency logout is deliberately NOT
-   offered here (owner request, 2026-10-15) — it lives on the per-user page,
-   where it is a JS/fetch action against /api/logout.
+   NO-JS ACTIONS: every Overview account action (Lock / Unlock) is a real
+   <form method="post"> submission to /overview/*, which runs the same core
+   as the /api/* twin, flashes the outcome and redirects back here
+   (POST/Redirect/GET). The page script only adds the shared confirmation
+   dialog on top (the dialog is itself a real POST form); with JavaScript
+   disabled the forms still submit and the server still acts and audits.
+   See UI_UX_PLAN.md §11.8 / AGENTS.md "every action must work as a plain
+   server-rendered POST". Emergency logout is deliberately NOT offered
+   here (owner request, 2026-10-15) — it lives on the per-user page, where
+   it is a JS/fetch action against /api/logout.
+
+   ADMINS ARE HIDDEN HERE (owner decision, 2026-10-18): wheel members and
+   app-only admin-store rows never render as account cards — the server
+   filters them out of `users` and `/api/users`, and refreshTable() drops
+   remote-device rows carrying the same `wheel`/`admin` flags. The summary
+   counters therefore count children only. Admin accounts are listed and
+   managed on the Admin console (/admin/audit), which now owns every
+   admin-management selector (UI_UX_PLAN.md §7.4).
 
    Every selector pinned by the selector contract and the stdlib suite is
    preserved literally: #row-<user>, .btn-details, .btn-lock, .btn-unlock,
-   .refresh-info, #admin-panel, #admin-list,
-   #new-admin-username, #admin-add, #toast (base), plus the multi-device
+   .refresh-info, #toast (base), plus the multi-device
    #device-selector/switchDevice JS.
    ========================================================================= #}
 {% from '_partials/flash.html' import pc_empty %}
@@ -161,41 +168,11 @@
 
 <p class="refresh-info">Status updates automatically every 10 seconds</p>
 
-{# Admin list — INSIDE the page container. Kept `open` so a runtime
-   verifyElementVisible('#admin-panel') still resolves. Server-rendered so
-   add/remove work without JavaScript. `#admin-add` / `#new-admin-username`
-   render for EVERY admin (the selector contract asserts their
-   visibility); the endpoint refuses non-wheel actors server-side, and the
-   per-row Remove buttons are wheel-actor only. #}
-<details class="pc-disclosure" id="admin-panel" open>
-    <summary>Admins <span class="pc-disclosure__summary-value" id="admin-count">({{ admins|default([], true)|length }})</span></summary>
-    <div class="pc-disclosure__body">
-        <div id="admin-list" class="pc-stack">
-            {% for a in admins|default([], true) %}
-            <div class="pc-row" data-username="{{ a.username }}">
-                <span>{{ a.username }} <span class="pc-meta">({{ a.tier or 'revoked' }}{% if a.locked %}, locked{% endif %}{% if a.must_change %}, must change password{% endif %})</span></span>
-                {% if g.tier == 'wheel' and a.username != (admin_self|default('', true)) %}
-                <form class="pc-inline-form" method="post" action="{{ url_for('overview_admin_remove') }}" onsubmit="return removeAdmin(this)">
-                    <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
-                    <input type="hidden" name="username" value="{{ a.username }}">
-                    <button type="submit" class="pc-btn pc-btn--sm pc-btn--danger">Remove</button>
-                </form>
-                {% elif a.username == (admin_self|default('', true)) %}
-                <span class="pc-meta">(you)</span>
-                {% endif %}
-            </div>
-            {% else %}
-            <span class="pc-meta">No admins</span>
-            {% endfor %}
-        </div>
-        <form id="admin-add" class="pc-inline-form" method="post" action="{{ url_for('overview_admin_add') }}">
-            <input type="hidden" name="csrf_token" value="{{ g.csrf_token }}">
-            <input type="text" id="new-admin-username" name="username" class="pc-input" placeholder="new admin username" aria-label="new admin username">
-            <button type="submit" class="pc-btn pc-btn--primary btn-unlock">Add admin</button>
-            <span class="pc-hint">Wheel admins only. System accounts (except wheel) can never be added.</span>
-        </form>
-    </div>
-</details>
+{# Admin accounts are NOT rendered here (owner decision, 2026-10-18): the
+   server filters wheel members + admin-store rows out of `users` /
+   `/api/users` and refreshTable() drops flagged remote rows, so the board
+   is children-only. The admin list + add/remove forms live on the Admin
+   console (/admin/audit — #admin-section / #admin-table / #admin-add). #}
 
 {# Design fixtures (Flowstep Screen 1 notes). These are implementation
    guidance, NOT product content: they render only behind the dev-only
@@ -334,16 +311,6 @@
         });
     }
 
-    function removeAdmin(form) {
-        const username = formUsername(form);
-        return confirmThenSubmit(form, {
-            title: 'Remove admin?',
-            body: `Remove admin "${username}"? They lose access immediately.`,
-            confirmLabel: 'Remove',
-            danger: true,
-        });
-    }
-
     // One action as a real POST form, mirroring the server-rendered markup
     // (used when the 10s refresh rebuilds an account card from /api/users).
     function accountActionForm(action, username, label, handler, variant, cls, title) {
@@ -446,7 +413,15 @@
         const list = document.getElementById('accounts');
         try {
             const resp = await fetch('/api/users');
-            const users = await resp.json();
+            // Consumer-side admin filter (owner decision, 2026-10-18): admin
+            // accounts (wheel members, admin-store rows) are hidden from the
+            // Overview. Local rows are already filtered by api_users(); remote
+            // rows carry the agent's `wheel`/`admin` flags and are dropped
+            // here — never on the agent, which keeps reporting every account.
+            // The strict === true match also tolerates old payloads without
+            // the keys. accountHtml()'s wheel branch stays below as defence.
+            const users = (await resp.json())
+                .filter(u => !(u.wheel === true || u.admin === true));
             if (list) { list.innerHTML = users.map(accountHtml).join(''); }
             updateSummary(users);
             setStale(false);

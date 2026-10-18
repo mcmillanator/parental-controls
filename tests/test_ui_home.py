@@ -6,7 +6,8 @@ Covers UI_UX_PLAN.md Phase 1b (auth shell) and Phase 2 (Home cards):
 * Home renders the `.pc-summary` KPI strip, a `data-label`ed
   `.pc-table--stack`, the status pill + one primary action, and a
   `window.pcConfirm` dialog wiring instead of `window.confirm()`.
-* The admin list now lives INSIDE the content container.
+* The admin list moved OFF the Overview entirely (owner decision,
+  2026-10-18): admins are hidden from `/` and managed on `/admin/audit`.
 * `login.html` / `change_password.html` use the `.pc-auth` shell (no nav)
   and render inline errors.
 * No page reaches off-box (no `http(s)://` asset URL) and the auth pages
@@ -19,6 +20,7 @@ real account, the service, /etc, /opt, or the checkout.
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -112,19 +114,36 @@ class HomeRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('<p class="refresh-info">'
                       'Status updates automatically every 10 seconds</p>', html)
 
-    # ------------------------------------------------------ admin panel
-    def test_admin_panel_is_inside_the_page_container(self):
+    # ------------------------------------------------------ admin UI moved
+    def test_admin_management_ui_is_gone_from_the_overview(self):
+        # Owner decision 2026-10-18: hide admins on `/`. The ids must stay
+        # absent — the guard the owner asked for (a re-appearing card is a
+        # regression, not an accident).
         html = self._render()
-        shell = html.index('class="pc-shell')
-        admin = html.index('id="admin-panel"')
-        main_end = html.index('</main>')
-        self.assertLess(shell, admin, 'admin panel must follow the container')
-        self.assertLess(admin, main_end,
-                        'admin panel must be INSIDE <main>, not full-bleed')
-        self.assertIn('id="admin-list"', html)
-        self.assertIn('id="new-admin-username"', html)
-        self.assertIn('id="admin-panel" open', html,
-                      'kept open so a runtime verifyElementVisible resolves')
+        for gone in ('id="admin-panel"', 'id="admin-list"',
+                     'id="admin-count"', 'id="admin-add"',
+                     'id="new-admin-username"', 'action="/overview/admins"'):
+            with self.subTest(needle=gone):
+                self.assertNotIn(gone, html)
+
+    def test_admin_management_ui_lives_on_the_console(self):
+        # ...and the console owns it: #admin-section / #admin-table /
+        # #admin-add / #new-admin-username all render on /admin/audit.
+        audit_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(audit_tmp.cleanup)
+        os.environ['PARENTAL_CONTROLS_AUDIT'] = os.path.join(
+            audit_tmp.name, 'audit.jsonl')
+        self.addCleanup(lambda: os.environ.pop('PARENTAL_CONTROLS_AUDIT',
+                                               None))
+        resp = self.client.get('/admin/audit')
+        self.assertEqual(200, resp.status_code)
+        html = resp.get_data(as_text=True)
+        for present in ('id="admin-section"', 'id="admin-heading"',
+                        'id="admin-table"', 'id="admin-add"',
+                        'id="new-admin-username"',
+                        'action="/overview/admins"'):
+            with self.subTest(needle=present):
+                self.assertIn(present, html)
 
     def test_empty_state_renders_when_no_users(self):
         with mock.patch.object(app, 'get_human_users', return_value=[]), \
@@ -241,10 +260,17 @@ class ConvertedPageStaticTest(unittest.TestCase):
 
     def test_index_keeps_the_pinned_id_inventory(self):
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
-        for token in ('id="row-', 'id="admin-panel"', 'id="admin-list"',
-                      'id="new-admin-username"', 'class="refresh-info"',
+        for token in ('id="row-', 'class="refresh-info"',
                       '.btn-details', 'btn-lock', 'btn-unlock'):
             self.assertIn(token, src, 'index.html lost %r' % token)
+        # Admin-management ids are OFF the Overview (owner decision
+        # 2026-10-18; they live on admin_audit.html now). Guard their
+        # absence so the hidden UI can't silently creep back.
+        for gone in ('id="admin-panel"', 'id="admin-list"',
+                    'id="admin-count"', 'id="admin-add"',
+                    'id="new-admin-username"'):
+            self.assertNotIn(gone, src,
+                             'index.html grew a retired admin id %r' % gone)
 
     def test_index_keeps_the_devices_selector_markup(self):
         src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
@@ -319,26 +345,29 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('Local connection healthy', html)
         self.assertIn('onclick="refreshTable()">Retry<', html)
 
-    def test_wheel_account_is_protected_with_disabled_actions(self):
+    def test_wheel_account_is_hidden_from_the_overview(self):
+        # Owner decision 2026-10-18: wheel members never render as account
+        # cards at all — the Protected-pill card markup is gone from `/`,
+        # so the KPI strip counts children only. The defensive wheel
+        # branch stays in the page script (accountHtml must still tolerate
+        # a flagged row from an old payload rather than mis-render it).
         html = self._render(wheel=('kidfree',))
-        idx = html.index('id="row-kidfree"')
-        card = html[idx:html.index('</article>', idx)]
-        self.assertIn('badge-protected', card)
-        self.assertIn('Protected', card)
-        self.assertIn('wheel admins can never be locked or removed', card)
-        self.assertNotIn('btn-lock', card)
-        self.assertNotIn('btn-unlock', card)
-        self.assertNotIn('btn-logout', card)
-        # REVISED-SPEC.md: the remaining actions render disabled for a wheel admin.
-        self.assertIn('disabled aria-disabled="true"', card)
-        self.assertIn('>Lock<', card)
-        self.assertIn('>Unlock<', card)
+        self.assertNotIn('id="row-kidfree"', html)
+        region = html[html.index('id="accounts"'):
+                      html.index('class="refresh-info"')]
+        self.assertNotIn('badge-protected', region)
+        self.assertNotIn('wheel admins can never be locked or removed',
+                         region)
         # a non-wheel card still carries the pinned actions
         idx2 = html.index('id="row-kidlocked"')
         card2 = html[idx2:html.index('</article>', idx2)]
         self.assertIn('btn-unlock', card2)
         self.assertNotIn('btn-lockscreen', card2)
         self.assertNotIn('btn-logout', card2)
+        # the defensive branch itself is still in the page script
+        src = read(os.path.join(TEMPLATE_DIR, 'index.html'))
+        self.assertIn('u.wheel', src)
+        self.assertIn('badge-protected', src)
 
     def test_account_card_renders_a_live_countdown(self):
         # A user with a bedtime schedule gets the compact countdown next to
@@ -369,12 +398,16 @@ class OverviewDesignTest(_AdminSessionMixin, unittest.TestCase):
         self.assertNotIn('pc-account__countdown', card)
         self.assertNotIn('--:--:--', html)
 
-    def test_overview_countdown_absent_on_wheel_cards(self):
+    def test_no_overview_card_for_wheel_accounts_at_all(self):
+        # (was: countdown absent ON wheel cards — superseded 2026-10-18:
+        # a wheel account never gets a card here in the first place, and
+        # the summary only counts the surviving children.)
         html = self._render(wheel=('kidfree',))
-        idx = html.index('id="row-kidfree"')
-        card = html[idx:html.index('</article>', idx)]
-        self.assertIn('badge-protected', card)
-        self.assertNotIn('pc-account__countdown', card)
+        self.assertNotIn('id="row-kidfree"', html)
+        self.assertIn('id="summary-total">2<', html)
+        self.assertNotIn('pc-account__countdown',
+                         html[html.index('id="accounts"'):
+                              html.index('class="refresh-info"')])
 
     def test_api_users_payload_carries_the_countdown(self):
         with mock.patch.object(app, 'get_human_users', return_value=USERS), \
