@@ -73,7 +73,7 @@ def find_function(name, prefer=()):
     searched when the definition is gone: a loud failure beats a test that
     silently greps an empty string.
     """
-    order = list(prefer) if isinstance(prefer, str) else list(prefer)
+    order = [prefer] if isinstance(prefer, str) else list(prefer)
     order += [n for n in runtime_modules() if n not in order]
     for filename in order:
         mod_name, src, tree = parse_module(filename)

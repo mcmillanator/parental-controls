@@ -34,10 +34,14 @@ import ast
 import fnmatch
 import os
 import re
+import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+
+sys.path.insert(0, HERE)
+import _corpus  # noqa: E402  (resolve a function's home module, not its file)
 
 SUDOERS_TEMPLATES = ('sudoers-parental-controls',
                      'sudoers-parental-controls-budgets')
@@ -562,7 +566,7 @@ class TestSudoersCoversTheCode(unittest.TestCase):
     # test_scanner_sees_every_pinned_command compares. Whenever a privileged
     # argv moves to another module, add that module here — a module missing
     # from this list silently loses its coverage.
-    MODULES = ('app.py', 'budgets_cgroup.py')
+    MODULES = ('app.py', 'budgets_cgroup.py', 'locks.py', 'users.py')
 
     def test_required_commands_are_authorized(self):
         for origin, argv, expected in REQUIRED_COMMANDS:
@@ -653,12 +657,12 @@ class TestSudoersCoversTheCode(unittest.TestCase):
         than assuming it: lock_user_sessions() returns early on an empty
         list, and the only lock-session call site is inside that function.
         """
-        tree = ast.parse(read('app.py'))
-        fn = next(n for n in ast.walk(tree)
-                  if isinstance(n, ast.FunctionDef)
-                  and n.name == 'lock_user_sessions')
+        # lock_user_sessions moved to locks.py (RESTRUCTURE_PLAN.md slice 10);
+        # resolve its home module rather than pinning app.py.
+        _home, src, fn = _corpus.find_function('lock_user_sessions',
+                                              prefer='locks.py')
         self.assertRegex(
-            read('app.py'),
+            src,
             r"if not lockable:\s*\n\s+return 'no lockable \(graphical\) session'",
             'lock_user_sessions must bail out on an empty `lockable` list; '
             'without that guard the bare `loginctl lock-session` argv is '

@@ -38,6 +38,15 @@ strip_clock_flakes() {
     grep -vF "$KNOWN_CLOCK_FLAKES" "$1" || true
 }
 
+# test_deployment's subtest ids carry the ORIGIN COORDINATES of what they
+# scanned (`module='app.py', line=1221`, `origin='app.py:lock_user_sessions'`).
+# Those coordinates move by design every time a slice relocates code, so the
+# comparison masks them and nothing else. A new/removed failure, a changed
+# argv or a changed subtest id still shows as drift.
+normalize_failures() {
+    .venv/bin/python "$(dirname "$0")/normalize_failures.py" < "$1" | sort
+}
+
 run_suite() {
     TMPDIR="$PWD/.scratch" .venv/bin/python -m unittest discover -s tests -v \
         > .scratch/run.txt 2>&1 || true
@@ -51,8 +60,10 @@ grep -E '^Ran |^FAILED|^OK' .scratch/run.txt | tail -2 | sed 's/^/  /'
 grep -F "$KNOWN_CLOCK_FLAKES" .scratch/failures.txt \
     | sed 's/^/  (known clock flake, excluded: /;s/$/)/'
 if [ -f .scratch/baseline_failures.txt ]; then
-    strip_clock_flakes .scratch/baseline_failures.txt > .scratch/base_filtered.txt
-    strip_clock_flakes .scratch/failures.txt > .scratch/failures_filtered.txt
+    strip_clock_flakes .scratch/baseline_failures.txt \
+        | normalize_failures /dev/stdin > .scratch/base_filtered.txt
+    strip_clock_flakes .scratch/failures.txt \
+        | normalize_failures /dev/stdin > .scratch/failures_filtered.txt
     if diff -u .scratch/base_filtered.txt .scratch/failures_filtered.txt \
             > .scratch/failures.diff; then
         echo "  failure set IDENTICAL to baseline"

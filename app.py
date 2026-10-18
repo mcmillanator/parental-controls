@@ -131,9 +131,6 @@ def _fixture_preview():
     return {'show_fixtures': enabled}
 
 
-MIN_UID = 1000
-MAX_UID = 60000
-
 BEDTIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bedtime.json')
 
 DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -148,219 +145,8 @@ BONUS_CUSTOM_MIN = 5
 BONUS_HISTORY_CAP = 20
 
 
-def get_human_users():
-    """Return a list of human users (UID >= MIN_UID, not system accounts)."""
-    users = []
-    for entry in pwd.getpwall():
-        if entry.pw_uid < MIN_UID or entry.pw_uid > MAX_UID:
-            continue
-        # Skip system accounts that happen to have high UIDs
-        if entry.pw_shell in ('/usr/sbin/nologin', '/sbin/nologin', '/bin/false'):
-            continue
-        users.append({
-            'username': entry.pw_name,
-            'uid': entry.pw_uid,
-            'home': entry.pw_dir,
-            'shell': entry.pw_shell,
-        })
-    users.sort(key=lambda u: u['uid'])
-    return users
 
 
-def get_lock_status(username):
-    """Check if a user account is locked.
-
-    Returns (is_locked, detail_string).
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'passwd', '-S', username],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode != 0:
-            return None, result.stderr.strip() or 'Unknown status'
-        # Output format: <username> <status> <date> ...
-        # Status: L = locked, P = password set (unlocked), NP = no password
-        parts = result.stdout.strip().split()
-        if len(parts) < 2:
-            return None, 'Unexpected passwd output'
-        status_field = parts[1]
-        if status_field == 'L':
-            return True, 'Locked'
-        elif status_field == 'P':
-            return False, 'Unlocked'
-        elif status_field == 'NP':
-            return True, 'No password'
-        else:
-            return None, f'Unknown status: {status_field}'
-    except subprocess.TimeoutExpired:
-        return None, 'Command timed out'
-    except FileNotFoundError:
-        return None, 'passwd command not found'
-    except Exception as e:
-        return None, str(e)
-
-
-def valid_username(username):
-    """True when `username` is safe to pass as a literal usermod/loginctl
-    argument.
-
-    The rule lives in device_policy so the remote agent applies the exact
-    same check on its own box (MULTIDEVICE_PLAN.md §4.4).
-    """
-    return device_policy.valid_username(username)
-
-
-def lock_user_sessions(username):
-    """Screen-lock every graphical session belonging to `username`.
-
-    `loginctl lock-session` with no session ID locks the session of the
-    *caller* -- which is the parent running this app, not the target
-    child. That both fails to lock the child and (worse) locks the
-    parent's own screen. So resolve the target's session IDs first.
-
-    Only graphical (`wayland`/`x11`) sessions of class `user` are locked:
-    manager/greeter/tty sessions reject the call with "Session does not
-    support lock screen", which previously surfaced as a Lock Screen
-    failure even when a lockable session existed.
-
-    Returns a short human-readable note describing what happened.
-    Never raises; screen lock is best-effort and must not fail a lock.
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
-             '--value'],
-            capture_output=True, text=True, timeout=15
-        )
-        session_ids = result.stdout.split() if result.returncode == 0 else []
-        if not session_ids:
-            return 'no active session'
-        lockable = [sid for sid in session_ids
-                    if _session_supports_lock(sid)]
-        if not lockable:
-            return 'no lockable (graphical) session'
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'lock-session'] + lockable,
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            return f'loginctl lock-session: {result.stderr.strip() or "failed"}'
-        return f'{len(lockable)} session(s) locked'
-    except subprocess.TimeoutExpired:
-        return 'screen lock timed out'
-    except Exception as e:
-        return f'screen lock error: {e}'
-
-
-def _session_supports_lock(session_id):
-    """True when a session is a graphical user session logind can lock.
-
-    Anything else (manager/greeter sessions, tty logins, vanished
-    sessions) is skipped: locking those fails with "Session does not
-    support lock screen". Never raises.
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-session', session_id,
-             '-p', 'Class', '-p', 'Type'],
-            capture_output=True, text=True, timeout=15
-        )
-    except (subprocess.TimeoutExpired, Exception):
-        return False
-    if result.returncode != 0:
-        return False
-    props = {}
-    for line in result.stdout.splitlines():
-        if '=' in line:
-            key, _, value = line.partition('=')
-            props[key.strip()] = value.strip()
-    return (props.get('Class') == 'user'
-            and props.get('Type') in ('wayland', 'x11'))
-
-
-def run_lock_command(username, action, actor=None):
-    """Run lock or unlock commands for a user.
-
-    Returns (success, message).
-
-    `actor` overrides the audit actor; when omitted it resolves to the
-    logged-in admin inside requests and 'system' elsewhere (so web UI
-    and enforcement/timer paths share this helper without the caller
-    threading identity through). The audit write is best-effort and
-    can never change the returned outcome.
-
-    For 'lock', account ownership (usermod -L) is what success reflects,
-    and the session is ALWAYS preserved: after locking the account the
-    user's graphical sessions are screen-locked (lock_user_sessions),
-    never terminated. Session termination lives ONLY in the /api/logout
-    emergency-logout endpoint, which runs its own terminate-user call.
-
-    Screen lock is best-effort and never fails the lock: an offline user
-    (or a screen-lock failure) still reports success with a note, so
-    callers tracking lock ownership still record it.
-
-    Tradeoff: bedtime/bonus/revoke auto-locks no longer stop already-
-    running apps (terminate-user did that as a side effect). App runtime
-    is governed by the budgets cgroup freezer instead; the account lock
-    itself still blocks all new authentication at the PAM layer.
-    """
-    act = actor or _req_actor()
-    audit_action = ('account.lock' if action == 'lock'
-                    else 'account.unlock' if action == 'unlock'
-                    else 'account.unknown')
-
-    def _done(success, message):
-        _safe_audit(act, audit_action, username,
-                    {'success': success, 'message': message})
-        return success, message
-
-    if action == 'lock':
-        try:
-            result = subprocess.run(
-                ['sudo', 'usermod', '-L', username],
-                capture_output=True, text=True, timeout=15
-            )
-            if result.returncode != 0:
-                return _done(False, (f'sudo usermod -L {username}: '
-                               f'{result.stderr.strip() or "failed"}'))
-        except subprocess.TimeoutExpired:
-            return _done(False, f'sudo usermod -L {username}: timed out')
-        except Exception as e:
-            return _done(False, f'sudo usermod -L {username}: {e}')
-        # Screen-lock the user's sessions (best-effort, never raises).
-        # This deliberately never calls terminate-user: locking must not
-        # log the user out.
-        try:
-            screen_msg = lock_user_sessions(username)
-        except Exception as e:
-            screen_msg = f'screen lock error: {e}'
-        return _done(True, f'OK ({screen_msg})')
-    elif action == 'unlock':
-        cmds = [
-            ['sudo', 'usermod', '-U', username],
-        ]
-    else:
-        return _done(False, f'Unknown action: {action}')
-
-    errors = []
-    for cmd in cmds:
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=15
-            )
-            if result.returncode != 0:
-                errors.append(
-                    f'{" ".join(cmd)}: {result.stderr.strip() or "failed"}'
-                )
-        except subprocess.TimeoutExpired:
-            errors.append(f'{" ".join(cmd)}: timed out')
-        except Exception as e:
-            errors.append(f'{" ".join(cmd)}: {e}')
-
-    if errors:
-        return _done(False, '; '.join(errors))
-    return _done(True, 'OK')
 
 
 # ---------------------------------------------------------------------------
@@ -784,6 +570,37 @@ def notify_user(username, title, body):
         return False
 
 
+# ---------------------------------------------------------------------------
+# Named re-exports — the app facade surface (RESTRUCTURE_PLAN.md §3.2).
+#
+# app.py owns `app = Flask(__name__)` and stays the ONE module object the
+# runtime, `wsgi.py`, `enforce_bedtime_timer.py` and the 40 test modules bind
+# to, and the ONLY module `mock.patch` targets. Every name that moves to a
+# concern module is therefore re-exported here BY NAME — never a wildcard —
+# with the consumer that needs it named in the comment. Concern modules never
+# import from here at module level (they would form a cycle and break an
+# import-first load); they resolve `app.<name>` at CALL time so a patch on
+# this module still reaches them (plan §1.1).
+#
+# Code still DEFINED in this file keeps calling the bare name: this module's
+# own global binding IS the attribute the suite patches, so it needs no
+# rewrite.
+# ---------------------------------------------------------------------------
+
+# users.py — human users, lock status, the name guard. Needs:
+# enforce_bedtime_timer.py (`from app import get_lock_status, ...`), wsgi.py
+# (the Flask instance), 15+16 test modules and every view.
+from users import (  # noqa: E402
+    MAX_UID, MIN_UID, get_human_users, get_lock_status, valid_username)
+
+# locks.py — usermod/loginctl primitives + the shared account-action cores.
+# Needs: enforce_bedtime_timer.py (run_lock_command), 7 test modules, and
+# tests/test_deployment.py's sudo-argv scan (MODULES widened in slice 10).
+from locks import (  # noqa: E402
+    _emergency_logout, _lock_account_and_screen, _session_supports_lock,
+    _unlock_account, lock_user_sessions, run_lock_command)
+
+
 # Warn once when a bedtime window starts within this many minutes.
 BEDTIME_WARN_MINUTES = 15
 
@@ -1142,99 +959,6 @@ def _refuse_frozen_target(username):
     return None
 
 
-# ---------------------------------------------------------------------------
-# Account-action cores (shared by the JSON API and the no-JS Overview forms)
-#
-# Every lock/unlock/logout path -- the /api/* JSON endpoints and the
-# /overview/* plain-POST form endpoints -- runs exactly these functions, so
-# the behaviour (and the audit trail) is identical whichever way the browser
-# submits it. Each returns (ok, message); the caller decides JSON vs redirect.
-# ---------------------------------------------------------------------------
-
-def _lock_account_and_screen(username, via):
-    """Lock the account (usermod -L) and best-effort screen-lock it.
-
-    Session-preserving: it never terminates the user's sessions (that is
-    /api/logout's job). Returns (ok, message).
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'usermod', '-L', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
-            _safe_audit(_req_actor(), 'account.lock', username,
-                        {'success': False, 'message': msg, 'via': via})
-            return False, msg
-    except Exception as e:
-        msg = 'usermod -L error: ' + str(e)
-        _safe_audit(_req_actor(), 'account.lock', username,
-                    {'success': False, 'message': msg, 'via': via})
-        return False, msg
-
-    # A manual lock takes ownership away from bedtime so the bedtime
-    # timer cannot later auto-unlock it (see note_manual_lock).
-    note_manual_lock(username)
-
-    # Lock the screen without terminating the session.
-    screen_msg = lock_user_sessions(username)
-
-    _safe_audit(_req_actor(), 'account.lock', username,
-                {'success': True, 'message': f'OK ({screen_msg})', 'via': via})
-    return True, f'Account locked and screen locked ({screen_msg})'
-
-
-def _unlock_account(username):
-    """Unlock the account and hand ownership to the manual unlock."""
-    success, message = run_lock_command(username, 'unlock')
-    if success:
-        # Manual unlock takes precedence over bedtime (see note_manual_unlock).
-        note_manual_unlock(username)
-    return success, message
-
-
-def _emergency_logout(username):
-    """Lock the account and terminate ALL its sessions immediately."""
-    try:
-        result = subprocess.run(
-            ['sudo', 'usermod', '-L', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            msg = 'usermod -L: ' + (result.stderr.strip() or 'failed')
-            _safe_audit(_req_actor(), 'account.logout', username,
-                        {'success': False, 'message': msg})
-            return False, msg
-    except Exception as e:
-        msg = 'usermod -L error: ' + str(e)
-        _safe_audit(_req_actor(), 'account.logout', username,
-                    {'success': False, 'message': msg})
-        return False, msg
-
-    # A manual lock takes ownership away from bedtime so the bedtime
-    # timer cannot later auto-unlock it (see note_manual_lock).
-    note_manual_lock(username)
-
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'terminate-user', username],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            msg = ('loginctl terminate-user: '
-                   + (result.stderr.strip() or 'failed'))
-            _safe_audit(_req_actor(), 'account.logout', username,
-                        {'success': False, 'message': msg})
-            return False, msg
-    except Exception as e:
-        msg = 'loginctl terminate-user error: ' + str(e)
-        _safe_audit(_req_actor(), 'account.logout', username,
-                    {'success': False, 'message': msg})
-        return False, msg
-
-    _safe_audit(_req_actor(), 'account.logout', username, {'success': True})
-    return True, 'Session terminated. User logged out.'
 
 
 # ---------------------------------------------------------------------------
