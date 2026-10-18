@@ -516,7 +516,7 @@ inline. Keep `.error`.
 | `h1`, `.subtitle`, "Logged in as" links | app bar (`_appbar.html`) + `.pc-summary` strip; links move into the account menu/tabs |
 | user table (Username/UID/Status/Bedtime/Actions) | `.pc-table--stack`; on phone each `<tr>` = user card (§4.4). Keep `#row-{{ user.username }}` and `#row-… .btn-details` |
 | Username link | card title link → `/user/<u>` |
-| UID | small meta line in card / table column |
+| UID | **dropped from the Overview card** (owner request, 2026-10-18): the card meta is the Bedtime line only. `accountHtml()` stopped reading `u.uid`, so `uid` left the JS rebuild contract in `tests/test_ui_overview_parity.py` (`JS_CONSUMED_FLOOR`) — the payload key stays (the per-user Details page shows `UID: … · Shell: … · Home: …`, unchanged). The `uid` table column is gone with the user table. |
 | Status + `In Bedtime`/`Override` badges | status **pill** (icon+text+color) + chips; keep status classes `status-locked/unlocked/unknown`; keep `.badge-bedtime`/`.badge-override` |
 | (new) live countdown per account | compact `.pc-account__countdown` readout in the card head next to the badges — the same value as the Time rules page (`app.countdown_state`, fed from `/api/users`); rendered only when there is something to count down to, and never on a wheel-admin "Protected" card; `role="timer" aria-live="off"` (N cards at 1 Hz must not flood a screen reader) with an `aria-label` naming the target |
 | Bedtime start–end + days | "Bedtime 9:00 PM–7:00 AM · Mon–Fri" line; keep `|twelve` formatting |
@@ -821,6 +821,13 @@ contract break): `#countdown-card` / `#countdown-heading` / `#bedtime-countdown`
 `.pc-timer--sm` + `data-countdown-seconds` on the Overview (§11.10), and the
 bonus-modal hooks `#pc-bonus` / `#pc-bonus-title` / `.btn-bonus-open`. They are
 pinned by the per-page stdlib modules, not by §7.4.
+
+`#summary-sessions` (Overview System summary card) is likewise additive — its
+id is unchanged, but its content went from a hardcoded literal to the live
+`Class=user` session total on 2026-10-18 (§11.8). The pinned inventory above is
+untouched by that change, as it is by the "Accounts" → "Child Accounts" heading
+copy (§11.8): the visible text moved, `#accounts` / `.pc-accounts` /
+`.pc-accounts__heading` did not.
 
 ### 7.5 New / updated tests
 
@@ -1169,6 +1176,31 @@ distilled starter prompt. This pass implements that intent.
   the Admin Accounts table on `/admin/audit` is the product's one admin UI
   (wheel rows link to `/user/<name>` via Details when a system account
   backs them).
+- **The Overview section is "Child Accounts", and its cards dropped the UID
+  (owner request, 2026-10-18).** The heading above the account cards reads
+  `Child Accounts` — the section lists children only, so the copy now says
+  so. **Only the visible copy changed**: the pinned `#accounts` container id
+  and the `.pc-accounts` / `.pc-accounts__heading` classes (§7.4) are
+  byte-identical. The card meta line lost its `UID <n>` segment in both paints
+  (the Jinja card and `accountHtml()`), leaving the Bedtime range + days as the
+  whole line; the separator `·` went with it because it only existed to join
+  two segments. Because `accountHtml()` no longer reads `u.uid`, `uid` left
+  `JS_CONSUMED_FLOOR` in `tests/test_ui_overview_parity.py` (the payload key
+  stays — the per-user Details page keeps `UID: … · Shell: … · Home: …`, the
+  owner's explicit instruction). **Zero** selector changes.
+- **The active-session count is real (owner request, 2026-10-18).** The System
+  summary card's `#summary-sessions` line replaced a hardcoded
+  `1 active session` plus a "not exposed yet" placeholder. Every `/` and
+  `/api/users` row carries an integer `sessions` (`app.active_session_count()`,
+  mirrored in `agent.py`) counting `Class=user` logind sessions only — the
+  per-user `Class=manager` session is not a login. It is measured with the two
+  loginctl argv the screen-lock path already ran (`show-user <u> -p Sessions
+  --value`, `show-session <id> -p Class -p Type`), now shared through
+  `_user_session_ids()` / `_session_properties()`, so **no sudoers rule was
+  added**. Cached 30 s per user like the lock-status probe (same sudo-session
+  pressure) and invalidated by the emergency logout; `updateSummary()`
+  recomputes the same total from the same key, so first paint and rebuild
+  cannot disagree.
 - **No-JS coverage outside the Overview is a recorded gap (owner decision,
   2026-10-17: document accurately, do not converge; narrowed 2026-10-18 when
   the admin forms became plain POSTs).** The budgets, processes and

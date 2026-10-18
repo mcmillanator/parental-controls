@@ -71,7 +71,13 @@ BEDTIME = {'kidplain': {'start': '21:30', 'end': '07:00',
 # test extracts the live set from the script; this floor only detects an
 # extraction that silently matched nothing (or a JS edit that dropped a
 # field — drop it here deliberately, in review, if the script changes).
-JS_CONSUMED_FLOOR = {'username', 'uid', 'locked', 'status_detail', 'bedtime',
+#
+# `uid` LEFT this set on 2026-10-18 (owner request): the Overview card no
+# longer shows the UID — `accountHtml()` stopped reading `u.uid` when the
+# meta line lost its "UID <n>" segment. The payload still carries the key
+# (the per-user Details page needs it); it is simply no longer part of the
+# JS rebuild contract. See ChildAccountHeadingAndMetaTest.
+JS_CONSUMED_FLOOR = {'username', 'locked', 'status_detail', 'bedtime',
                      'in_bedtime', 'countdown', 'wheel'}
 
 # Payload-contract fields beyond what the renderers read: the admin filter

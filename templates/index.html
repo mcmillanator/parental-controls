@@ -110,12 +110,17 @@
 
 <span id="pc-stale" class="pc-chip pc-chip--stale" role="status" hidden>stale — retrying</span>
 
-{# Accounts: one card per human account (design Screen 1). The whole card's
-   name links to the child's Time screen; the primary safe action is Unlock
-   (when locked) or Lock (when unlocked); destructive actions are separated
-   and confirmed. Wheel admins are system-protected: all actions disabled and
-   the endpoints refuse them anyway. #}
-<h2 class="pc-card__title pc-accounts__heading">Accounts</h2>
+{# Child Accounts: one card per human account (design Screen 1). The whole
+   card's name links to the child's Time screen; the primary safe action is
+   Unlock (when locked) or Lock (when unlocked); destructive actions are
+   separated and confirmed. Wheel admins are system-protected: all actions
+   disabled and the endpoints refuse them anyway.
+
+   Heading copy is "Child Accounts" (owner request, 2026-10-18: the section
+   lists children only — admins moved to /admin/audit). The container id
+   `#accounts` and the `.pc-accounts` / `.pc-accounts__heading` classes are
+   pinned by §7.4 and the stdlib suite and are unchanged. #}
+<h2 class="pc-card__title pc-accounts__heading">Child Accounts</h2>
 <div class="pc-stack pc-accounts" id="accounts">
     {% for user in users %}
     {% set cls = 'locked' if user.locked == True else 'unlocked' if user.locked == False else 'unknown' %}
@@ -127,9 +132,13 @@
                     · {{ 'wheel admin' if user.wheel else 'child' }}
                     · {{ user.status_detail|lower }}{% if user.locked == True and user.bedtime and user.bedtime.start %} until {{ user.bedtime.end|twelve }}{% endif %}
                 </p>
+                {# Card meta. NO UID (owner request, 2026-10-18): the UID is
+                   admin plumbing, not something a parent reads at a glance —
+                   it stays on the per-user Details page. accountHtml() below
+                   builds the identical string, so the first paint and the
+                   10s rebuild stay indistinguishable. #}
                 <p class="pc-meta pc-account__meta">
-                    UID {{ user.uid }}
-                    {% if user.bedtime and user.bedtime.start %}· Bedtime {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }} ({% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
+                    {% if user.bedtime and user.bedtime.start %}Bedtime {{ user.bedtime.start|twelve }} – {{ user.bedtime.end|twelve }} ({% for d in user.bedtime.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
                 </p>
             </div>
             {{ pc_status_pill(cls, user.status_detail, 'pc-i-' ~ ('lock' if cls == 'locked' else 'unlock' if cls == 'unlocked' else 'alert')) }}
@@ -378,10 +387,14 @@
         // Wheel cards are "Protected" and carry no countdown (same rule as the
         // server-rendered markup).
         if (!u.wheel) { badges += countdownHtml(u.countdown); }
-        let meta = `UID ${esc(u.uid)}`;
+        // Card meta — mirrors the server-rendered markup above exactly. The numeric
+        // account id is deliberately absent from the Overview card (owner
+        // request, 2026-10-18; it stays on the per-user Details page), so the
+        // Bedtime segment is the whole line when there is a schedule.
+        let meta = '';
         if (u.bedtime && u.bedtime.start) {
             const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
-            meta += ` · Bedtime ${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))} (${esc(days)})`;
+            meta = `Bedtime ${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))} (${esc(days)})`;
         }
         const name = `<strong><a href="/user/${encodeURIComponent(u.username)}">${esc(u.username)}</a></strong>` +
             ` · ${u.wheel ? 'wheel admin' : 'child'} · ${esc(String(u.status_detail).toLowerCase())}` +
