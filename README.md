@@ -236,6 +236,7 @@ sudo ./install.sh [--install-dir DIR] [--user USER] [--bind HOST] [--port PORT]
                   [--open-firewall] [--dry-run]
                   [--tls [--tls-cert CERT --tls-key KEY] [--tls-name NAME]
                    [--regen-tls-cert] | --insecure-lan]
+                  [--deploy-webserver]
 ```
 
 The app is **staged into a system path** so the deployed systemd units never
@@ -264,6 +265,7 @@ installer when missing; override with `--user USER`), bind =
 8. Installs the root-only recovery CLI at `/usr/local/bin/parental-controls`
    (0750)
 9. Opens `PORT/tcp` in the default firewalld zone — only with `--open-firewall`
+   (or with `--deploy-webserver`, which opens `80/tcp` + `443/tcp` by design)
 10. Enables + starts the app service, the enforcement timer and the health-check
     timer
 11. Verifies: service active as the service user (`User=`), auth store owned
@@ -276,11 +278,35 @@ all interfaces). A non-loopback bind is **refused** unless it serves TLS:
 `--tls-name` to set the SAN identity) and serves HTTPS via cheroot;
 `--insecure-lan` knowingly stays on plain HTTP and shows a persistent warning
 banner on every page. `--tls` never implies `--open-firewall` — pass it
-explicitly. Loopback keeps the plain waitress HTTP path unchanged, so the SSH
-tunnel remains the recommended way in.
+explicitly (the one exception is `--deploy-webserver` below, which opens the
+firewall by design). Loopback keeps the plain waitress HTTP path unchanged,
+so the SSH tunnel remains the recommended way in.
 Re-running the installer is the update mechanism: if a rendered unit differs
 from the installed one, the service restarts to pick it up; identical
 re-installs leave the running service alone.
+
+**`--deploy-webserver` is the one-switch "serve this box as the panel's
+webserver" mode.** It implies `--bind 0.0.0.0`, `--tls` and `--port 443`,
+adds a plain-HTTP listener on port 80 that answers **every** request with a
+`301` to the same URL over https, and opens `80/tcp` **and** `443/tcp` in the
+firewall — the firewall opening is intentional (the flag means "become the
+webserver"), and passing `--open-firewall` alongside is a harmless no-op.
+Conflicting explicit flags are hard errors: `--bind` to anything other than
+`0.0.0.0`, `--port` to anything other than `443`, or `--insecure-lan`.
+Certificate behavior is unchanged: an existing cert is reused, `--tls-name`
+is honored, and a fresh cert keeps the usual SAN logic — LAN clients trust
+it on first use. The rendered unit gains `--http-port 80` on the
+`tls_serve.py` command line plus `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+and a matching `CapabilityBoundingSet=` (the capability lines render
+whenever a privileged port 80/443 is in play), so the unprivileged service
+user can bind both ports; default `127.0.0.1:5000` installs render
+byte-identical units to before. Verify also probes the redirector and prints
+`GET http://127.0.0.1:80/ -> 301 https://…` next to the main probe.
+
+```bash
+sudo ./install.sh --deploy-webserver                       # 0.0.0.0:443 TLS + :80 redirect + firewall
+sudo ./install.sh --deploy-webserver --tls-name panel.lan # cert identity for a fixed DNS name
+```
 
 Then finish setup:
 
