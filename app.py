@@ -836,9 +836,14 @@ def notify_user(username, title, body):
 
 # users.py — human users, lock status, the name guard. Needs:
 # enforce_bedtime_timer.py (`from app import get_lock_status, ...`), wsgi.py
-# (the Flask instance), 15+16 test modules and every view.
+# (the Flask instance), 15+16 test modules and every view. The lock-status
+# cache names: tests/test_lock_status_cache.py (pins the TTL, the RAW dict
+# values and the invalidator) and every lock/unlock core in locks.py, which
+# drops entries through this facade binding.
 from users import (  # noqa: E402
-    MAX_UID, MIN_UID, get_human_users, get_lock_status, valid_username)
+    _LOCK_STATUS_CACHE, _LOCK_STATUS_TTL_SECONDS, MAX_UID, MIN_UID,
+    get_human_users, get_lock_status, invalidate_lock_status,
+    valid_username)
 
 # locks.py — usermod/loginctl primitives + the shared account-action cores.
 # Needs: enforce_bedtime_timer.py (run_lock_command), 7 test modules, and

@@ -232,6 +232,12 @@ class StatusRealProbeOutputTest(unittest.TestCase):
     probe and the mapping is pinned too.
     """
 
+    def setUp(self):
+        # `get_lock_status` memoizes the probe for 30s (the sudo-session
+        # cache, see app._LOCK_STATUS_CACHE); each test here feeds it a
+        # different probe result, so every one starts from an empty cache.
+        app.invalidate_lock_status()
+
     def _probe(self, rc, stdout='', stderr=''):
         result = mock.Mock(returncode=rc, stdout=stdout, stderr=stderr)
         with mock.patch.object(app.subprocess, 'run', return_value=result):

@@ -377,6 +377,12 @@ class TestRunLockCommandContract(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestLockStatusReadBack(unittest.TestCase):
+    def setUp(self):
+        # `get_lock_status` memoizes the probe for 30s (app.LOCK_STATUS_TTL);
+        # each test below drives the real probe with different stdout, so
+        # start every one of them from an empty cache.
+        app.invalidate_lock_status()
+
     def _status(self, stdout, rc=0):
         with mock.patch.object(app.subprocess, 'run',
                                return_value=_result(rc, stdout=stdout)):

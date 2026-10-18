@@ -13,8 +13,10 @@ Moved out of app.py by RESTRUCTURE_PLAN.md slice 10 (A2); app.py re-exports
 every name here by name. `subprocess.run` resolves `app.subprocess.run` at
 call time (65 patch sites in 8 test modules depend on it), and the audit /
 ownership hooks resolve `app._safe_audit` / `app.note_manual_lock` /
-`app.run_lock_command` the same way — see the cross-seam convention in
-users.py.
+`app.run_lock_command` the same way — as do the lock-status cache drops
+(`app.invalidate_lock_status`, users.py) and the screen-lock call itself
+(`app.lock_user_sessions`), so the tests' patches on the app module still
+reach this code — see the cross-seam convention in users.py.
 """
 
 import subprocess  # the TimeoutExpired class; calls are app.subprocess.run
@@ -111,6 +113,10 @@ def run_lock_command(username, action, actor=None):
     (or a screen-lock failure) still reports success with a note, so
     callers tracking lock ownership still record it.
 
+    A successful usermod invalidates the cached lock-status probe, so the
+    very next render shows the new state instead of the pre-action value
+    (see the cache block in users.py).
+
     Tradeoff: bedtime/bonus/revoke auto-locks no longer stop already-
     running apps (terminate-user did that as a side effect). App runtime
     is governed by the budgets cgroup freezer instead; the account lock
@@ -140,11 +146,14 @@ def run_lock_command(username, action, actor=None):
             return _done(False, f'sudo usermod -L {username}: timed out')
         except Exception as e:
             return _done(False, f'sudo usermod -L {username}: {e}')
+        # The account really is locked now: drop the cached probe so no
+        # render can still show the pre-lock status.
+        app.invalidate_lock_status(username)
         # Screen-lock the user's sessions (best-effort, never raises).
         # This deliberately never calls terminate-user: locking must not
         # log the user out.
         try:
-            screen_msg = lock_user_sessions(username)
+            screen_msg = app.lock_user_sessions(username)
         except Exception as e:
             screen_msg = f'screen lock error: {e}'
         return _done(True, f'OK ({screen_msg})')
@@ -172,6 +181,8 @@ def run_lock_command(username, action, actor=None):
 
     if errors:
         return _done(False, '; '.join(errors))
+    # usermod -U landed: the cached probe now lies, so drop it.
+    app.invalidate_lock_status(username)
     return _done(True, 'OK')
 
 
@@ -189,6 +200,9 @@ def _lock_account_and_screen(username, via):
 
     Session-preserving: it never terminates the user's sessions (that is
     /api/logout's job). Returns (ok, message).
+
+    A successful usermod invalidates the cached lock-status probe (see the
+    cache block in users.py), so the redirected page paints the new state.
     """
     import app
     try:
@@ -211,8 +225,12 @@ def _lock_account_and_screen(username, via):
     # timer cannot later auto-unlock it (see note_manual_lock).
     app.note_manual_lock(username)
 
+    # Account is locked: drop the cached probe (see the cache block in
+    # users.py).
+    app.invalidate_lock_status(username)
+
     # Lock the screen without terminating the session.
-    screen_msg = lock_user_sessions(username)
+    screen_msg = app.lock_user_sessions(username)
 
     app._safe_audit(app._req_actor(), 'account.lock', username,
                 {'success': True, 'message': f'OK ({screen_msg})', 'via': via})
@@ -247,6 +265,10 @@ def _emergency_logout(username):
         app._safe_audit(app._req_actor(), 'account.logout', username,
                     {'success': False, 'message': msg})
         return False, msg
+
+    # The account IS locked from here on, whatever terminate-user decides:
+    # drop the cached probe so the UI cannot show the pre-logout status.
+    app.invalidate_lock_status(username)
 
     # A manual lock takes ownership away from bedtime so the bedtime
     # timer cannot later auto-unlock it (see note_manual_lock).
