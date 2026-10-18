@@ -16,7 +16,20 @@ names, tick builds the per-user .desktop index TTL-cached 300s, enforcement
 observability) landed as `90e7bb8..b5a40dc` — every freeze/save failure now
 surfaces as `budget-tick` journal lines + `budget.auto_pause_failed` /
 `budget.save_failed` audit events. FIX-4 (stale-cgroup reconciliation) is
-deferred by owner; F9 stays documented as live behavior.
+deferred by owner; F9 stays documented as live behavior. 2026-10-18 landed
+three more merged units: the **wheel-parity payload fix** (the 10s rebuild
+rendered wheel admins as lockable children because `/api/users` lacked
+`wheel`; `tests/test_ui_overview_parity.py` is now a payload-contract guard
+for every field the JS consumes), **admins hidden from the Overview with
+the Admins card consolidated onto `/admin/audit`** (shared
+`_is_admin_account` predicate in `index()`+`api_users()`, agent payload
+gained `admin`, selector contract migrated in `UI_UX_PLAN.md` §7.4), and
+**`install.sh --deploy-webserver`** (implies bind 0.0.0.0 + TLS + :443 +
+an :80 301-redirect listener + firewall 80/443 + `CAP_NET_BIND_SERVICE`;
+default installs render byte-identical units). The VM now runs in
+webserver mode — panel URL is **`https://192.168.122.201/`** (plain http
+301s; the old :5000 listener is gone). A restructure plan for the
+`app.py`/`budgets.py` giants is in flight (`feature/restructure-plan`).
 That sits on top of the `feature/bonus-modal` work (merged
 as `567fcb9`): the
 per-user Bonus time card is now a shared shell modal (`#pc-bonus`,
@@ -359,6 +372,29 @@ locked`). FIX-4 stays deferred (owner); the F9 stale-member deadlock remains
 documented live behavior. Remaining real-world confirmation: a child must
 actually launch Minecraft and see it billed under Games (tests prove the
 attribution; nobody has watched a live JVM row yet).
+
+**Release 2026-10-18 (`ead99e3`, pushed to origin/master and deployed).** VM
+suite **1409 tests, OK, 22 skips** (the 2 new env-gated installer dry-runs
+execute on the VM; the VM is authoritative). Deployed with
+`sudo ./install.sh --deploy-webserver` on the VM: 8/8 verify green incl.
+`GET http://127.0.0.1:80/ -> 301 https://…`; post-deploy checks: 443 → 302
+`/login?next=/`, 80 → 301 with path+query preserved, ONE service process
+holds both privileged ports, firewall `80/tcp 443/tcp`, **no SELinux
+denials**, cert kept (fingerprint unchanged → browser TOFU trust carries
+over), unit shows `AmbientCapabilities=CAP_NET_BIND_SERVICE` +
+`CapabilityBoundingSet=` allow-list (which includes `CAP_SYS_ADMIN` for the
+cgroup freezer). The **capability-regression gate** (the narrowed bounding
+set must not break the sudo children) passed: replicating the unit's exact
+bounding set via `prctl(PR_CAPBSET_DROP)` as `parental-controls`,
+`sudo passwd -S pcagent` and `usermod -L/-U` all succeed (pcagent left
+unlocked). ⚠️ **`systemd-run` transients are NOT a valid probe for this**:
+systemd-run implies `NoNewPrivileges`+`RestrictSUIDSGID`, which break the
+setuid `sudo` exec (203/EXEC "Unable to locate executable") — the installed
+unit's own comment says the same about the real unit. Screenshot evidence
+for the UI move: `.scratch/screens/{overview,admin-audit}-desktop-dark-ui-move*.png`
+(first paint vs after the 10s poll; js errors none). aiden-pc has NOT been
+switched yet (owner runs it there: `git pull && sudo ./install.sh
+--deploy-webserver` + the same probes).
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
