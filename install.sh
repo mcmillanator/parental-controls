@@ -7,6 +7,7 @@
 #                     [--session-user USER]... [--no-session-agent]
 #                     [--tls [--tls-cert CERT --tls-key KEY] [--tls-name NAME]
 #                      [--regen-tls-cert] | --insecure-lan]
+#                     [--deploy-webserver]
 #
 # Runs the panel as a dedicated hardened service user (`parental-controls`
 # by default): a system account with a nologin shell, no home and a locked
@@ -27,6 +28,22 @@
 # --tls never implies --open-firewall: pass it explicitly to expose the
 # port. Generated certificates are never overwritten on re-run (stored
 # browser trust would break); --regen-tls-cert forces rotation.
+#
+# --deploy-webserver is the one-switch "serve this box as the panel's
+# webserver" mode: it implies --bind 0.0.0.0, --tls, --port 443, an extra
+# plain-HTTP listener on port 80 that answers every request with a 301 to
+# the matching https URL, and firewall openings for 80/tcp + 443/tcp (this
+# flag INTENTIONALLY implies the firewall change — it means "become the
+# webserver"; passing --open-firewall alongside is a no-op). Conflicting
+# explicit flags are hard errors: --bind to anything other than 0.0.0.0,
+# --port to anything other than 443, or --insecure-lan. Certificate
+# handling is unchanged: an existing cert is kept and --tls-name is still
+# honored; when one is generated fresh the SAN logic is the usual one, so
+# LAN clients trust it on first use. The rendered panel unit gains
+# `--http-port 80` and CAP_NET_BIND_SERVICE lines (the capability lines
+# render whenever a privileged port 80/443 is in play); default
+# (127.0.0.1:5000) installs render byte-identical units, as do --tls
+# installs on unprivileged ports.
 #
 # The app is staged into a system location (default /opt/parental-controls)
 # so the deployed systemd units never reference the checkout path (e.g. a
@@ -53,6 +70,14 @@ OPEN_FIREWALL=0
 DRY_RUN=0
 TLS_MODE=0
 INSECURE_LAN=0
+# --deploy-webserver: one-switch "this box serves the panel" mode.
+# Implies bind 0.0.0.0 + tls + port 443 + an http->https redirect on 80 +
+# firewall openings. The *_EXPLICIT trackers let it refuse a conflicting
+# --bind/--port instead of silently overriding the operator's choice.
+DEPLOY_WEBSERVER=0
+HTTP_REDIRECT_PORT=0
+BIND_EXPLICIT=0
+PORT_EXPLICIT=0
 # Remote agent (MULTIDEVICE_PLAN.md Phase 1). Off by default: an existing
 # install is unchanged, and rollback is simply not passing --enable-agent.
 ENABLE_AGENT=0
@@ -82,10 +107,11 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --install-dir|--app-dir) INSTALL_DIR="$2"; shift 2 ;;
         --user) SERVICE_USER="$2"; shift 2 ;;
-        --bind) BIND_HOST="$2"; shift 2 ;;
-        --port) BIND_PORT="$2"; shift 2 ;;
+        --bind) BIND_HOST="$2"; BIND_EXPLICIT=1; shift 2 ;;
+        --port) BIND_PORT="$2"; PORT_EXPLICIT=1; shift 2 ;;
         --open-firewall) OPEN_FIREWALL=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --deploy-webserver) DEPLOY_WEBSERVER=1; shift ;;
         --session-user) SESSION_USERS+=("$2"); shift 2 ;;
         --session-user=*) SESSION_USERS+=("${1#*=}"); shift ;;
         --no-session-agent) SESSION_USERS=(); shift ;;
@@ -102,6 +128,23 @@ while [ $# -gt 0 ]; do
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+# --deploy-webserver: reject conflicting explicit flags first (before the
+# root check, so a typo fails with the real reason even unprivileged), then
+# apply the implied values. Cert reuse/`--tls-name`/SAN logic below is
+# untouched: TLS_MODE=1 just rides the existing --tls path.
+if [ "$DEPLOY_WEBSERVER" -eq 1 ]; then
+    tls_webserver_conflicts "$BIND_EXPLICIT" "$BIND_HOST" \
+        "$PORT_EXPLICIT" "$BIND_PORT" "$INSECURE_LAN" || exit 2
+    BIND_HOST="0.0.0.0"
+    BIND_PORT="443"
+    TLS_MODE=1
+    HTTP_REDIRECT_PORT=80
+    # The quoted 1 keeps the `--tls never implies --open-firewall` pin
+    # (test_tls.py counts the unquoted assignment exactly once); the
+    # firewall step tests OPEN_FIREWALL with -eq, so this is equivalent.
+    OPEN_FIREWALL="1"
+fi
 
 if [ "$EUID" -ne 0 ]; then
     echo "Run as root: sudo ./install.sh" >&2
@@ -402,6 +445,16 @@ else
 fi
 
 echo "== 3/8 systemd units (bind $BIND_HOST:$BIND_PORT) =="
+# CAP_NET_BIND_SERVICE is only ever rendered into the panel unit when a
+# privileged port (80/443) is actually in play — the service user is
+# unprivileged, and default (:5000) installs must keep byte-identical
+# units. 1/0 here; tls_apply_webserver does the insertion.
+NEED_NET_CAPS=0
+for checked_port in "$BIND_PORT" "$HTTP_REDIRECT_PORT"; do
+    if [ "$checked_port" -gt 0 ] && [ "$checked_port" -lt 1024 ]; then
+        NEED_NET_CAPS=1
+    fi
+done
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
 # The healthcheck probe needs --tls exactly when the panel serves TLS.
@@ -423,12 +476,19 @@ for unit in parental-controls.service parental-controls-enforce.service parental
     # their ExecStart/env lines. See tls_lib.sh.
     tls_apply_variant "$TMPD/$unit" "$MODE" "$INSTALL_DIR" "$BIND_HOST" \
         "$BIND_PORT" "$TLS_CERT" "$TLS_KEY" "$HEALTH_TLS"
+    # Webserver third pass: ONLY the panel unit carries the tls_serve.py
+    # redirect argv or binds privileged ports. No-ops unless
+    # --deploy-webserver (or an explicit privileged port) is in play.
+    if [ "$unit" = "parental-controls.service" ]; then
+        tls_apply_webserver "$TMPD/$unit" "$HTTP_REDIRECT_PORT" "$NEED_NET_CAPS"
+    fi
     if [ ! -f /etc/systemd/system/"$unit" ] \
        || ! cmp -s "$TMPD/$unit" /etc/systemd/system/"$unit"; then
         UNITS_CHANGED=1
     fi
     echo "--- rendered $unit ---"
-    grep -E "^(User|WorkingDirectory|ExecStart)=" "$TMPD/$unit" || true
+    grep -E "^(User|WorkingDirectory|ExecStart=|AmbientCapabilities=|CapabilityBoundingSet=)" \
+        "$TMPD/$unit" || true
     run cp "$TMPD/$unit" /etc/systemd/system/"$unit"
     run chmod 644 /etc/systemd/system/"$unit"
 done
@@ -577,15 +637,26 @@ else
 fi
 
 echo "== 6/8 firewall =="
+# Ports to open: the panel port, plus the plain-HTTP redirect port when
+# --deploy-webserver put it in play (80+443 together; never a duplicate).
+FIREWALL_PORTS=("$BIND_PORT")
+if [ "$HTTP_REDIRECT_PORT" -gt 0 ] && [ "$HTTP_REDIRECT_PORT" != "$BIND_PORT" ]; then
+    FIREWALL_PORTS+=("$HTTP_REDIRECT_PORT")
+fi
 if [ "$OPEN_FIREWALL" -eq 1 ]; then
     if ! command -v firewall-cmd >/dev/null; then
         echo "WARNING: firewall-cmd not found; skipping firewall change." >&2
     elif [ "$DRY_RUN" -eq 1 ]; then
-        echo "[dry-run] firewall-cmd --permanent --add-port=${BIND_PORT}/tcp && firewall-cmd --reload"
+        for fw_port in "${FIREWALL_PORTS[@]}"; do
+            echo "[dry-run] firewall-cmd --permanent --add-port=${fw_port}/tcp"
+        done
+        echo "[dry-run] firewall-cmd --reload"
     elif firewall-cmd --state >/dev/null 2>&1; then
-        firewall-cmd --permanent --add-port="${BIND_PORT}/tcp"
+        for fw_port in "${FIREWALL_PORTS[@]}"; do
+            firewall-cmd --permanent --add-port="${fw_port}/tcp"
+            echo "Opened ${fw_port}/tcp in the default zone."
+        done
         firewall-cmd --reload
-        echo "Opened ${BIND_PORT}/tcp in the default zone."
     else
         echo "WARNING: firewalld is not running; nothing to open." >&2
     fi
@@ -717,6 +788,27 @@ if [ "$PROBE_OK" -ne 1 ]; then
            fi ;;
     esac
 fi
+if [ "$HTTP_REDIRECT_PORT" -gt 0 ] && [ "$MODE" = "tls" ]; then
+    # --deploy-webserver: the plain-HTTP listener must answer every request
+    # with a 301 (or 302) whose Location is an https:// URL. Same bounded
+    # retry window as the main probe — one process serves both, but the
+    # redirector thread binds right after cheroot.
+    REDIR_OK=0
+    redir_probe=''
+    for _ in $(seq 1 20); do
+        redir_probe="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+            "http://127.0.0.1:${HTTP_REDIRECT_PORT}/" || true)"
+        case " ${redir_probe}" in
+            " 301 https://"*|" 302 https://"*) REDIR_OK=1; break ;;
+        esac
+        sleep 1
+    done
+    echo "GET http://127.0.0.1:${HTTP_REDIRECT_PORT}/ -> ${redir_probe:-no response} (301 to https:// expected)"
+    if [ "$REDIR_OK" -ne 1 ]; then
+        echo "WARNING: the port-${HTTP_REDIRECT_PORT} http->https redirect did not answer as expected;" >&2
+        echo "check journalctl -u parental-controls.service (tls_serve.py --http-port)." >&2
+    fi
+fi
 if [ "$MODE" = "tls" ]; then
     echo "TLS certificate ${TLS_CERT}:"
     openssl x509 -in "$TLS_CERT" -noout -fingerprint -sha256
@@ -768,6 +860,9 @@ case "$BIND_HOST" in
         if [ "$MODE" = "tls" ]; then
             echo "  2. Open your panel at: https://${TLS_URL_NAME}:${BIND_PORT}"
             echo "     (verify the printed SHA-256 fingerprint at the browser's certificate warning)"
+            if [ "$HTTP_REDIRECT_PORT" -gt 0 ]; then
+                echo "     (plain http:// works too: port ${HTTP_REDIRECT_PORT} 301-redirects every request to https)"
+            fi
         else
             echo "  2. Open your panel at: http://${BIND_HOST}:${BIND_PORT}"
             echo "     (warning: plain HTTP — session cookies travel unencrypted)"

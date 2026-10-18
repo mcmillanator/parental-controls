@@ -119,3 +119,43 @@ tls_apply_variant() {
             ;;
     esac
 }
+
+# --deploy-webserver conflict gate. $1=bind given (0/1) $2=bind value
+# $3=port given (0/1) $4=port value $5=insecure-lan flag (0/1). Returns 1
+# (reason on stderr) when an explicit flag fights the mode; install.sh
+# turns that into exit 2 BEFORE applying the implied values. --tls and
+# --open-firewall alongside are no-ops and pass.
+tls_webserver_conflicts() {
+    if [ "$5" = 1 ]; then
+        echo "--deploy-webserver conflicts with --insecure-lan: the webserver mode is TLS-only (https on 443 plus an http->https redirect on 80)." >&2
+        return 1
+    fi
+    if [ "$1" = 1 ] && [ "$2" != "0.0.0.0" ]; then
+        echo "--deploy-webserver implies --bind 0.0.0.0; drop the explicit --bind '$2' (or pass --bind 0.0.0.0)." >&2
+        return 1
+    fi
+    if [ "$3" = 1 ] && [ "$4" != "443" ]; then
+        echo "--deploy-webserver implies --port 443; drop the explicit --port '$4' (or pass --port 443)." >&2
+        return 1
+    fi
+    return 0
+}
+
+# Third render pass over the ALREADY variant-applied panel unit
+# (install.sh --deploy-webserver; never call it on the other units).
+# $1=file $2=http redirect port (0 = off) $3=privileged ports in play (0/1).
+# With $2>0 the tls_serve.py ExecStart gains ` --http-port $2` (a no-op on
+# non-tls ExecStarts). With $3=1 the CAP_NET_BIND_SERVICE lines are inserted
+# after LockPersonality=true: Ambient gives the unprivileged service user
+# the bind, and the bounding set retains it plus what the passwordless-sudo
+# children need (usermod/passwd/loginctl, systemd-run, and tee/cat/mkdir on
+# /sys/fs/cgroup — CAP_SYS_ADMIN), so narrowing it never breaks enforcement.
+# Both branches off = byte-identical to the pre-webserver rendering.
+tls_apply_webserver() {
+    if [ "$2" -gt 0 ]; then
+        sed -i -e "s|^\(ExecStart=.*tls_serve\.py .*--key=[^']*\)'$|\1 --http-port $2'|" "$1"
+    fi
+    if [ "$3" = 1 ]; then
+        sed -i -e '/^LockPersonality=true$/a AmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_AUDIT_WRITE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_FSETID CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_SETFCAP CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN' "$1"
+    fi
+}
