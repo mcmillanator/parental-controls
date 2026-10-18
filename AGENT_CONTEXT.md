@@ -396,6 +396,36 @@ for the UI move: `.scratch/screens/{overview,admin-audit}-desktop-dark-ui-move*.
 switched yet (owner runs it there: `git pull && sudo ./install.sh
 --deploy-webserver` + the same probes).
 
+**Merged locally 2026-10-18, NOT yet pushed/deployed: the friendly-status fix
+(`f0a8ecb`, branch deleted).** Every raw probe detail is classified at the
+payload boundary (`status_display()` — one table: PAM/systemd chatter + a
+parsed status → the normal pill; genuine probe failure → "Status check needs
+help — ask your admin"; human copy verbatim), so `sudo: pam_open_session…`
+can no longer reach any rendered page; raw text goes to the admin audit log
+as `account.status_probe`, deduped per change; `tests/test_status_detail.py`
+(36 tests) mutation-verifies it. **Root cause of the live warning box is NOT
+this fix**: `get_lock_status` only leaks stderr when `sudo passwd -S` exits
+non-zero — on the live boxes sudo's PAM session policy fails
+(`TooManySessions`, seen in the journal), so the probe genuinely fails. Next
+queued workstream (own branch, one writer per region): a 30s TTL cache for
+the lock-status probe (~6× fewer sudo PAM sessions; the 10s Overview poll runs
+one per account) + active-session counts via the EXISTING sudoers rules
+(`loginctl show-user -p Sessions --value`, `show-session -p Class -p Type`;
+"active" = Class `user`, which excludes the per-user manager session —
+verified live: bluefox had `21 unspecified/manager` + `20 wayland/user`) +
+"Accounts"→"Child Accounts" heading + UID removed from the Overview cards
+(details page keeps UID/Shell/Home). After that deploy, the
+`account.status_probe` audit events quantify whether the probe still fails.
+
+**VM state: powered OFF by owner request 2026-10-18 (network adapter
+changes).** Push (needs the VM — the container's key is not a repo deploy
+key), the VM authoritative suite and the deploy of `f0a8ecb` + the queued
+workstream are all pending its return. If the VM's address/hostname changes,
+the container's `~/.ssh/known_hosts` may need a re-pin (`accept-new` — see
+the deploy skill's SSH bootstrap). The panel/enforce/health units live on that
+box and were paused with it (frozen cgroups do not survive a power cycle; the
+timer re-locks on the first tick if bedtime is open).
+
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
 correct by the harness, never eyeballed), the countdown ticking, and the bonus
