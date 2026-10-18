@@ -425,7 +425,7 @@ def group_by_category(procs, index=None):
     import budgets
     groups = {cat: [] for cat in budgets.CATEGORIES}
     for proc in procs:
-        cat = categorize(proc, index)
+        cat = budgets.categorize(proc, index)
         proc['category'] = cat
         groups[cat].append(proc)
     return groups

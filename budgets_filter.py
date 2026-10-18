@@ -162,7 +162,7 @@ def set_pref(username, comm, action):
         return False, 'No command provided'
     if action not in ('hide', 'show'):
         return False, f'Unknown action: {action}'
-    data = load_prefs()
+    data = budgets.load_prefs()
     entry = data.setdefault(username, {'hidden_comm': [], 'shown_comm': []})
     hidden = set(entry.get('hidden_comm', []))
     shown = set(entry.get('shown_comm', []))
@@ -191,8 +191,9 @@ def apply_filter(procs, username, prefs=None):
     as before). Hidden never means unmanaged: budgets/freezer matching
     is untouched.
     """
+    import budgets
     if prefs is None:
-        prefs = load_prefs()
+        prefs = budgets.load_prefs()
     entry = prefs.get(username, {}) if isinstance(prefs, dict) else {}
     user_hidden = set(entry.get('hidden_comm', []))
     user_shown = set(entry.get('shown_comm', []))
