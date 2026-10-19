@@ -3,8 +3,10 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-17, on `master` (the `docs/nojs-accuracy` correction is
-merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
+Last updated: 2026-10-19, on `master` @ `56779e6` — **pushed and deployed to
+the VM today** (release + crashed-session recovery in "Status right now"
+below). (Historical note from the 2026-10-17 update: the
+`docs/nojs-accuracy` correction is merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
 §11.1 were corrected to the shipped split — Overview actions are a full
 plain-POST no-JS path; the other pages' mutations are JS/fetch and do not
 submit without JS — the owner chose accurate docs over converging the
@@ -396,8 +398,8 @@ for the UI move: `.scratch/screens/{overview,admin-audit}-desktop-dark-ui-move*.
 switched yet (owner runs it there: `git pull && sudo ./install.sh
 --deploy-webserver` + the same probes).
 
-**Merged locally 2026-10-18, NOT yet pushed/deployed: the friendly-status fix
-(`f0a8ecb`, branch deleted).** Every raw probe detail is classified at the
+**Merged locally 2026-10-18; pushed and deployed 2026-10-19 with `56779e6`:
+the friendly-status fix (`f0a8ecb`, branch deleted).** Every raw probe detail is classified at the
 payload boundary (`status_display()` — one table: PAM/systemd chatter + a
 parsed status → the normal pill; genuine probe failure → "Status check needs
 help — ask your admin"; human copy verbatim), so `sudo: pam_open_session…`
@@ -417,14 +419,53 @@ verified live: bluefox had `21 unspecified/manager` + `20 wayland/user`) +
 (details page keeps UID/Shell/Home). After that deploy, the
 `account.status_probe` audit events quantify whether the probe still fails.
 
-**VM state: powered OFF by owner request 2026-10-18 (network adapter
-changes).** Push (needs the VM — the container's key is not a repo deploy
-key), the VM authoritative suite and the deploy of `f0a8ecb` + the queued
-workstream are all pending its return. If the VM's address/hostname changes,
-the container's `~/.ssh/known_hosts` may need a re-pin (`accept-new` — see
-the deploy skill's SSH bootstrap). The panel/enforce/health units live on that
-box and were paused with it (frozen cgroups do not survive a power cycle; the
-timer re-locks on the first tick if bedtime is open).
+**VM state (2026-10-19): ON, synced, and RELEASED at `56779e6`.** Release
+record: authoritative VM suite **1445 tests, OK, 22 skips**; pushed to
+`origin/master` from the VM over `ssh.github.com:443`; deployed with
+`sudo ./install.sh --deploy-webserver` — **8/8 verify**, 443 → 302
+`/login?next=/`, 80 → 301 with path+query preserved, ONE python process
+holds both ports, firewall `80/tcp 443/tcp`, cert kept (fingerprint
+unchanged → browser TOFU trust carries), panel/enforce/health units active,
+zero SELinux avc lines, capability-regression gate passed (`passwd -S` /
+`usermod -L` / `usermod -U` succeed on `pcagent` under the unit's exact
+bounding set; `pcagent` left UNLOCKED). Deployed-artifact greps confirm the
+release content: `status_display` in `/opt/parental-controls/app.py` and the
+sliced modules (`users.py`, `locks.py`, `budgets_tick.py`) present — the
+`account.status_probe` audit events can now quantify the live probe failures.
+aiden-pc has NOT been switched. The old `5000/tcp` firewalld entry lingers
+from the pre-webserver install (harmless; no listener bound).
+
+**Crashed-session recovery (2026-10-19).** The 2026-10-18 session died
+~21:51 mid-flight with three workstreams running. All recovered; the unit of
+work that blocked today's release was the **countdown clock flake**:
+`tests/test_countdown` used a FIXED 21:00–07:00 bedtime fixture while
+`countdown_state` reads the real clock, so the suite failed **every run
+between 21:00 and 07:00 local** on either box (product behavior was correct
+— in-window → 0 seconds). `56779e6` derives the window from `datetime.now()`
+instead (test-only change, no product code, no redeploy implication beyond
+being carried by this release). The container→VM SSH key had been wiped
+(container restart) — re-bootstrapped per the deploy skill (key in BOTH
+`.ssh` homes; password entered in chat that day — rotate `stan`'s password
+if that matters). **Worktree gitfile pointers are now relative on BOTH
+boxes** (`gitdir: ../.git/worktrees/<name>`); admin back-pointers stay
+absolute — this git build resolves relative back-pointers against the CWD
+and marks worktrees `prunable`, so **NEVER `git worktree prune`** remains
+law. This git has no `git worktree add --relative-paths`; convert by hand
+after every add (rule recorded in the root `AGENTS.md`). The reported host
+view of the container checkout is
+`/var/home/stan/Documents/Projects/local-llm-projects/...` — the relative
+pointers are what keep it working from both spellings.
+
+**Unmerged workstreams (owner review pending; all committed, worktrees
+clean):** `feature/restructure` @ `431ea80` (slice 12 = `bonus.py`+`notify.py`
+out of `app.py`; container slice gate green at baseline) — FF-able;
+`fix/install-selfcheck` @ `2723539` (installer firewall/reachability
+overhaul + hermetic `tests/test_install_firewall`, 41 tests) — fixes the
+`https://existing:5000`-style URL wart seen in today's deploy output
+(`--tls-name` was the old workaround); `feat/sessions-and-child-accounts` @
+`d32ee7b` (lock-status cache + real session counts + Child-Accounts heading
++ UID drop) — needs a REBASE onto the sliced `app.py` layout; `merge-tree`
+pins `app.py` as the only conflict file.
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
