@@ -6,12 +6,17 @@
 These pin its shape and precedence so the two screens can never disagree, and
 that a payload lacking `bedtime`/`bonus` degrades to no countdown.
 
-Stdlib only; pure functions of the payload (no clock, no system access).
+Stdlib only. The bonus branch is a pure function of the payload; the bedtime
+branch reads the clock through `minutes_until_bedtime`, so bedtime fixtures
+that must land OUTSIDE the window derive it from `datetime.now()` — a fixed
+window would make the suite clock-dependent (it failed every run between
+21:00 and 07:00 local).
 """
 
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -29,13 +34,27 @@ ALL_DAYS = {'start': '21:00', 'end': '07:00',
             'days': [0, 1, 2, 3, 4, 5, 6]}
 
 
+def _window_ahead(minutes_ahead=180):
+    """A next-week schedule window starting `minutes_ahead` after NOW.
+
+    Used wherever the test needs `minutes_until_bedtime` to report a real
+    wait: deriving the window from the clock keeps the assertion true at
+    every wall-clock value, instead of only when the suite happens to run
+    outside a hardcoded bedtime.
+    """
+    start = datetime.now() + timedelta(minutes=minutes_ahead)
+    end = start + timedelta(minutes=60)
+    return {'start': start.strftime('%H:%M'), 'end': end.strftime('%H:%M'),
+            'days': [0, 1, 2, 3, 4, 5, 6]}
+
+
 class CountdownStateTest(unittest.TestCase):
     def test_bonus_wins_over_the_bedtime_schedule(self):
         state = app.countdown_state(_user(BONUS_ACTIVE, ALL_DAYS))
         self.assertEqual({'kind': 'bonus', 'seconds': 90 * 60}, state)
 
     def test_bedtime_is_used_when_no_bonus_is_active(self):
-        state = app.countdown_state(_user(BONUS_NONE, ALL_DAYS))
+        state = app.countdown_state(_user(BONUS_NONE, _window_ahead()))
         self.assertIsNotNone(state)
         self.assertEqual('bedtime', state['kind'])
         self.assertGreater(state['seconds'], 0)
