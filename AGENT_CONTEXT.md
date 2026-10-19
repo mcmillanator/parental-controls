@@ -3,9 +3,9 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-19, on `master` @ `56779e6` — **pushed and deployed to
-the VM today** (release + crashed-session recovery in "Status right now"
-below). (Historical note from the 2026-10-17 update: the
+Last updated: 2026-10-19, on `master` @ `3532aa7` — **two releases shipped
+and deployed to the VM today** (both records in "Status right now" below).
+(Historical note from the 2026-10-17 update: the
 `docs/nojs-accuracy` correction is merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
 §11.1 were corrected to the shipped split — Overview actions are a full
 plain-POST no-JS path; the other pages' mutations are JS/fetch and do not
@@ -417,19 +417,25 @@ as `account.status_probe`, deduped per change; `tests/test_status_detail.py`
 (36 tests) mutation-verifies it. **Root cause of the live warning box is NOT
 this fix**: `get_lock_status` only leaks stderr when `sudo passwd -S` exits
 non-zero — on the live boxes sudo's PAM session policy fails
-(`TooManySessions`, seen in the journal), so the probe genuinely fails. Next
-queued workstream (own branch, one writer per region): a 30s TTL cache for
-the lock-status probe (~6× fewer sudo PAM sessions; the 10s Overview poll runs
-one per account) + active-session counts via the EXISTING sudoers rules
-(`loginctl show-user -p Sessions --value`, `show-session -p Class -p Type`;
-"active" = Class `user`, which excludes the per-user manager session —
-verified live: bluefox had `21 unspecified/manager` + `20 wayland/user`) +
-"Accounts"→"Child Accounts" heading + UID removed from the Overview cards
-(details page keeps UID/Shell/Home). After that deploy, the
-`account.status_probe` audit events quantify whether the probe still fails.
+(`TooManySessions`, seen in the journal), so the probe genuinely fails. The
+queued workstream it prompted **shipped 2026-10-19 (`3532aa7`, pushed +
+deployed)**: a 30s TTL cache for the lock-status probe (~6× fewer sudo PAM
+sessions; the 10s Overview poll runs one per account) + active-session counts
+via the EXISTING sudoers rules (`loginctl show-user -p Sessions --value`,
+`show-session -p Class -p Type`; "active" = Class `user`, which excludes the
+per-user manager session — verified live: bluefox had `21 unspecified/manager`
++ `20 wayland/user`) + "Accounts"→"Child Accounts" heading + UID removed from
+the Overview cards (details page keeps UID/Shell/Home). The recovery session
+rebased it onto the sliced layout: the probe cache now lives in `users.py`
+(invalidation routed through the `app.` facade from `locks.py`), the
+session-count cache is facade-local in `app.py`; `RESTRUCTURE_IMPORTS.md`
+regenerated — 55/55 pre-existing patch-target rows retained, additions only.
+The live warning box should now quiet down; `account.status_probe` audit
+events quantify whether the probe still fails.
 
-**VM state (2026-10-19): ON, synced, and RELEASED at `56779e6`.** Release
-record: authoritative VM suite **1445 tests, OK, 22 skips**; pushed to
+**VM state (2026-10-19): ON, synced, and RELEASED at `3532aa7`.** Release
+record (#1 — friendly-status fix + restructure slices + clock-flake test
+fix, `56779e6`): authoritative VM suite **1445 tests, OK, 22 skips**; pushed to
 `origin/master` from the VM over `ssh.github.com:443`; deployed with
 `sudo ./install.sh --deploy-webserver` — **8/8 verify**, 443 → 302
 `/login?next=/`, 80 → 301 with path+query preserved, ONE python process
@@ -443,6 +449,21 @@ sliced modules (`users.py`, `locks.py`, `budgets_tick.py`) present — the
 `account.status_probe` audit events can now quantify the live probe failures.
 aiden-pc has NOT been switched. The old `5000/tcp` firewalld entry lingers
 from the pre-webserver install (harmless; no listener bound).
+
+**Release #2 (2026-10-19, `3532aa7`): the owner's Overview workstream is
+live.** `feat/sessions-and-child-accounts` rebased onto the sliced master
+(lock-status probe cache → `users.py`, invalidation routed through the
+`app.` facade from `locks.py`; session-count cache facade-local in `app.py`,
+agent mirror unchanged), FF-merged, VM suite **1504 tests, OK, 22 skips**,
+pushed over 443, deployed `--deploy-webserver`: 443→302, 80→301 path+query
+preserved, bogus login→401, ONE process on :80+:443, timers active, 0 avc
+lines, capability gate green (`pcagent` left UNLOCKED), sudoers untouched —
+the counts ride EXISTING loginctl grants (`visudo -c` OK). Deployed greps:
+"Child Accounts" ×3 in `templates/index.html`, `active_session_count` in
+`app.py`, `invalidate_lock_status` ×6 + the 30s TTL constant in `users.py`.
+Not yet eyeballed in a real browser (neither box has one) — owner glance at
+the Overview recommended; watch `account.status_probe` events for the
+warning-box quiet-down the 30s cache should deliver.
 
 **Crashed-session recovery (2026-10-19).** The 2026-10-18 session died
 ~21:51 mid-flight with three workstreams running. All recovered; the unit of
@@ -467,14 +488,14 @@ pointers are what keep it working from both spellings.
 
 **Unmerged workstreams (owner review pending; all committed, worktrees
 clean):** `feature/restructure` @ `431ea80` (slice 12 = `bonus.py`+`notify.py`
-out of `app.py`; container slice gate green at baseline) — FF-able;
+out of `app.py`; container slice gate green at baseline) — NOT FF-able
+anymore: release #2 touched `app.py`/`agent.py`/`RESTRUCTURE_IMPORTS.md`
+under it, so the branch needs a merge-master + slice-gate baseline refresh
+(the established pattern, cf. `438d4f1`) before slice 13;
 `fix/install-selfcheck` @ `2723539` (installer firewall/reachability
-overhaul + hermetic `tests/test_install_firewall`, 41 tests) — fixes the
-`https://existing:5000`-style URL wart seen in today's deploy output
-(`--tls-name` was the old workaround); `feat/sessions-and-child-accounts` @
-`d32ee7b` (lock-status cache + real session counts + Child-Accounts heading
-+ UID drop) — needs a REBASE onto the sliced `app.py` layout; `merge-tree`
-pins `app.py` as the only conflict file.
+overhaul + hermetic `tests/test_install_firewall`, 41 tests) — still
+FF-able; fixes the `https://existing:5000`-style URL wart still visible in
+release #2's deploy output (`--tls-name` was the old workaround).
 
 Still unverified (static renders + tests only — nobody has watched it in a
 browser): the no-JS toggle, the 236px tablet sidebar at 768–959px (measured
