@@ -3,8 +3,8 @@
 Current state of Bazzite Parental Controls, and the things that are **not**
 derivable from the code. Read this plus `AGENTS.md` before touching anything.
 
-Last updated: 2026-10-19, on `master` @ `3532aa7` — **two releases shipped
-and deployed to the VM today** (both records in "Status right now" below).
+Last updated: 2026-10-19, on `master` @ `20956a4` — **three releases shipped
+and deployed to the VM today** (all records in "Status right now" below).
 (Historical note from the 2026-10-17 update: the
 `docs/nojs-accuracy` correction is merged): the no-JS scope claims in `static/js/app.js` and `UI_UX_PLAN.md`
 §11.1 were corrected to the shipped split — Overview actions are a full
@@ -417,8 +417,18 @@ as `account.status_probe`, deduped per change; `tests/test_status_detail.py`
 (36 tests) mutation-verifies it. **Root cause of the live warning box is NOT
 this fix**: `get_lock_status` only leaks stderr when `sudo passwd -S` exits
 non-zero — on the live boxes sudo's PAM session policy fails
-(`TooManySessions`, seen in the journal), so the probe genuinely fails. The
-queued workstream it prompted **shipped 2026-10-19 (`3532aa7`, pushed +
+(`TooManySessions`, seen in the journal), so the probe genuinely fails. **FIXED
+2026-10-19 (`20956a4`, pushed + deployed):** the panel/enforce/agent units now
+set `Environment=XDG_SESSION_CLASS=background` — `pam_systemd(8)` honours it
+from sudo's own environment, and background-class sessions don't count against
+logind's per-user `MaxSessions` (default 5) that the concurrent probe bursts
+were tripping. Live proof: post-deploy window 64 probe execs / 0
+`pam_open_session` denials; pre-deploy same window: 10 denials. Pinned by
+`tests/test_service_user.py::test_probe_units_use_background_logind_sessions`
+(+ the healthcheck-stays-plain guard). The 30s caches from `3532aa7` reduce
+the churn; the class change removes the cap exposure entirely.
+
+The queued workstream it prompted **shipped 2026-10-19 (`3532aa7`, pushed +
 deployed)**: a 30s TTL cache for the lock-status probe (~6× fewer sudo PAM
 sessions; the 10s Overview poll runs one per account) + active-session counts
 via the EXISTING sudoers rules (`loginctl show-user -p Sessions --value`,
