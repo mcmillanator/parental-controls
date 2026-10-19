@@ -11,6 +11,13 @@ ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-se
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+# Keep the PAM sessions sudo opens for status probes OUT of logind's
+# per-user MaxSessions accounting (only class=user sessions are capped, at
+# 5 by default; concurrent probe bursts tripped TooManySessions ->
+# "pam_open_session: Permission denied"). pam_systemd(8) honours this
+# variable from sudo's own environment; affects only our transient
+# probe sessions. See AGENT_CONTEXT "Status right now" (2026-10-19).
+Environment=XDG_SESSION_CLASS=background
 # Auth store location (0600; owned by the service user so password changes,
 # lockouts and revocations can persist — root can always read it).
 Environment=PARENTAL_CONTROLS_AUTH=/etc/parental-controls/auth.json

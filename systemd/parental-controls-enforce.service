@@ -6,3 +6,7 @@ Type=oneshot
 User=@SERVICE_USER@
 WorkingDirectory=@APP_DIR@
 ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec python @APP_DIR@/enforce_bedtime_timer.py'
+# The tick probes (passwd -S / loginctl) open sudo PAM sessions too; keep
+# them out of logind's per-user MaxSessions accounting — see the note in
+# parental-controls.service (TooManySessions fix, 2026-10-19).
+Environment=XDG_SESSION_CLASS=background

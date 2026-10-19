@@ -163,6 +163,29 @@ class TestUnitsRunAsServiceUser(unittest.TestCase):
                 self.assertEqual(users, [f'User={SERVICE_USER}'])
                 self.assertNotIn('@SERVICE_USER@', rendered)
 
+    # logind caps a user at MaxSessions (default 5) class=user sessions.
+    # Every sudo the status probes run opens a PAM session through
+    # pam_systemd; concurrent probe bursts tripped TooManySessions, making
+    # sudo die at session init ("pam_open_session: Permission denied" ->
+    # the "unavailable" lock status). pam_systemd(8) honours
+    # XDG_SESSION_CLASS from sudo's environment, and background sessions
+    # do not count against the cap. See AGENT_CONTEXT "Status right now".
+    PROBE_UNITS = ('systemd/parental-controls.service',
+                   'systemd/parental-controls-enforce.service',
+                   'systemd/parental-controls-agent.service')
+
+    def test_probe_units_register_background_logind_sessions(self):
+        for rel in self.PROBE_UNITS:
+            with self.subTest(unit=rel):
+                self.assertIn('Environment=XDG_SESSION_CLASS=background',
+                              read(rel))
+
+    def test_healthcheck_unit_stays_plain(self):
+        # It only curls the panel; no sudo children, so no need to touch
+        # its session class.
+        self.assertNotIn('XDG_SESSION_CLASS',
+                         read('systemd/parental-controls-healthcheck.service'))
+
     def test_no_newprivileges_changes(self):
         # Out of scope for this migration: the panel must keep spawning
         # passwordless sudo children, the healthcheck must keep refusing to.

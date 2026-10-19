@@ -21,6 +21,9 @@ ExecStart=/bin/bash -c 'cd @APP_DIR@ && . .venv/bin/activate && exec waitress-se
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+# Background logind session class for sudo's PAM sessions — see the note in
+# parental-controls.service (TooManySessions fix, 2026-10-19).
+Environment=XDG_SESSION_CLASS=background
 # Bearer token store (0600, owned by the service user). wsgi_agent.py fails
 # closed at startup when it is missing.
 Environment=PARENTAL_CONTROLS_AGENT_TOKEN_FILE=/etc/parental-controls/agent_token
