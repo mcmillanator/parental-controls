@@ -514,3 +514,38 @@ modal's `showModal()`/Esc/Cancel interactions. Resolved 2026-10-17: the no-JS
 scope above — the owner chose accurate docs over converging the remaining
 pages; convergence stays an open deferred option. Resolved: the countdown
 `aria-live` is now `off`, as on the Overview.
+
+**Still failing after `20956a4` (2026-10-20): the sudoers `!pam_session` fix.**
+The owner reported `sudo: pam_open_session: Permission denied` /
+`policy plugin failed session initialization` on live boxes TODAY: the
+status probes (`passwd -S`, `loginctl show-user/show-session`) still die at
+PAM session init, the child cards keep showing "Status check needs help —
+ask your admin" and the audit log records `{"class": "unavailable"}` events.
+The `XDG_SESSION_CLASS=background` class-nudge is evidently not holding
+(possibly insufficient on its own, possibly the failing box predates the
+`20956a4` deploy — both scenarios need the same next step). The real fix:
+BOTH sudoers templates now carry `Defaults:@SERVICE_USER@ !pam_session`
+(sudoers(5) per-INVOKING-USER Defaults scope — note `Defaults:` is USER
+scope, `Defaults!` is COMMAND scope; the `pam_session` flag exists since
+sudo 1.8.7) so the service user's sudo children never open a PAM session
+at all — logind is never consulted, so no `TooManySessions`, regardless of
+the class. Cost: sudo's PAM session open/close journal lines and
+PAM-applied resource limits for this user's non-interactive sudo ONLY;
+auth/account phases and sudo's own command logging are untouched. The
+units' `Environment=XDG_SESSION_CLASS=background` lines stay as
+belt-and-braces (their tests still pin them). Pinned by
+`tests/test_service_user.py::TestSudoersRenderAsServiceUser`
+(placeholder + rendered `!pam_session` Defaults entry, both templates);
+the existing rendered-sudoers `visudo -c` gate covers the grammar in both
+files — **not runnable in this container (no sudo package), so the syntax
+proof is the live `visudo -c` during install**. install.sh needs nothing:
+it seds + visudo-validates exactly these template files.
+**VERIFY ON THE LIVE BOX (human):** 1) redeploy FIRST — the failing box may
+run pre-`20956a4` code (`git pull && sudo ./install.sh --deploy-webserver`,
+install.sh's `visudo -c` aborts on a bad render); 2) `sudo grep pam_session
+/etc/sudoers.d/parental-controls /etc/sudoers.d/parental-controls-budgets`
+— expect the Defaults line naming the service user, no `@SERVICE_USER@`;
+3) watch `journalctl -u parental-controls.service -u
+parental-controls-enforce.service --since -30m | grep -c pam_open_session`
+— expect 0; 4) Overview cards must stop showing the needs-help copy and
+`account.status_probe` audit events should go quiet.
