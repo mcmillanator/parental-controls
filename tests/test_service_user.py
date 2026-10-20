@@ -222,12 +222,51 @@ class TestSudoersRenderAsServiceUser(unittest.TestCase):
     TEMPLATES = ('sudoers-parental-controls',
                  'sudoers-parental-controls-budgets')
 
+    # logind's MaxSessions cap (default 5, class=user) is blown by the app's
+    # sudo bursts: every sudo opens a PAM session, pam_systemd registers it
+    # with logind, TooManySessions makes pam_open_session fail, and sudo
+    # dies before running even a read-only probe (`pam_open_session:
+    # Permission denied` -> the "needs help" lock status). The fix is the
+    # per-invoking-user Default entry `Defaults:<user> !pam_session`
+    # (sudoers(5) — `Defaults:` scopes USERS, `Defaults!` scopes COMMANDS;
+    # the pam_session flag exists since sudo 1.8.7). It stops sudo opening
+    # PAM sessions for the service user only: auth/account phases and
+    # sudo's own command logging are untouched. This supersedes the
+    # XDG_SESSION_CLASS=background unit env (kept belt-and-braces; the
+    # probe tests above still pin those Environment= lines).
+    PAM_SESSION_DEFAULTS = re.compile(
+        r'(?m)^Defaults:(?P<users>[^ \t]+) !pam_session[ \t]*$')
+
     def test_every_rule_line_uses_the_placeholder(self):
         for rel in self.TEMPLATES:
             with self.subTest(template=rel):
                 for line in read(rel).splitlines():
                     if line.strip() and not line.strip().startswith('#'):
                         self.assertIn('@SERVICE_USER@', line)
+
+    def test_templates_carry_a_pam_session_defaults_entry(self):
+        # Unrendered: the Defaults entry must scope through the placeholder,
+        # matching the user sudo is invoked as on the live box.
+        for rel in self.TEMPLATES:
+            with self.subTest(template=rel):
+                match = self.PAM_SESSION_DEFAULTS.search(read(rel))
+                self.assertIsNotNone(
+                    match,
+                    f'{rel} must contain `Defaults:@SERVICE_USER@ '
+                    '!pam_session` (see the template comment for why)')
+                self.assertEqual(match.group('users'), '@SERVICE_USER@')
+
+    def test_rendered_pam_session_defaults_scopes_the_service_user(self):
+        # Rendered like install.sh's sed: the entry must name exactly the
+        # real service user, with no literal placeholder left behind.
+        for rel in self.TEMPLATES:
+            with self.subTest(template=rel):
+                rendered = read(rel).replace('@SERVICE_USER@', SERVICE_USER)
+                self.assertNotIn('@SERVICE_USER@', rendered)
+                match = self.PAM_SESSION_DEFAULTS.search(rendered)
+                self.assertIsNotNone(match,
+                                     f'{rel}: Defaults entry disappeared')
+                self.assertEqual(match.group('users'), SERVICE_USER)
 
     def test_templates_name_no_real_user(self):
         for rel in self.TEMPLATES:
@@ -243,6 +282,11 @@ class TestSudoersRenderAsServiceUser(unittest.TestCase):
                 self.assertRegex(rendered, r'(?m)^parental-controls\s')
 
     def test_rendered_templates_pass_visudo(self):
+        # Covers BOTH templates (the TEMPLATES loop) and every line shape in
+        # them, including the `Defaults:<user> !pam_session` entry: visudo
+        # rejects unknown Defaults options and bad grammar as parse errors,
+        # exactly like install.sh's `visudo -c` gate on the live box.
+        # Skips when visudo is absent (e.g. containers without sudo).
         if shutil.which('visudo') is None:
             self.skipTest('visudo not on PATH')
         tmpd = tempfile.mkdtemp(prefix='pc-sudoers-')

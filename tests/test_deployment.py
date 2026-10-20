@@ -66,6 +66,11 @@ def granted_commands(rel):
     """
     out = []
     for line in rule_lines(rel):
+        if line.startswith('Defaults'):
+            # Default_Entry (sudoers(5)), e.g. `Defaults:<user>
+            # !pam_session` — configuration scoped to the invoking user,
+            # not a command grant. Must not be parsed as one.
+            continue
         spec = line.split('NOPASSWD:', 1)[-1]
         for item in spec.split(','):
             item = item.strip()
@@ -216,6 +221,10 @@ def parse_command_specs(body):
     for line in body.splitlines():
         line = line.strip()
         if not line or line.startswith('#'):
+            continue
+        if line.startswith('Defaults'):
+            # Default_Entry (sudoers(5)) — not a Cmnd spec; see
+            # granted_commands() above for the same guard.
             continue
         for item in line.split('NOPASSWD:', 1)[-1].split(','):
             item = item.strip()

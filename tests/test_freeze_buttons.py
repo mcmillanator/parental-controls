@@ -592,8 +592,12 @@ class TestFreezeDeploy(unittest.TestCase):
         # Five grants, one per cgroup attribute, each anchored to the
         # parental-<user>-<category> namespace and both resolved binaries.
         # (Regex-anchored, not trailing-wildcard: see sudo-audit.md §5.)
-        self.assertEqual(len(lines), 5)
-        for ln in lines:
+        # Defaults entries (the `!pam_session` line) are configuration for
+        # the invoking user, not privileged grants, so this count covers
+        # the NOPASSWD lines only.
+        grants = [ln for ln in lines if 'NOPASSWD:' in ln]
+        self.assertEqual(len(grants), 5)
+        for ln in grants:
             self.assertIn(f'{service} ALL=(root) NOPASSWD: /usr/sbin/', ln)
             self.assertIn(', /usr/bin/', ln)
             self.assertTrue(ln.endswith('$'), ln)
