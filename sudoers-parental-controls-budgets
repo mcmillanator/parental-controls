@@ -18,6 +18,24 @@
 # migration/freeze primitive). The patterns below pin each argument exactly.
 # `[.]` keeps dots literal; the username/category segment cannot contain '/'.
 # See sudo-audit.md §2 and §5 Step 3.
+#
+# PAM SESSIONS DISABLED FOR THE SERVICE USER'S SUDO CHILDREN — the same
+# Defaults entry documented in depth in the sudoers-parental-controls
+# template. Short version: every sudo opens a PAM session that pam_systemd
+# registers with logind; logind caps a user at MaxSessions (default 5)
+# class-user sessions, and the budget-tick sudo bursts (tee/cat/mkdir on
+# every pass, plus the status probes) blew through it:
+# TooManySessions -> `pam_open_session: Permission denied` -> sudo died
+# before running the command. `Defaults:` scopes to the INVOKING user list
+# (sudoers(5); `Defaults!` is command scope — do not switch it), and
+# `!pam_session` (sudo >= 1.8.7) skips the session phase. Lost: only
+# sudo's session open/close journal lines and PAM resource limits for this
+# user's non-interactive sudo; auth/account phases and sudo's command
+# logging still run. Repeated here because sudoers merges both files and
+# each must stay effective on its own. Supersedes the
+# XDG_SESSION_CLASS=background unit workaround, which remains as
+# belt-and-braces; see AGENT_CONTEXT.md "Status right now".
+Defaults:@SERVICE_USER@ !pam_session
 @SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, /usr/bin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$
 @SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$, /usr/bin/tee ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]procs$
 @SERVICE_USER@ ALL=(root) NOPASSWD: /usr/sbin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$, /usr/bin/cat ^/sys/fs/cgroup/parental-[A-Za-z0-9_.-]+/cgroup[.]freeze$

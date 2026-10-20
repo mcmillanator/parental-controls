@@ -34,6 +34,34 @@
 # `terminate-user *` authorized `terminate-user --all`. The patterns below pin
 # each argv; usernames are further constrained to the app's own charset and
 # `passwd -S` is pinned so no other flag can ride along. See sudo-audit.md §5.
+#
+# PAM SESSIONS DISABLED FOR THE SERVICE USER'S SUDO CHILDREN.
+# Every sudo opens a PAM session, which pam_systemd registers with logind,
+# and logind caps each user at MaxSessions (default 5) sessions of class
+# user. The probe/enforcement bursts blew through that cap: logind answered
+# io.systemd.Login.TooManySessions, pam_open_session failed, and sudo died
+# before running even harmless read-only queries
+# (`sudo: pam_open_session: Permission denied` -> the Overview's "needs
+# help" lock status and the "unavailable" audit events).
+#
+# Grammar (sudoers(5), verified against the sudo 1.9 manual): a Default
+# entry scoped with `Defaults:` lists the INVOKING users; `Defaults!` is
+# the COMMAND scope — do not "correct" this line to that form. The
+# `pam_session` flag (sudo >= 1.8.7) controls PAM session setup; `!`
+# switches it off. The same Defaults line is repeated in the budgets
+# template because sudoers merges both files and each must remain
+# effective on its own on a partially deployed box.
+#
+# What is lost: sudo's PAM session open/close journal lines for this
+# user's non-interactive sudo, and any resource limits a session module
+# would have applied. Nothing else — the auth and account PAM phases still
+# run, sudo still logs the commands themselves, and none of the binaries
+# granted below need a login session. This supersedes the fragile
+# XDG_SESSION_CLASS=background unit workaround (commit 20956a4, still
+# tripping denials on live boxes); those Environment= lines are kept as
+# belt-and-braces and pinned by tests/test_service_user.py. See
+# AGENT_CONTEXT.md "Status right now".
+Defaults:@SERVICE_USER@ !pam_session
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/usermod ^-L [A-Za-z0-9_.-]+$, /usr/bin/usermod ^-L [A-Za-z0-9_.-]+$, /usr/sbin/usermod ^-U [A-Za-z0-9_.-]+$, /usr/bin/usermod ^-U [A-Za-z0-9_.-]+$
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^terminate-user [A-Za-z][A-Za-z0-9_.-]*$, /usr/bin/loginctl ^terminate-user [A-Za-z][A-Za-z0-9_.-]*$
 @SERVICE_USER@ ALL=(ALL) NOPASSWD: /usr/sbin/loginctl ^show-user [A-Za-z0-9_.-]+ -p Sessions --value$, /usr/bin/loginctl ^show-user [A-Za-z0-9_.-]+ -p Sessions --value$
