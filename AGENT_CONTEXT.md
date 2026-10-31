@@ -549,3 +549,20 @@ install.sh's `visudo -c` aborts on a bad render); 2) `sudo grep pam_session
 parental-controls-enforce.service --since -30m | grep -c pam_open_session`
 — expect 0; 4) Overview cards must stop showing the needs-help copy and
 `account.status_probe` audit events should go quiet.
+
+**Overview card meta stripped (2026-10-31, `fix/card-meta-row`).** Owner
+decision: child cards on the Overview show the **username only**. The meta
+segment — `· wheel admin/child · <status> until <bedtime end>` — was removed
+from the server-rendered template (owner commit, carried onto this branch as
+`b6034e7`) AND from the inline script's `accountHtml()` rebuild, so neither
+the first paint nor the 10s poll shows role/status text. Deliberately
+UNAFFECTED: the status pill (`pc_status_pill` / the `${esc(u.status_detail)}`
+chip in `badges`), the `wheel admins can never be locked or removed.` warning
+inside the defensive wheel branch (template + JS), the Bedtime range/days
+line, countdown chips, and every action button/dialog. `status_detail` stays
+in the payload contract — the Details page and the pill still read it.
+Pinned by `tests/test_ui_child_accounts.py::OverviewCardMetaTest`
+(`test_the_first_paint_card_name_is_the_username_only`,
+`test_the_rebuild_script_emits_no_role_or_status_meta`). NOTE: the
+`feature/index-components` branch was NOT touched per owner instruction —
+this change lives on `fix/card-meta-row` off the master line only.
