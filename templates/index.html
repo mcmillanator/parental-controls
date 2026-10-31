@@ -129,8 +129,6 @@
             <div class="pc-account__id">
                 <p class="pc-account__name">
                     <strong><a href="/user/{{ user.username }}">{{ user.username }}</a></strong>
-                    · {{ 'wheel admin' if user.wheel else 'child' }}
-                    · {{ user.status_detail|lower }}{% if user.locked == True and user.bedtime and user.bedtime.start %} until {{ user.bedtime.end|twelve }}{% endif %}
                 </p>
                 {# Card meta. NO UID (owner request, 2026-10-18): the UID is
                    admin plumbing, not something a parent reads at a glance —
