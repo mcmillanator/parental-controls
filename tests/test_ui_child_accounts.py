@@ -15,6 +15,11 @@ What this pins:
     no longer reads `u.uid`;
   * the rest of the card meta (the Bedtime range + days) still renders,
     identically in the first paint and the 10s rebuild;
+  * OWNER UPDATE (2026-10-31): the role/status meta segment — the
+    "wheel admin/child" label, the lowercased status, and the
+    "until <bedtime end>" tail — is stripped from BOTH paints. The card
+    name paragraph is the username only. The status pill and the
+    wheel-admin warning copy are deliberately unaffected;
   * the payload keeps its `uid` key — only the Overview stopped using it;
   * the Details page still shows UID/Shell/Home.
 
@@ -23,6 +28,7 @@ account, no service, no /etc, /run, /opt or checkout path is read.
 """
 
 import os
+import re
 import sys
 import unittest
 from contextlib import ExitStack
@@ -152,6 +158,55 @@ class OverviewCardMetaTest(_AdminSessionMixin, unittest.TestCase):
         region = accounts_region(html)
         self.assertIn('Bedtime 9:30 PM – 7:00 AM (Mon, Tue, Wed, Thu, Fri)',
                       region)
+
+    def _card(self, html, username):
+        """One server-rendered <article> card, by username."""
+        idx = html.index('id="row-%s"' % username)
+        return html[idx:html.index('</article>', idx)]
+
+    def test_the_first_paint_card_name_is_the_username_only(self):
+        # Owner decision 2026-10-31: the role/status meta segment is gone
+        # from the template. SCHEDULED is the card that used to carry ALL
+        # of it ("· child · locked until 7:00 AM" — locked + a schedule);
+        # KID the plain one ("· child · unlocked").
+        html, _rows, _user = self._render_all()
+        for username, status in ((KID, 'Unlocked'), (SCHEDULED, 'Locked')):
+            card = self._card(html, username)
+            with self.subTest(user=username):
+                self.assertRegex(
+                    card,
+                    r'<p class="pc-account__name">\s*<strong>'
+                    r'<a href="/user/%s">%s</a></strong>\s*</p>'
+                    % (re.escape(username), re.escape(username)))
+                self.assertNotIn(' · ', card,
+                                 'the meta row separator must not appear '
+                                 'anywhere on the card')
+                self.assertNotIn('child', card)
+                self.assertNotIn(' until ', card)
+                # Defence against over-stripping: the status PILL still
+                # carries status_detail (that is a chip, not the meta row).
+                self.assertIn('%s</span>' % status, card)
+
+    def test_the_rebuild_script_emits_no_role_or_status_meta(self):
+        # The same decision on the JS side: accountHtml() must render the
+        # name paragraph as the username only, or the first poll would
+        # re-grow the meta segment the owner removed.
+        src = read_template()
+        start = src.index('function accountHtml(u)')
+        body = src[start:src.index('function setStale', start)]
+        self.assertIn(
+            '<strong><a href="/user/${encodeURIComponent(u.username)}">'
+            '${esc(u.username)}</a></strong>', body,
+            'the rebuilt name paragraph must stay the plain username link')
+        self.assertNotIn("'wheel admin'", body)
+        self.assertNotIn('child', body)
+        self.assertNotIn(' · ', body)
+        self.assertNotIn('String(u.status_detail).toLowerCase()', body)
+        self.assertNotIn('until ${', body)
+        # The pieces the owner kept: the status pill (a chip, not the meta
+        # row) and the wheel-admin warning inside the defensive branch.
+        self.assertIn('${esc(u.status_detail)}</span>', body)
+        self.assertIn('wheel admins can never be locked or removed.', body)
 
     def test_an_account_without_a_schedule_still_renders_a_meta_line(self):
         # The <p> stays (same DOM in both paints); it is just empty for an
