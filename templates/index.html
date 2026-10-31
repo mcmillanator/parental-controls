@@ -394,9 +394,13 @@
             const days = (u.bedtime.days || []).map(d => DAY_LABELS[d]).join(', ');
             meta = `Bedtime ${esc(fmt12(u.bedtime.start))} – ${esc(fmt12(u.bedtime.end))} (${esc(days)})`;
         }
-        const name = `<strong><a href="/user/${encodeURIComponent(u.username)}">${esc(u.username)}</a></strong>` +
-            ` · ${u.wheel ? 'wheel admin' : 'child'} · ${esc(String(u.status_detail).toLowerCase())}` +
-            ((u.locked === true && u.bedtime && u.bedtime.start) ? ` until ${esc(fmt12(u.bedtime.end))}` : '');
+        // Card name — username only (owner decision, 2026-10-31): the
+        // role/status meta segment was stripped from the server-rendered
+        // template AND from this rebuild, so neither paint shows role or
+        // lock-status text under the name. The status pill in `badges`
+        // above still carries status_detail; the per-user Details page
+        // keeps the full status copy.
+        const name = `<strong><a href="/user/${encodeURIComponent(u.username)}">${esc(u.username)}</a></strong>`;
         let actions = '';
         if (u.wheel) {
             actions = '<button type="button" class="pc-btn pc-btn--neutral" disabled aria-disabled="true">Lock</button>' +
