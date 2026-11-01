@@ -12,6 +12,9 @@ import unittest
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import _caps  # noqa: E402
 
 import budgets
 from budgets import (
@@ -170,6 +173,7 @@ class TestCategorize(unittest.TestCase):
             self.assertEqual(name, 'Chat')
             self.assertIn('chatapp', keys)
 
+    @_caps.needs_desktop_entry('firefox', dirs=budgets.desktop_dirs_for())
     def test_real_desktop_index_has_firefox(self):
         idx = build_desktop_index()
         self.assertEqual(idx.get('firefox'), 'browsers')
