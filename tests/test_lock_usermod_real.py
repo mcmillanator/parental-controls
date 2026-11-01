@@ -33,6 +33,9 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import _caps  # noqa: E402  (VM-only gate: this module mutates real accounts)
 
 try:
     import pexpect
@@ -48,7 +51,18 @@ FORBIDDEN = {'root', 'stan', 'tester', 'bluefox', 'nobody', 'systemd-network'}
 
 
 def _run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kw)
+    """Never raises for a missing binary: that simply means 'no privileges'.
+
+    Without this, evaluating the class decorators at import time crashed
+    the loader on boxes without `sudo` (FileNotFoundError). Such boxes
+    now SKIP this module via the gates below.
+    """
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=30, **kw)
+    except OSError:
+        return subprocess.CompletedProcess(cmd, returncode=127, stdout='',
+                                           stderr='binary not installed')
 
 
 def _have_privileges():
@@ -122,6 +136,7 @@ def _auth_accepts():
             pass
 
 
+@_caps.needs_vm('live useradd/usermod -L/-U + su/PAM against a throwaway account')
 @unittest.skipUnless(HAS_PEXPECT, 'pexpect not installed')
 @unittest.skipUnless(_have_privileges(), 'needs usermod/useradd privileges')
 @unittest.skipUnless(_can_create_user(), f'{TEST_USER} already exists')
