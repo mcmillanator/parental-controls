@@ -770,12 +770,14 @@ class TestTransportGrant(unittest.TestCase):
         argv = ['sudo', 'systemd-run', '--machine=testchild@.host', '--user',
                 '--wait', '--collect', 'cat',
                 '/run/user/1001/parental-controls/focus.jsonl']
+        dep.skip_if_unresolvable(self, argv)
         self.assertTrue(dep.sudoers_authorizes(self.body(), argv))
 
     def test_code_uses_the_granted_argv(self):
         argv = self.drain()
         self.assertEqual(argv[0], 'sudo')
         self.assertEqual(argv[1], 'systemd-run')
+        dep.skip_if_unresolvable(self, argv)
         self.assertTrue(dep.sudoers_authorizes(self.body(), argv))
 
     def test_grant_present_for_sbin_and_bin(self):

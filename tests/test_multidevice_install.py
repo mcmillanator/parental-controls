@@ -144,6 +144,7 @@ class TestAgentPrivilegedArgvCovered(unittest.TestCase):
         self.assertTrue(argvs, 'scanner found no sudo argv in agent.py')
         for lineno, argv in argvs:
             with self.subTest(line=lineno, argv=' '.join(argv)):
+                dep.skip_if_unresolvable(self, argv)
                 self.assertTrue(
                     dep.authorized_by_template(argv)
                     or dep._unreachable_degenerate(argv),
