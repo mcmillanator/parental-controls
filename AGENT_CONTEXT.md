@@ -192,6 +192,58 @@ never touches `/etc/parental-controls/auth.json`. Seed it with
 redirect. Avoid ports **5060/5061** — Chromium blocks them. Screenshots are the
 owner's preferred review artifact (they browse remotely; no port forwarding).
 
+## Test modes (2026-11-01 — hermetic suite)
+
+`unittest discover -s tests` is trustworthy on BOTH boxes now. The invariant:
+
+> **On any box, every test either RUNS (its capabilities are present) or
+> SKIPs with a greppable reason. Zero failures/errors anywhere.**
+
+* **VM = authoritative.** On `opencode-vm` the full set runs exactly as
+  before. No gate below ever fires there: secure_path resolves every
+  binary, the desktop entries exist, `cheroot` is in the VM venv, and
+  the VM identity checks pass. Expected post-change VM result:
+  **`Ran 1510 … OK (skipped=22)`** — same run set and same skip count as
+  the pre-change VM run (the historical "1502" was the CONTAINER count,
+  where the crash at import of one module hid its 9 real tests behind a
+  single loader pseudo-test; the VM always counted those 9).
+* **Container = green-by-skips.** Env-bound failures became explicit
+  skips (all reasons start `caps:` or reuse the suite's `… not available`
+  idiom). Baseline before this change: 109F+4E → now `Ran 1510 …
+  OK (skipped=160)`; 121 new skips = 107 secure_path subtests + 9 live
+  usermod/PAM (VM-only) + 3 cheroot + 1 on-box binary paths + 1 firefox
+  desktop data.
+* **How gating works** (`tests/_caps.py`, stdlib-only):
+  * sudoers-coverage tests (test_deployment / test_multidevice_install /
+    test_session_agent) mirror sudo's secure_path lookup, which only
+    matches binaries that EXIST on the box. Where `loginctl`/`systemd-run`
+    are absent, the affected **subtests** skip
+    (`caps: secure_path cannot resolve 'loginctl' …`); all other subtests
+    (usermod/passwd/cat/tee/mkdir) still run.
+  * **DANGEROUS gate** — any test that mutates the real system
+    (`useradd`, `usermod -L/-U`, `su`/PAM, freeze) must also pass
+    `_caps.needs_vm()`. The VM signal is a conservative AND of three
+    checks: hostname == `opencode-vm`, `/opt/parental-controls` exists,
+    and user `pcagent` exists (constants at the top of `tests/_caps.py` —
+    update there if the VM is ever renamed/rebuilt). Anything uncertain
+    skips; binary presence alone is NOT enough (a Fedora laptop has
+    usermod too). Currently the only such module is
+    `test_lock_usermod_real.py`; `test_granted_binary_paths_exist_on_this_box`
+    is VM-only by design (it checks the *deployment OS's* layout).
+  * Data probes: `needs_desktop_entry('firefox')` skips the real-desktop
+    index test on boxes without Firefox .desktop files (probe checks file
+    NAMES, so a classification regression still FAILs where firefox is
+    installed). Missing pip deps use the existing `HAS_CHEROOT` idiom.
+* **Adding new tests that touch the box:** probe first (`_caps.has_binaries`,
+  `missing_binaries_in(SECURE_PATH, …)`, `is_bazzite_vm`), skip with a
+  `caps:` reason at subtest granularity where a class gate would lose
+  coverage. Never weaken an assertion to pass on the container — convert
+  to a skip only when the failure is provably environmental.
+* **PENDING: verify on the VM** (human/manager) — run the suite there and
+  confirm parity with the pre-change VM run: `Ran 1510, OK (skipped=22)`;
+  the skipped delta vs the VM's before count must be **0** (nothing that
+  ran on the VM before may become a skip).
+
 ## Deploy (live box — owner runs it, or supervises it)
 
 Merge to `master`, then `sudo ./install.sh` from the master worktree: stages code
