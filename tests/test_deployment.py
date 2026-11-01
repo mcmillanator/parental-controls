@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 sys.path.insert(0, HERE)
+import _caps  # noqa: E402  (shared capability gates, see _caps docstring)
 import _corpus  # noqa: E402  (resolve a function's home module, not its file)
 
 SUDOERS_TEMPLATES = ('sudoers-parental-controls',
@@ -209,6 +210,38 @@ def resolve_command(name):
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+def strip_sudo(argv):
+    """The command name sudo would exec for a literal `['sudo', ...]` argv."""
+    rest = list(argv[1:])
+    while rest and rest[0] in SUDO_OPTIONS:
+        rest.pop(0)
+    return rest[0] if rest else None
+
+
+def unresolvable(argv):
+    """Binary name of `argv` that this box cannot resolve, else None.
+
+    `sudoers_authorizes()` mirrors sudo's secure_path lookup, which only
+    ever matches a binary that EXISTS on the box. Where systemd is absent
+    (containers, non-Bazzite dev boxes) `loginctl`/`systemd-run` argvs can
+    never authorize — that failure is environmental, not a policy bug.
+    Such subtests SKIP (hermetic suite, 2026-11-01); on the VM every
+    pinned binary resolves and nothing skips.
+    """
+    cmd = strip_sudo(argv)
+    if cmd and resolve_command(cmd) is None:
+        return cmd
+    return None
+
+
+def skip_if_unresolvable(test, argv):
+    """Call inside a subTest: skip when this box lacks argv's binary."""
+    cmd = unresolvable(argv)
+    if cmd:
+        test.skipTest(f'{_caps.REASON_PREFIX} secure_path cannot resolve '
+                      f'{cmd!r} on this box (sudoers matcher mirrors sudo)')
 
 
 def parse_command_specs(body):
@@ -580,6 +613,7 @@ class TestSudoersCoversTheCode(unittest.TestCase):
     def test_required_commands_are_authorized(self):
         for origin, argv, expected in REQUIRED_COMMANDS:
             with self.subTest(origin=origin, argv=' '.join(argv)):
+                skip_if_unresolvable(self, argv)
                 sources = authorize_sources(argv)
                 self.assertIn(
                     expected, sources,
@@ -600,6 +634,7 @@ class TestSudoersCoversTheCode(unittest.TestCase):
             for lineno, argv in argvs:
                 with self.subTest(module=module, line=lineno,
                                   argv=' '.join(argv)):
+                    skip_if_unresolvable(self, argv)
                     self.assertTrue(
                         authorized_by_template(argv) or
                         _unreachable_degenerate(argv),
@@ -654,6 +689,7 @@ class TestSudoersCoversTheCode(unittest.TestCase):
                 )
                 for argv in cases:
                     with self.subTest(argv=' '.join(argv)):
+                        skip_if_unresolvable(self, argv)
                         self.assertTrue(
                             authorized_by_template(argv),
                             'not authorized: sudo ' + ' '.join(argv[1:]))
@@ -1363,6 +1399,8 @@ class TestSudoersTemplates(unittest.TestCase):
                 'notifications grant must not authorize: '
                 f'systemd-run {" ".join(payload)}')
 
+    @_caps.needs_vm('sudoers grants must be checked against the '
+                    'deployment OS itself')
     def test_granted_binary_paths_exist_on_this_box(self):
         for rel in ('sudoers-parental-controls',
                     'sudoers-parental-controls-budgets'):
