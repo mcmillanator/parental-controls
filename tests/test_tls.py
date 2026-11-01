@@ -303,6 +303,7 @@ class TestTlsUnitRendersCertPathsAndEnv(unittest.TestCase):
         self.assertNotRegex(rendered, r'@[A-Z_]+@')
 
 
+@unittest.skipUnless(HAS_CHEROOT, 'cheroot not available')
 class TestTlsExecStartArgvParsesCleanly(unittest.TestCase):
     """The rendered TLS ExecStart must be exactly tls_serve.py's own argv.
 
