@@ -2209,8 +2209,7 @@ def api_schedule_set():
         'allowance_minutes': (request.form.get('allowance_minutes')
                               or '').strip() or None,
         'preset': request.form.get('preset', '').strip(),
-        'dtstart': (request.form.get('dtstart', '').strip()
-                    or datetime.now().date().isoformat()),
+        'dtstart': request.form.get('dtstart', '').strip(),
         'start': request.form.get('start', '').strip(),
         'end': request.form.get('end', '').strip(),
         'until': request.form.get('until', '').strip() or None,
