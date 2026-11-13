@@ -11,6 +11,7 @@ import html
 import json
 import os
 import re
+import secrets
 import threading
 import time
 import traceback
@@ -27,6 +28,7 @@ import device_policy
 import pcprobe
 import pcstatus
 import remote
+import schedule
 import store
 
 # --- shared cores: the names the old in-file definitions bound -------------
@@ -327,6 +329,71 @@ def save_bedtime(data):
                      data, BEDTIME_FILE)
 
 
+# ---------------------------------------------------------------------------
+# Calendar schedule glue (CALENDAR_DESIGN.md). The 'schedule' table is the
+# enforcement source of truth once a user carries the migration marker; the
+# bedtime row above stays an exact display/live-state mirror (the old pages
+# keep reading its fields) and the override windows sub-doc likewise (kept
+# in sync by the budgets-side write funnel).
+# ---------------------------------------------------------------------------
+
+def load_schedule():
+    """The schedule docs keyed by username ({events: {id: block}, ...})."""
+    return budgets.load_schedule()
+
+
+def _schedule_map():
+    """Best-effort schedule table read ({} on any store problem).
+
+    Fail-closed: an unreadable schedule leaves enforcement on the
+    write-synchronized legacy mirrors — never on unsynced dead rules
+    (deletes are mirrored too, so nothing resurrects; CALENDAR_DESIGN.md
+    §fail-closed).
+    """
+    try:
+        return load_schedule()
+    except Exception:
+        return {}
+
+
+def _schedule_doc_for(username, schedule_map=None):
+    if schedule_map is None:
+        schedule_map = _schedule_map()
+    doc = schedule_map.get(username)
+    return doc if isinstance(doc, dict) else None
+
+
+def _bedtime_flag(entry, schedule_doc=None, now=None):
+    """Whether the user is in bedtime RIGHT NOW, from the calendar source
+    of truth once migrated.
+
+    Phase-1 rule honored: the legacy path keeps calling the bare
+    ``is_in_bedtime(entry, now)`` exactly as before — that name is a
+    pinned test patch surface with the old signature. A migrated doc
+    resolves through the pure evaluator instead (its legacy row is a
+    mirror, never an input, after cutover).
+    """
+    if schedule.doc_is_migrated(schedule_doc):
+        return schedule.in_bedtime(schedule_doc, now or datetime.now())
+    return is_in_bedtime(entry, now)
+
+
+def _ensure_schedule_migrated(now=None):
+    """First-access hard cutover: migrate legacy bedtime rows + weekly
+    windows into the schedule table. Idempotent (the marker gates) and
+    audit-logged once per user ('schedule.migrate'). Returns the list of
+    usernames migrated this call.
+    """
+    try:
+        _map, migrated = budgets.ensure_migrated(
+            load_bedtime(), budgets.load_overrides(), load_schedule(),
+            now=now or datetime.now(), actor='panel')
+        return migrated
+    except Exception as e:
+        print(f'schedule: access migration failed: {e}', flush=True)
+        return []
+
+
 def note_manual_unlock(username, actor=None):
     """Record a manual unlock for bedtime bookkeeping.
 
@@ -339,7 +406,7 @@ def note_manual_unlock(username, actor=None):
         entry = data.get(username)
         if entry is not None:
             entry['locked_by_bedtime'] = False
-            if is_in_bedtime(entry):
+            if _bedtime_flag(entry, _schedule_doc_for(username)):
                 entry['manual_override'] = True
             save_bedtime(data)
     except OSError:
@@ -657,38 +724,22 @@ def format_etime(etime):
         return etime
 
 
-def is_in_bedtime(entry, now=None):
+def is_in_bedtime(entry, now=None, schedule_doc=None):
     """Return True if `now` falls inside the configured bedtime window.
 
     Handles windows that span midnight (e.g. 21:00-08:00): if the bedtime
     starts on day X and runs past midnight, the early-morning hours belong
     to day X's window.
+
+    Calendar (2026-11-13, CALENDAR_DESIGN.md): a migrated user's bedtime
+    comes from their schedule doc's bedtime blocks; the legacy row is a
+    display/live-state mirror. The evaluator (schedule.in_bedtime) is the
+    relocated predicate, pinned equivalent by tests/test_schedule_eval.
     """
-    if not entry:
-        return False
-    start = _parse_hhmm(entry.get('start', ''))
-    end = _parse_hhmm(entry.get('end', ''))
-    try:
-        days = {int(d) for d in entry.get('days', [])}
-    except (ValueError, TypeError):
-        return False
-    if start is None or end is None or not days or start == end:
-        return False
-
     now = now or datetime.now()
-    cur = now.hour * 60 + now.minute
-    today = now.weekday()  # Monday=0 ... Sunday=6
-    yesterday = (today - 1) % 7
-
-    if start < end:
-        # Same-day window, e.g. 12:00-14:00
-        return today in days and start <= cur < end
-    # Overnight window, e.g. 21:00-08:00
-    if today in days and cur >= start:
-        return True
-    if yesterday in days and cur < end:
-        return True
-    return False
+    if schedule.doc_is_migrated(schedule_doc):
+        return schedule.in_bedtime(schedule_doc, now)
+    return schedule.in_bedtime_entry(entry, now)
 
 
 # ---------------------------------------------------------------------------
@@ -803,24 +854,44 @@ def _safe_audit(actor, action, target='', detail=None):
         print(f'audit (suppressed): {e}')
 
 
-def bedtime_window_id(entry):
+def bedtime_window_id(entry, now=None, schedule_doc=None):
     """Stable id for a bedtime schedule, e.g. '21:00-08:00'.
 
     Used to track warned state per window so the 60s loop doesn't spam.
+    Migrated users key off the NEXT bedtime block (or the active one) so
+    the id format — and therefore the warned_for bookkeeping — is
+    unchanged.
     """
+    if schedule.doc_is_migrated(schedule_doc):
+        _nxt, block = schedule.next_bedtime_start(
+            schedule_doc, now or datetime.now())
+        if block is None:
+            block = schedule.current_bedtime_block(
+                schedule_doc, now or datetime.now())
+        if block is None:
+            return ''
+        return f"{block['start']}-{block['end']}"
     try:
         return f"{entry.get('start')}-{entry.get('end')}"
     except AttributeError:
         return ''
 
 
-def minutes_until_bedtime(entry, now=None):
+def minutes_until_bedtime(entry, now=None, schedule_doc=None):
     """Minutes until the next bedtime window starts (float).
 
     Returns 0 when currently inside a window, None when the entry has no
     valid schedule. Pure function of (entry, now) — unit-tested with fake
-    times.
+    times. Migrated users count down to their next bedtime BLOCK.
     """
+    now = now or datetime.now()
+    if schedule.doc_is_migrated(schedule_doc):
+        if schedule.in_bedtime(schedule_doc, now):
+            return 0
+        nxt, _block = schedule.next_bedtime_start(schedule_doc, now)
+        if nxt is None:
+            return None
+        return (nxt - now).total_seconds() / 60.0
     if not entry:
         return None
     start = _parse_hhmm(entry.get('start', ''))
@@ -831,7 +902,6 @@ def minutes_until_bedtime(entry, now=None):
         return None
     if start is None or end is None or not days or start == end:
         return None
-    now = now or datetime.now()
     if is_in_bedtime(entry, now):
         return 0
     for offset in range(8):
@@ -857,6 +927,7 @@ def enforce_bedtime(now=None):
     """
     now = now or datetime.now()
     data = load_bedtime()
+    schedule_map = _schedule_map()
     changed = False
     for username, entry in list(data.items()):
         if budgets.is_admin_protected(username):
@@ -864,6 +935,7 @@ def enforce_bedtime(now=None):
                   f'{budgets.ADMIN_GROUP} member (admin self-protection)',
                   flush=True)
             continue
+        doc = schedule_map.get(username)
 
         # --- Bonus time tick ---
         # A live bonus (bonus_until in the future) suppresses the lock
@@ -884,7 +956,7 @@ def enforce_bedtime(now=None):
                 changed = True
                 _drop_bonus_keys(entry)
 
-        in_bed = is_in_bedtime(entry, now)
+        in_bed = _bedtime_flag(entry, doc, now)
         locked_by_bedtime = bool(entry.get('locked_by_bedtime', False))
 
         if in_bed:
@@ -928,8 +1000,8 @@ def enforce_bedtime(now=None):
                 _drop_bonus_keys(entry)
                 changed = True
             # Pre-warning: bedtime starts soon, warn once per window.
-            window_id = bedtime_window_id(entry)
-            mins = minutes_until_bedtime(entry, now)
+            window_id = bedtime_window_id(entry, now, schedule_doc=doc)
+            mins = minutes_until_bedtime(entry, now, schedule_doc=doc)
             if (mins is not None and 0 < mins <= BEDTIME_WARN_MINUTES
                     and entry.get('warned_for') != window_id):
                 _safe_notify(username, 'Bedtime in 15 minutes',
@@ -1239,6 +1311,7 @@ def index():
     users = get_human_users()
     bedtime = load_bedtime()
     store_names = _admin_store_names(_load_admin_store())
+    schedule_map = _schedule_map()
     user_data = []
     for u in users:
         # Same predicate as api_users(): admins never reach the cards, the
@@ -1248,6 +1321,7 @@ def index():
         locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
+        doc = schedule_map.get(u['username'])
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -1257,11 +1331,12 @@ def index():
             'status_detail': detail,
             'status_ok': status_ok,
             'bedtime': entry,
-            'in_bedtime': is_in_bedtime(entry),
+            'in_bedtime': _bedtime_flag(entry, doc),
             'bonus': bonus,
             # Live countdown for the account card (same value as the per-user
             # Time rules page — both built on countdown_state).
-            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
+            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry,
+                                          'schedule': doc}),
             # Wheel admins are system-protected: the UI disables their
             # lock/unlock/logout actions and shows a Protected pill. The
             # endpoints refuse them anyway (defence in depth). Since the
@@ -1474,6 +1549,7 @@ def api_users():
     users = get_human_users()
     bedtime = load_bedtime()
     store_names = _admin_store_names(_load_admin_store())
+    schedule_map = _schedule_map()
     user_data = []
     for u in users:
         if _is_admin_account(u['username'], store_names):
@@ -1481,6 +1557,7 @@ def api_users():
         locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
         bonus = bonus_state(entry)
+        doc = schedule_map.get(u['username'])
         user_data.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -1488,12 +1565,13 @@ def api_users():
             'status_detail': detail,
             'status_ok': status_ok,
             'bedtime': entry,
-            'in_bedtime': is_in_bedtime(entry),
+            'in_bedtime': _bedtime_flag(entry, doc),
             'bonus': bonus,
             # Same countdown value as the server-rendered index.html cards and
             # the per-user Time rules page, so the 10s JS rebuild can never
             # disagree with the first paint.
-            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry}),
+            'countdown': countdown_state({'bonus': bonus, 'bedtime': entry,
+                                          'schedule': doc}),
             # Wheel flag must mirror index(): accountHtml() branches on
             # `u.wheel` for the Protected pill, the "wheel admin" label and
             # the disabled actions. Without it the 10s JS rebuild renders
@@ -1672,7 +1750,7 @@ def api_bonus_revoke():
     data = load_bedtime()
     entry = data.get(username, {})
     locked_now = bool(get_lock_status(username)[0])
-    if (is_in_bedtime(entry, now)
+    if (_bedtime_flag(entry, _schedule_doc_for(username), now)
             and not entry.get('manual_override')
             and not locked_now):
         # Session-preserving re-lock (never terminates the session).
@@ -1722,6 +1800,12 @@ def api_bedtime_set():
         if username in data:
             del data[username]
             save_bedtime(data)
+        if schedule.doc_is_migrated(_schedule_doc_for(username)):
+            # Migrated: the old editor still owns the WHOLE bedtime
+            # schedule, so mirror the clear into the calendar (drops all
+            # bedtime blocks; every other block survives).
+            budgets.set_bedtime_block(username, [], '', '',
+                                      actor=_req_actor())
         _safe_audit(_req_actor(), 'bedtime.clear', username,
                     {'success': True})
         if existing.get('locked_by_bedtime'):
@@ -1767,6 +1851,12 @@ def api_bedtime_set():
     save_bedtime(data)
     _safe_audit(_req_actor(), 'bedtime.set', username,
                 {'success': True, 'start': start, 'end': end, 'days': days})
+    if schedule.doc_is_migrated(_schedule_doc_for(username)):
+        # Migrated user: write the same schedule through to the calendar
+        # blocks (the single enforcement source). Unmigrated users keep
+        # governing from this row until the first-access/tick cutover.
+        budgets.set_bedtime_block(username, days, start, end,
+                                  actor=_req_actor())
 
     # Immediately enforce the new bedtime for this user
     entry = data[username]
@@ -1777,7 +1867,7 @@ def api_bedtime_set():
                         'message': 'Bedtime saved (bonus time active — '
                                    'lock suppressed until bonus ends)',
                         'locked': bool(get_lock_status(username)[0])})
-    if is_in_bedtime(entry):
+    if _bedtime_flag(entry, _schedule_doc_for(username)):
         # Only lock if not already manually unlocked
         if not entry.get('locked_by_bedtime'):
             if budgets.is_admin_protected(username):
@@ -1971,6 +2061,274 @@ def api_budgets_windows():
     return jsonify({'success': True, 'message': msg})
 
 
+# ---------------------------------------------------------------------------
+# Calendar schedule API (CALENDAR_DESIGN.md). One recurring "block" model
+# replaces the bedtime table + weekly windows: same auth pattern as
+# /api/budgets/windows (require_admin: session + admin + CSRF on writes;
+# protected-target refusal; the budgets-side write funnel owns the audit).
+# ---------------------------------------------------------------------------
+
+SCHEDULE_EVENT_MAX_SPAN_DAYS = 92
+SCHEDULE_EVENT_DEFAULT_SPAN_DAYS = 14
+
+
+def _new_block_id():
+    return 'b-' + secrets.token_hex(4)
+
+
+def _schedule_view(username, schedule_map=None):
+    """UI view of one user's doc: normalized blocks + invalid block ids.
+
+    None when the user has no doc yet (never cut over). An invalid block
+    is stored but NEVER enforced (fail closed) — the id is surfaced so
+    the panel can tell the parent to fix or remove it.
+    """
+    if schedule_map is None:
+        schedule_map = _schedule_map()
+    doc = schedule_map.get(username)
+    if not isinstance(doc, dict):
+        return None
+    valid = {}
+    for bid, block in schedule.iter_blocks(doc):
+        valid[bid] = block
+    events = doc.get('events')
+    raw_ids = set(events) if isinstance(events, dict) else set()
+    return {
+        'migrated': doc.get('migrated'),
+        'events': [valid[bid] for bid in sorted(valid)],
+        'invalid': sorted(raw_ids - set(valid)),
+    }
+
+
+def _sync_bedtime_entry(username, doc):
+    """Refresh the BEDTIME row's CONFIG mirror from the schedule doc.
+
+    The old pages keep reading start/end/days, so the calendar write
+    paths mirror them back (display-only: enforcement reads the blocks).
+    The FIRST bedtime block by id is mirrored; ONE takes its own weekday
+    and BIWEEKLY approximates its BYDAY set in the mirror (display-only
+    lossiness, corruption fallback leans more restrictive = fail-closed;
+    CALENDAR_DESIGN.md). No bedtime blocks -> config fields drop while
+    every live-state key (locked_by_bedtime, manual_override, bonus_*)
+    stays exactly where it is.
+    """
+    blocks = [block for _bid, block in schedule.iter_blocks(doc)]
+    bedtime_blocks = sorted((b for b in blocks
+                             if b['target'] == schedule.TARGET_BEDTIME),
+                            key=lambda b: b['id'])
+    try:
+        data = load_bedtime()
+    except Exception:
+        return
+    entry = data.get(username) if isinstance(data.get(username), dict) else None
+    if not bedtime_blocks:
+        if isinstance(entry, dict) and (
+                'start' in entry or 'end' in entry or 'days' in entry):
+            for key in ('start', 'end', 'days'):
+                entry.pop(key, None)
+            try:
+                save_bedtime(data)
+            except OSError:
+                pass
+        return
+    block = bedtime_blocks[0]
+    parsed = schedule.parse_preset(block['preset'])
+    if parsed is None:
+        return
+    freq, days = parsed
+    if freq == 'DAILY':
+        days = tuple(range(7))
+    elif freq == 'SCHOOL':
+        days = (0, 1, 2, 3, 4)
+    elif freq == 'ONE':
+        d = schedule.parse_date(block['dtstart'])
+        days = (d.weekday(),) if d else ()
+    if entry is None:
+        entry = {}
+        data[username] = entry
+    entry['start'] = block['start']
+    entry['end'] = block['end']
+    entry['days'] = sorted(days)
+    try:
+        save_bedtime(data)
+    except OSError:
+        pass
+
+
+@app.route('/api/schedule', methods=['GET'])
+@require_admin
+def api_schedule_get():
+    """List calendar blocks (all users, or ?username= for one).
+
+    First access runs the idempotent hard-cutover migration, so legacy
+    bedtime rows / weekly windows show up as blocks here too.
+    """
+    _ensure_schedule_migrated()
+    username = (request.args.get('username') or '').strip()
+    if username and not valid_username(username):
+        return jsonify({'success': False,
+                        'error': 'Invalid username'}), 400
+    schedule_map = _schedule_map()
+    if username:
+        view = {username: _schedule_view(username, schedule_map)}
+    else:
+        view = {u: _schedule_view(u, schedule_map)
+                for u in sorted(schedule_map)}
+    return jsonify({'success': True, 'schedule': view})
+
+
+@app.route('/api/schedule', methods=['POST'])
+@require_admin
+def api_schedule_set():
+    """Create/update one recurring block (series-only in v1).
+
+    Form fields: username, target ('bedtime' | category | 'app:<comm>'),
+    mode (permitted|capped; omitted for bedtime), allowance_minutes
+    (capped only), preset ('ONE'|'DAILY'|'SCHOOL'|'WEEKLY:BYDAY=MO,WE'|
+    'BIWEEKLY:BYDAY=TH'), dtstart (YYYY-MM-DD; the occurrence day for
+    ONE), start/end (HH:MM, end < start ends next day), until
+    (YYYY-MM-DD inclusive, optional), enabled (1|0), id (optional:
+    editing an existing block; new blocks get a generated id).
+
+    Rejects malformed blocks and same-child+TARGET overlaps (owner rule
+    #4; different targets may overlap freely, bedtime wins device-wide).
+    """
+    username = request.form.get('username', '').strip()
+    if not username:
+        return jsonify({'success': False,
+                        'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _refuse_protected_budget_target(username)
+    if refused is not None:
+        return refused
+    raw = {
+        'id': request.form.get('id', '').strip() or _new_block_id(),
+        'target': request.form.get('target', '').strip(),
+        'mode': request.form.get('mode', '').strip() or None,
+        'allowance_minutes': (request.form.get('allowance_minutes')
+                              or '').strip() or None,
+        'preset': request.form.get('preset', '').strip(),
+        'dtstart': (request.form.get('dtstart', '').strip()
+                    or datetime.now().date().isoformat()),
+        'start': request.form.get('start', '').strip(),
+        'end': request.form.get('end', '').strip(),
+        'until': request.form.get('until', '').strip() or None,
+        'enabled': _form_bool(request.form.get('enabled'), default=True),
+        'set_by': _req_actor(),
+        'set_at': datetime.now().isoformat(timespec='seconds'),
+    }
+    if schedule.target_kind(raw['target']) is None:
+        return jsonify({'success': False,
+                        'error': 'Unknown target: %s' % raw['target']}), 400
+    ok, msg = budgets.upsert_block(username, raw, actor=_req_actor())
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    doc = _schedule_doc_for(username)
+    if raw['target'] == schedule.TARGET_BEDTIME:
+        _sync_bedtime_entry(username, doc)
+    block = next((b for bid, b in schedule.iter_blocks(doc)
+                  if bid == raw['id']), None)
+    return jsonify({'success': True, 'message': msg, 'block': block})
+
+
+@app.route('/api/schedule/<block_id>', methods=['DELETE'])
+@require_admin
+def api_schedule_delete(block_id):
+    """Remove one block (username via form or query)."""
+    username = (request.form.get('username')
+                or request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'success': False,
+                        'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    refused = _refuse_protected_budget_target(username)
+    if refused is not None:
+        return refused
+    doc = _schedule_doc_for(username)
+    was_bedtime = any(block['target'] == schedule.TARGET_BEDTIME
+                      for bid, block in schedule.iter_blocks(doc)
+                      if bid == block_id)
+    ok, msg = budgets.remove_block(username, block_id, actor=_req_actor())
+    if not ok:
+        return jsonify({'success': False, 'error': msg}), 400
+    if was_bedtime:
+        _sync_bedtime_entry(username, _schedule_doc_for(username))
+    return jsonify({'success': True, 'message': msg})
+
+
+def _events_bound(value, default):
+    """Query date/datetime -> naive datetime; None when unparseable."""
+    text = (value or '').strip()
+    if not text:
+        return default
+    try:
+        if len(text) == 10:
+            return datetime.fromisoformat(text + 'T00:00:00')
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+@app.route('/api/schedule/events')
+@require_admin
+def api_schedule_events():
+    """Expanded calendar for a range: concrete intervals per block.
+
+    Query: username (required), start/end (ISO date or datetime; default
+    today for 14 days, span capped at 92). Plus the DERIVED bonus band
+    (derived: true — bonus time stays bedtime live-state bookkeeping,
+    NOT a stored block; CALENDAR_DESIGN.md).
+    """
+    _ensure_schedule_migrated()
+    username = (request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'success': False,
+                        'error': 'No username provided'}), 400
+    if not valid_username(username):
+        return jsonify({'success': False, 'error': 'Invalid username'}), 400
+    today = datetime.now().replace(hour=0, minute=0, second=0,
+                                   microsecond=0)
+    start = _events_bound(request.args.get('start'), today)
+    end = _events_bound(request.args.get('end'),
+                        today + timedelta(
+                            days=SCHEDULE_EVENT_DEFAULT_SPAN_DAYS))
+    if start is None or end is None:
+        return jsonify({'success': False,
+                        'error': 'Invalid start/end (use YYYY-MM-DD)'}), 400
+    if end <= start:
+        return jsonify({'success': False,
+                        'error': 'end must be after start'}), 400
+    if (end - start).days > SCHEDULE_EVENT_MAX_SPAN_DAYS:
+        return jsonify({'success': False,
+                        'error': 'Range too large (max %d days)'
+                                 % SCHEDULE_EVENT_MAX_SPAN_DAYS}), 400
+    doc = _schedule_doc_for(username) or {}
+    events = schedule.expand(start, end, doc)
+    for row in events:
+        row['derived'] = False
+    entry = {}
+    try:
+        entry = load_bedtime().get(username, {})
+    except Exception:
+        entry = {}
+    now = datetime.now()
+    bonus = bonus_state(entry, now)
+    if bonus.get('active'):
+        events.append({
+            'block_id': 'bonus', 'target': schedule.TARGET_BEDTIME,
+            'mode': None, 'allowance_minutes': None,
+            'start': now.isoformat(timespec='seconds'),
+            'end': bonus.get('until'),
+            'derived': True, 'source': 'bonus_state',
+        })
+        events.sort(key=lambda row: (row['start'], row['block_id']))
+    return jsonify({'success': True, 'username': username,
+                    'start': start.isoformat(), 'end': end.isoformat(),
+                    'events': events})
+
+
 @app.route('/api/budgets/resume', methods=['POST'])
 @require_admin
 def api_budgets_resume():
@@ -2079,8 +2437,15 @@ def countdown_state(user):
         if seconds is not None:
             return {'kind': 'bonus', 'seconds': seconds}
     entry = user.get('bedtime') or {}
-    if entry.get('start'):
-        seconds = _countdown_seconds(minutes_until_bedtime(entry))
+    doc = user.get('schedule')
+    if schedule.doc_is_migrated(doc):
+        mins = minutes_until_bedtime(entry, schedule_doc=doc)
+    elif entry.get('start'):
+        mins = minutes_until_bedtime(entry)
+    else:
+        mins = None
+    if mins is not None:
+        seconds = _countdown_seconds(mins)
         if seconds is not None:
             return {'kind': 'bedtime', 'seconds': seconds}
     return None
@@ -2227,11 +2592,13 @@ def get_user_live(username):
     """
     users = get_human_users()
     bedtime = load_bedtime()
+    schedule_map = _schedule_map()
     user_data = []
     for u in users:
         if u['username'] == username:
             locked, detail, status_ok = status_row(u['username'])
             entry = bedtime.get(u['username'], {})
+            doc = schedule_map.get(u['username'])
             user_data.append({
                 'username': u['username'],
                 'uid': u['uid'],
@@ -2241,8 +2608,9 @@ def get_user_live(username):
                 'status_detail': detail,
                 'status_ok': status_ok,
                 'bedtime': entry,
-                'in_bedtime': is_in_bedtime(entry),
+                'in_bedtime': _bedtime_flag(entry, doc),
                 'bonus': bonus_state(entry),
+                'schedule': doc,
             })
             break
     else:
@@ -2824,10 +3192,12 @@ def time_rules():
     """
     users = get_human_users()
     bedtime = load_bedtime()
+    schedule_map = _schedule_map()
     children = []
     for u in users:
         locked, detail, status_ok = status_row(u['username'])
         entry = bedtime.get(u['username'], {})
+        doc = schedule_map.get(u['username'])
         children.append({
             'username': u['username'],
             'uid': u['uid'],
@@ -2835,7 +3205,7 @@ def time_rules():
             'status_detail': detail,
             'status_ok': status_ok,
             'bedtime': entry,
-            'in_bedtime': is_in_bedtime(entry),
+            'in_bedtime': _bedtime_flag(entry, doc),
             'bonus': bonus_state(entry),
         })
     return render_template('time_rules.html', children=children,

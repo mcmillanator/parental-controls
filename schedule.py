@@ -441,6 +441,51 @@ def in_bedtime(doc, now):
     return bool(active_blocks(doc, TARGET_BEDTIME, TARGET_BEDTIME, now))
 
 
+def next_start(blocks, now, target=None):
+    """(start_dt, block) of the earliest ENABLED occurrence starting after
+    ``now``, or (None, None).
+
+    Scans 15 days — the weekly/biweekly cycle (14 days) plus a day of
+    slack — so any recurring series that will restart within a fortnight
+    is found. Pure; blocks may be raw (normalized here, fail closed).
+    ``target`` optionally restricts to one canonical target string.
+    """
+    best = (None, None)
+    if not isinstance(now, datetime):
+        return best
+    day = now.date()
+    horizon = day + timedelta(days=15)
+    source = blocks if isinstance(blocks, (list, tuple)) else \
+        [b for _bid, b in iter_blocks(blocks)]
+    candidates = []
+    for block in source:
+        norm = normalize_block(block)
+        if norm is not None and norm['enabled'] and norm.get('start'):
+            candidates.append(norm)
+    while day <= horizon:
+        for block in candidates:
+            if target is not None and block['target'] != target:
+                continue
+            interval = block_interval(block, day)
+            if interval is None or interval[0] <= now:
+                continue
+            if best[0] is None or interval[0] < best[0]:
+                best = (interval[0], block)
+        day += timedelta(days=1)
+    return best
+
+
+def next_bedtime_start(doc, now):
+    """(start_dt, block) for the next bedtime lock after ``now``."""
+    return next_start(doc, now, target=TARGET_BEDTIME)
+
+
+def current_bedtime_block(doc, now):
+    """The active bedtime block at ``now`` (id-order first), or None."""
+    active = active_blocks(doc, TARGET_BEDTIME, TARGET_BEDTIME, now)
+    return active[0] if active else None
+
+
 # ---------------------------------------------------------------------------
 # Legacy-shape readers (pure) — the migration source + the fallback path
 # while a user still has no schedule doc.

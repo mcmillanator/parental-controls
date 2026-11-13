@@ -33,6 +33,7 @@ bedtime.json
 budgets.json
 process_prefs.json
 overrides.json
+schedule.json
 auth.json
 audit.jsonl
 .auth-*

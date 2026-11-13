@@ -267,7 +267,10 @@ class TickEquivalenceTest(_StateMixin, unittest.TestCase):
         self.assertTrue(any(s['reset'] or s['froze'] or s['notified']
                             for s in sum_a) or entry_a['window_used'])
 
-    def test_tick_budgets_cuts_over_and_persists(self):
+    def test_tick_without_doc_stays_hermetic(self):
+        # The tick NEVER migrates (mixed-store homes would leak docs into
+        # unpatched dirs — see budgets_tick comment): it enforces from the
+        # derived blocks and leaves the schedule table untouched.
         budgets.save_budgets({KID: {'limits': {'games': 60},
                                     'used_seconds': {}, 'paused': {},
                                     'resumed': {}, 'manual_frozen': {},
@@ -289,9 +292,37 @@ class TickEquivalenceTest(_StateMixin, unittest.TestCase):
             budgets.tick_budgets(bedtime, T0, procs_provider=lambda u: [],
                                  prefs={}, act=False, run_watchdog=False,
                                  index={})
-        stored = budgets.load_schedule()
-        self.assertTrue(schedule.doc_is_migrated(stored.get(KID)))
-        self.assertIn('w-category-games', stored[KID]['events'])
+        self.assertEqual(budgets.load_schedule(), {})   # no side effects
+        entry = budgets.load_budgets()[KID]
+        self.assertTrue(entry['window_active']['w-category-games'])
+
+    def test_tick_reads_migrated_doc(self):
+        # Once the panel cut the user over, the tick enforces the doc —
+        # including blocks that no longer exist in the legacy mirror.
+        budgets.save_budgets({KID: {'limits': {'games': 60},
+                                    'used_seconds': {}, 'paused': {},
+                                    'resumed': {}, 'manual_frozen': {},
+                                    'manual_frozen_at': {},
+                                    'warned_low': {}, 'warned_paused': {},
+                                    'app_used': {}, 'app_paused': {},
+                                    'app_resumed': {},
+                                    'app_manual_frozen': {},
+                                    'app_manual_frozen_at': {},
+                                    'app_warned_low': {},
+                                    'app_warned_paused': {},
+                                    'window_used': {}, 'window_active': {},
+                                    'last_cpu': {}, 'day': '2026-10-07'}})
+        with mock.patch.object(audit, 'safe_log'):
+            budgets.upsert_block(KID, {
+                'id': 'b-cal-1', 'target': 'games', 'mode': 'capped',
+                'allowance_minutes': 25, 'preset': 'DAILY',
+                'dtstart': '2026-10-06', 'start': '14:00', 'end': '18:00'})
+        with mock.patch.object(audit, 'safe_log'):
+            budgets.tick_budgets({}, T0, procs_provider=lambda u: [],
+                                 prefs={}, act=False, run_watchdog=False,
+                                 index={})
+        entry = budgets.load_budgets()[KID]
+        self.assertTrue(entry['window_active']['b-cal-1'])
 
     def test_legacy_window_ids_survive_into_runtime(self):
         entry = budgets.blank_entry()

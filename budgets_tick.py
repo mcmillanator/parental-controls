@@ -238,20 +238,18 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     import budgets
     data = budgets.load_budgets()
     overrides_map = budgets.load_overrides()
-    # Calendar hard-cutover (CALENDAR_DESIGN.md): migrate legacy bedtime
-    # rows + windows once, then EVERY user reads their blocks from the
-    # schedule doc. Reading the table may fail (corrupt store) — the
-    # per-user fallback to legacy shapes inside the shims keeps the tick
-    # running on the write-synchronized mirrors.
+    # Calendar (CALENDAR_DESIGN.md): the schedule table is the enforcement
+    # source once a user carries the migration marker (the panel/agent
+    # calendar routes own that cutover). Users without a doc keep
+    # governing from the legacy shapes — the per-user shims derive the
+    # IDENTICAL blocks on the fly (pinned by tests/test_schedule_eval).
+    # The tick never MIGRATES: it may legitimately see stores from
+    # different homes (patched in tests), so only whole-panel access
+    # writes the docs.
     try:
         schedule_map = budgets.load_schedule()
     except Exception:
         schedule_map = {}
-    try:
-        schedule_map, _migrated = budgets.ensure_migrated(
-            bedtime_map, overrides_map, schedule_map, now)
-    except Exception as e:
-        print('schedule: tick migration failed: %s' % e, flush=True)
     if prefs is None:
         prefs = budgets.load_prefs()
     if now_bt is None:
