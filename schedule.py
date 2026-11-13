@@ -49,8 +49,9 @@ Hard rules (AGENTS.md / RESTRUCTURE_PLAN.md):
   explicit ``now``/``today`` — same inputs produce byte-identical blocks.
 """
 
-from datetime import date as _date, datetime, timedelta
 import re
+from datetime import date as _date
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # Vocabulary — mirrors of literals defined elsewhere (kept as literals here
@@ -641,12 +642,9 @@ def expand(start_dt, end_dt, blocks):
     capped at MAX_EXPAND_DAYS (fail-closed against absurd ranges).
     """
     out = []
-    try:
-        if not isinstance(start_dt, datetime) or not isinstance(end_dt, datetime):
-            return []
-        if end_dt <= start_dt:
-            return []
-    except Exception:
+    if not isinstance(start_dt, datetime) or not isinstance(end_dt, datetime):
+        return []
+    if end_dt <= start_dt:
         return []
     days = (end_dt.date() - start_dt.date()).days
     if days > MAX_EXPAND_DAYS:

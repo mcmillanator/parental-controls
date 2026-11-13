@@ -28,7 +28,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import budgets          # facade is stdlib-only (no Flask)
 import schedule
 
-
 # ---------------------------------------------------------------------------
 # Frozen reference implementations (the OLD predicates, verbatim from the
 # pre-calendar master: app.is_in_bedtime / budgets_actions._in_window share

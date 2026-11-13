@@ -14,7 +14,6 @@ behave exactly as on the live box. No real accounts, no locks beyond
 mocked run_lock_command, no /etc, no service state.
 """
 
-import json
 import os
 import sys
 import tempfile
