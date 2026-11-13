@@ -71,6 +71,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROCESS_PREFS_FILE = os.path.join(BASE_DIR, 'process_prefs.json')
 BUDGETS_FILE = os.path.join(BASE_DIR, 'budgets.json')
 OVERRIDES_FILE = os.path.join(BASE_DIR, 'overrides.json')
+# Calendar blocks (CALENDAR_DESIGN.md): the 'schedule' table's rollback
+# mirror lives next to the others; the SQLite table is the truth.
+SCHEDULE_FILE = os.path.join(BASE_DIR, 'schedule.json')
 CGROUP_ROOT = '/sys/fs/cgroup'
 
 CATEGORIES = ('games', 'browsers', 'media', 'chat', 'other')
@@ -189,12 +192,27 @@ from budgets_state import (  # noqa: E402
 # budgets_overrides.py — app overrides + weekly windows. Needs: app.py (7
 # names), agent.py (overrides_view/load_overrides), `test_overrides` and
 # `test_session_agent_phase2` (`budgets.OVERRIDES_FILE` is patched in 3).
+# The calendar block glue (CALENDAR_DESIGN.md) re-exports here too: the
+# enforcement shims resolve ALL of these through `budgets` at call time.
 from budgets_overrides import (  # noqa: E402
     _clear_app_runtime, _config_entry, _release_window_freeze,
-    _reset_window_runtime, active_window, clear_window, iter_overrides,
-    iter_windows, load_overrides, normalize_override, normalize_window,
-    override_map, overrides_view, parse_days, save_overrides,
-    set_app_override, set_window, update_window, window_id_for)
+    _reset_window_runtime, active_capped, active_window, block_active,
+    clear_window, ensure_migrated, has_bedtime_config, in_bedtime_for,
+    iter_overrides, iter_windows, load_overrides, load_schedule,
+    normalize_override, normalize_window, override_map, overrides_view,
+    parse_days, remove_block, save_overrides, save_schedule,
+    set_app_override, set_bedtime_block, set_window, update_window,
+    upsert_block, user_schedule, user_windows, window_id_for)
+
+# schedule.py — the pure calendar evaluator (stdlib-only shared core,
+# like pcstatus/pcprobe): imported for the module-level names below and
+# for `budgets.schedule.X` spellings across the concern modules.
+import schedule  # noqa: E402
+from schedule import (  # noqa: E402
+    CATEGORIES as SCHEDULE_CATEGORIES, MODE_CAPPED, MODE_PERMITTED,
+    TARGET_BEDTIME, WINDOW_MIN_MINUTES as SCHEDULE_WINDOW_MIN_MINUTES,
+    active_blocks, expand, in_bedtime, iter_blocks, normalize_block,
+    parse_preset, preset_for_days)
 
 # budgets_cgroup.py — the privileged freezer. Needs: cli.py (CGROUP_ROOT,
 # thaw_bucket), the tick, the watchdog, `test_freeze_buttons` /

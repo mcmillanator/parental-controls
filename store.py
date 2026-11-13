@@ -42,7 +42,7 @@ import os
 import sqlite3
 import tempfile
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DB_FILENAME = 'state.db'
 BUSY_TIMEOUT_MS = 5000
 
@@ -55,8 +55,10 @@ PER_FIELD_TABLES = ('bedtime', 'budgets', 'process_prefs')
 # parent-authored, rarely written and read whole (presence checks only),
 # so per-field granularity buys nothing — the plan's JSON-doc-per-user
 # shape is kept. ``TABLES`` stays the per-field set so existing callers
-# and tests that iterate it are untouched.
-DOC_TABLES = ('overrides',)
+# and tests that iterate it are untouched. ``schedule`` is the calendar
+# block store (CALENDAR_DESIGN.md): {username: {events: {id: {...}},
+# 'migrated': iso}}, one doc per user, same whole-doc style.
+DOC_TABLES = ('overrides', 'schedule')
 TABLES = PER_FIELD_TABLES
 ALL_TABLES = PER_FIELD_TABLES + DOC_TABLES
 
@@ -72,6 +74,7 @@ LEGACY_FILES = {
     'budgets': 'budgets.json',
     'process_prefs': 'process_prefs.json',
     'overrides': 'overrides.json',
+    'schedule': 'schedule.json',
 }
 
 
@@ -229,6 +232,19 @@ def _migrate_3(conn):
                  '(username TEXT PRIMARY KEY, doc TEXT NOT NULL)')
 
 
+def _migrate_4(conn):
+    """v4: the calendar schedule block store (CALENDAR_DESIGN.md).
+
+    Same whole-document shape as overrides: one doc per user,
+    ``{events: {id: block}, migrated: iso}``. Old binaries never read it
+    (unknown tables are simply ignored), so a rollback keeps enforcing
+    from the legacy tables, which the new write paths mirror on every
+    mutation. Idempotent (CREATE ... IF NOT EXISTS).
+    """
+    conn.execute('CREATE TABLE IF NOT EXISTS schedule '
+                 '(username TEXT PRIMARY KEY, doc TEXT NOT NULL)')
+
+
 MIGRATIONS = [
     (1, 'initial schema: schema_version + one JSON-document '
         'table per store (bedtime, budgets, process_prefs)',
@@ -240,6 +256,8 @@ MIGRATIONS = [
     (3, 'per-app overrides + weekly budget windows: add the '
         'whole-document overrides table',
      _migrate_3),
+    (4, 'calendar blocks: add the whole-document schedule table',
+     _migrate_4),
 ]
 
 

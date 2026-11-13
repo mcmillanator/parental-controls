@@ -110,6 +110,19 @@ def set_limit(username, category, minutes, actor='system'):
     return True, 'OK'
 
 
+def _user_schedule_doc(username):
+    """Best-effort schedule doc for one user (None on any store problem).
+
+    Fail-closed: an unreadable schedule table just means the legacy
+    shapes govern — the per-user shims in budgets_overrides handle it.
+    """
+    import budgets
+    try:
+        return budgets.load_schedule().get(username)
+    except Exception:
+        return None
+
+
 def budget_status(username, data=None, overrides=None, now=None):
     """UI-friendly status: {cat: {minutes, used_minutes, remaining_minutes,
     paused}} for every category, plus an ``app_budgets`` map.
@@ -133,11 +146,14 @@ def budget_status(username, data=None, overrides=None, now=None):
     used = entry.get('used_seconds', {})
     paused = entry.get('paused', {})
     manual_frozen = entry.get('manual_frozen', {})
+    schedule_doc = _user_schedule_doc(username)
     active_by_cat = {}
-    for _wid, win in budgets.iter_windows(overrides):
-        if (win['target_type'] == 'category' and win['enabled']
-                and budgets._in_window(win, now)):
-            active_by_cat[win['target']] = win
+    for block in budgets.user_windows(username, overrides, schedule_doc,
+                                      today=now.date()):
+        if (block['target'] in budgets.CATEGORIES
+                and block['mode'] == 'capped'
+                and budgets.block_active(block, now)):
+            active_by_cat[block['target']] = block
     status = {}
     for cat in budgets.CATEGORIES:
         limit_min = float(limits.get(cat, 0) or 0)
@@ -192,6 +208,9 @@ def app_budget_status(username, data=None, overrides=None, now=None):
     app_paused = entry.get('app_paused', {}) or {}
     app_manual = entry.get('app_manual_frozen', {}) or {}
     window_used = entry.get('window_used', {}) or {}
+    schedule_doc = _user_schedule_doc(username)
+    blocks = budgets.user_windows(username, overrides, schedule_doc,
+                                  today=now.date())
     out = {}
     for comm, ov in budgets.iter_overrides(overrides):
         is_paused = bool(app_paused.get(comm, False))
@@ -205,7 +224,7 @@ def app_budget_status(username, data=None, overrides=None, now=None):
                 'window_active': False, 'effective_source': 'exempt',
             }
             continue
-        win = budgets.active_window(overrides, 'app', comm, now)
+        win = budgets.active_capped(blocks, 'app', comm, now)
         if win is not None:
             limit_min = float(win['allowance_minutes'])
             used_sec = float(window_used.get(win['id'], 0.0) or 0.0)

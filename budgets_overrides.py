@@ -11,11 +11,21 @@ Moved verbatim out of budgets.py by RESTRUCTURE_PLAN.md slice 5; the facade
 re-exports every name by name. `OVERRIDES_FILE`, `WINDOW_MIN_MINUTES`, the
 window predicates, the budgets document and the freezer verbs resolve through
 `budgets` at call time — see the cross-seam convention in budgets_guards.py.
+
+CALENDAR (CALENDAR_DESIGN.md, 2026-11-13): this module also owns the impure
+glue around the pure `schedule` evaluator — `load_schedule`/`save_schedule`
+(whole-doc 'schedule' table), `ensure_migrated` (idempotent hard-cutover
+migration from the bedtime table + windows sub-doc), `user_windows`
+(the enforcement read: calendar blocks once a user is migrated, legacy
+windows derived on the fly before), and the write-throughs the old
+window/bedtime routes use so the schedule table stays the single source of
+truth while the legacy tables stay exact mirrors.
 """
 
 import audit
+import schedule
 import store
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # overrides config store — per-app allowances/exemptions + weekly windows
@@ -37,6 +47,410 @@ def save_overrides(data):
     import budgets
     store.save_table(store.db_path_for(budgets.OVERRIDES_FILE), 'overrides',
                      data, budgets.OVERRIDES_FILE)
+
+
+# ---------------------------------------------------------------------------
+# Calendar schedule glue (CALENDAR_DESIGN.md) — the 'schedule' table is the
+# enforcement source of truth; the bedtime table and the windows sub-doc are
+# write-synchronized mirrors (see _sync_windows_mirror). Pure evaluation
+# lives in schedule.py; everything here is table IO + wiring.
+# ---------------------------------------------------------------------------
+
+def load_schedule():
+    import budgets
+    return store.load_table(store.db_path_for(budgets.OVERRIDES_FILE),
+                            'schedule')
+
+
+def save_schedule(data):
+    import budgets
+    store.save_table(store.db_path_for(budgets.OVERRIDES_FILE), 'schedule',
+                     data, budgets.SCHEDULE_FILE)
+
+
+def user_schedule(username, schedule_map=None):
+    """One user's schedule doc ({} when absent/unreadable)."""
+    if schedule_map is None:
+        schedule_map = load_schedule()
+    doc = schedule_map.get(username) if isinstance(schedule_map, dict) else None
+    return doc if isinstance(doc, dict) else {}
+
+
+def user_windows(username, overrides=None, schedule_doc=None, today=None):
+    """Blocks governing this user's category/app targets (window source).
+
+    Schedule-first (hard cutover): once the doc carries the migration
+    marker, ONLY the schedule table is consulted — legacy windows are the
+    migration source and rollback mirror, never a second enforcement
+    input. Before migration the same block shape is derived from the
+    legacy windows on the fly (window ids preserved, so the runtime
+    window_used/window_active keys are continuous across the cutover).
+    Returns normalized blocks in id order, including disabled ones — the
+    enforcement lifecycle iterates them all and is_block_active() filters.
+    """
+    import budgets
+    if schedule.doc_is_migrated(schedule_doc):
+        return [block for _bid, block in sorted(
+            schedule.iter_blocks(schedule_doc), key=lambda pair: pair[0])
+            if block['target'] != schedule.TARGET_BEDTIME]
+    if overrides is None:
+        overrides = budgets.load_overrides().get(username)
+    today = today or datetime.now().date()
+    out = []
+    for _wid, win in sorted(iter_windows(overrides),
+                            key=lambda pair: pair[0]):
+        block = schedule.window_to_block(win, today)
+        if block is not None:
+            out.append(block)
+    return out
+
+
+def block_active(block, now):
+    """Enabled + time-active for ONE block (the evaluator's predicate).
+
+    The block-shaped replacement for ``budgets._in_window(win, now)`` at
+    the enforcement call sites; fails closed on malformed blocks.
+    """
+    return schedule.is_block_active(block, now)
+
+
+def active_capped(blocks, target_type, target, now):
+    """The capped window-replacement block for one target, or None.
+
+    Same contract as ``active_window`` for its consumers (allowance
+    replaces the daily limit while active), now block-shaped. At most one
+    same-target block is active at any minute: same child+target blocks
+    must not overlap (enforced at write time, owner rule #4).
+    """
+    canonical = schedule.target_of(target_type, target)
+    if canonical is None:
+        return None
+    for block in blocks:
+        if (block['target'] == canonical
+                and block['mode'] == schedule.MODE_CAPPED
+                and schedule.is_block_active(block, now)):
+            return block
+    return None
+
+
+def has_bedtime_config(schedule_doc, bedtime_entry):
+    """Whether the user has a bedtime ANCHOR (daily-reset reference).
+
+    Schedule-first: migrated users anchor on their ENABLED bedtime blocks
+    (a disabled block locks nothing, so the day resets at midnight like
+    a user with no bedtime); non-migrated users on the legacy entry shape.
+    """
+    if schedule.doc_is_migrated(schedule_doc):
+        return any(block['target'] == schedule.TARGET_BEDTIME
+                   and block['enabled']
+                   for _bid, block in schedule.iter_blocks(schedule_doc))
+    return bool(bedtime_entry and bedtime_entry.get('start'))
+
+
+def in_bedtime_for(schedule_doc, bedtime_entry, now):
+    """Bedtime predicate over whichever source governs the user.
+
+    Migrated -> the pure schedule evaluator (bedtime blocks lock). Not
+    migrated -> the relocated legacy predicate (schedule.in_bedtime_entry,
+    the verbatim old body). Fail-closed both ways.
+    """
+    if schedule.doc_is_migrated(schedule_doc):
+        return schedule.in_bedtime(schedule_doc, now)
+    if not bedtime_entry:
+        return False
+    return schedule.in_bedtime_entry(bedtime_entry, now)
+
+
+# ---------------------------------------------------------------------------
+# The single write funnel — every calendar mutation lands here, so the
+# 'schedule' doc is the source of truth and the overrides windows sub-doc
+# stays an exact mirror for anything legacy-shape can express
+# (CALENDAR_DESIGN.md §mirrors). The BEDTIME-entry mirror (start/end/days
+# on the live row) is owned by app.py/agent.py — they hold that table.
+# ---------------------------------------------------------------------------
+
+def _block_to_legacy_window(block):
+    """Mirror one capped block back to the legacy windows shape, or None.
+
+    Only presets the old shape can express round-trip: DAILY, SCHOOL and
+    WEEKLY:BYDAY without an UNTIL bound. ONE/BIWEEKLY/UNTIL-bound and
+    permitted-mode blocks have no legacy window equivalent and are simply
+    absent from the mirror (the schedule table still governs; the mirror
+    only matters for pre-migration readers and the corruption fallback).
+    """
+    parsed = schedule.parse_preset(block.get('preset'))
+    if parsed is None or block.get('mode') != schedule.MODE_CAPPED:
+        return None
+    freq, days = parsed
+    if freq in ('ONE', 'BIWEEKLY') or block.get('until'):
+        return None
+    if freq == 'DAILY':
+        days = [0, 1, 2, 3, 4, 5, 6]
+    elif freq == 'SCHOOL':
+        days = [0, 1, 2, 3, 4]
+    kind = schedule.target_kind(block.get('target'))
+    if kind == 'category':
+        target_type, target = 'category', block['target']
+    elif kind == 'app':
+        target_type, target = 'app', block['target'][4:]
+    else:
+        return None
+    return {
+        'id': block['id'], 'target_type': target_type, 'target': target,
+        'days': list(days), 'start': block['start'], 'end': block['end'],
+        'allowance_minutes': block['allowance_minutes'],
+        'enabled': block['enabled'],
+        'set_by': block.get('set_by'), 'set_at': block.get('set_at'),
+    }
+
+
+def _sync_windows_mirror(username, doc, actor='system'):
+    """Regenerate overrides[username]['windows'] from the doc's blocks."""
+    events = doc.get('events') if isinstance(doc, dict) else None
+    if not isinstance(events, dict):
+        return
+    mirrored = {}
+    for bid, value in events.items():
+        block = schedule.normalize_block(value, block_id=bid)
+        if block is None:
+            continue
+        legacy = _block_to_legacy_window(block)
+        if legacy is not None:
+            mirrored[bid] = legacy
+    try:
+        data = load_overrides()
+    except Exception:
+        return
+    entry = _config_entry(data, username)
+    entry['windows'] = mirrored
+    try:
+        save_overrides(data)
+    except OSError as e:
+        print('schedule: windows mirror sync failed for %s: %s'
+              % (username, e), flush=True)
+
+
+def _load_events(doc):
+    events = doc.get('events') if isinstance(doc, dict) else None
+    return events if isinstance(events, dict) else {}
+
+
+def _stamp_migrated(doc, now):
+    if not schedule.doc_is_migrated(doc):
+        doc['migrated'] = now.isoformat(timespec='seconds')
+    return doc
+
+
+def upsert_block(username, raw_block, actor='system', block_id=None):
+    """Create/replace one calendar block (validated, overlap-checked).
+
+    Returns (ok, message). The first calendar write is the cutover: the
+    migration marker is stamped so enforcement reads ONLY the schedule
+    from now on. Same child+target overlaps are rejected (owner rule #4);
+    the windows mirror is refreshed on success.
+    """
+    import budgets
+    if not budgets.valid_username(username):
+        return False, 'Invalid username'
+    norm = schedule.normalize_block(raw_block, block_id=block_id)
+    if norm is None:
+        return False, ('Invalid block (target/mode/preset/times/allowance'
+                       ' — see the calendar grammar)')
+    doc_map = load_schedule()
+    doc = doc_map.get(username)
+    doc = doc if isinstance(doc, dict) else {}
+    events = _load_events(doc)
+    existing = [block for bid, block in schedule.iter_blocks(doc)
+                if bid != norm['id']]
+    conflict = schedule.find_overlap(existing, norm)
+    if conflict is not None:
+        return False, ('Overlaps block %s for the same target; blocks for '
+                       'one target must not overlap' % conflict)
+    events[norm['id']] = norm
+    doc['events'] = events
+    _stamp_migrated(doc, datetime.now())
+    doc_map[username] = doc
+    try:
+        save_schedule(doc_map)
+    except OSError as e:
+        return False, str(e)
+    _sync_windows_mirror(username, doc, actor=actor)
+    audit.safe_log(actor, 'schedule.block_set',
+                   '%s:%s' % (username, norm['id']),
+                   {'target': norm['target'], 'mode': norm['mode'],
+                    'preset': norm['preset'], 'start': norm['start'],
+                    'end': norm['end'],
+                    'allowance_minutes': norm['allowance_minutes'],
+                    'enabled': norm['enabled']})
+    return True, 'OK'
+
+
+def remove_block(username, block_id, actor='system'):
+    """Delete one block (series-only; no per-occurrence exceptions in v1)."""
+    import budgets
+    if not budgets.valid_username(username):
+        return False, 'Invalid username'
+    doc_map = load_schedule()
+    doc = doc_map.get(username)
+    events = _load_events(doc)
+    if block_id not in events:
+        return False, 'No such block'
+    events.pop(block_id)
+    doc = doc if isinstance(doc, dict) else {}
+    doc['events'] = events
+    _stamp_migrated(doc, datetime.now())
+    doc_map[username] = doc
+    try:
+        save_schedule(doc_map)
+    except OSError as e:
+        return False, str(e)
+    _sync_windows_mirror(username, doc, actor=actor)
+    audit.safe_log(actor, 'schedule.block_cleared',
+                   '%s:%s' % (username, block_id), {'ok': True})
+    return True, 'Block removed'
+
+
+def set_bedtime_block(username, days, start, end, actor='system',
+                      enabled=True):
+    """Write-through for the OLD bedtime editor: replace the user's
+    bedtime-target blocks with exactly one derived from (days,start,end).
+
+    Full-replace semantics: the legacy form always owned the whole
+    bedtime schedule, so clearing there clears ALL bedtime blocks (the
+    device must not stay locked by an editor the parent just emptied).
+    Non-bedtime blocks are untouched. Caller keeps owning the bedtime
+    live-state row (this only mirrors the CONFIG into the calendar).
+    """
+    import budgets
+    if not budgets.valid_username(username):
+        return False, 'Invalid username'
+    doc_map = load_schedule()
+    doc = doc_map.get(username)
+    doc = doc if isinstance(doc, dict) else {}
+    events = _load_events(doc)
+    events = {bid: value for bid, value in events.items()
+              if not (isinstance(value, dict)
+                      and value.get('target') == schedule.TARGET_BEDTIME)}
+    now = datetime.now()
+    block = None
+    if start or end:
+        preset = schedule.preset_for_days(days)
+        block = schedule.normalize_block({
+            'id': 'b-bedtime-1', 'target': schedule.TARGET_BEDTIME,
+            'mode': None, 'preset': preset,
+            'dtstart': (now - timedelta(days=1)).date().isoformat(),
+            'start': start, 'end': end, 'enabled': bool(enabled),
+            'set_by': actor,
+            'set_at': now.isoformat(timespec='seconds'),
+        })
+        if block is None:
+            return False, 'Invalid bedtime (days/start/end)'
+        events[block['id']] = block
+    doc['events'] = events
+    _stamp_migrated(doc, now)
+    doc_map[username] = doc
+    try:
+        save_schedule(doc_map)
+    except OSError as e:
+        return False, str(e)
+    _sync_windows_mirror(username, doc, actor=actor)
+    audit.safe_log(actor, 'schedule.block_set',
+                   '%s:b-bedtime-1' % username,
+                   {'target': 'bedtime', 'days': list(days or []),
+                    'start': start, 'end': end})
+    return True, 'OK'
+
+
+def _upsert_window_block(username, window):
+    """Mirror a legacy window set/update into the schedule doc IF migrated."""
+    doc_map = load_schedule()
+    doc = doc_map.get(username)
+    if not schedule.doc_is_migrated(doc):
+        return
+    block = schedule.window_to_block(window, datetime.now().date())
+    if block is None:
+        return
+    events = _load_events(doc)
+    events[block['id']] = block
+    doc['events'] = events
+    doc_map[username] = doc
+    try:
+        save_schedule(doc_map)
+    except OSError as e:
+        print('schedule: window block mirror failed for %s: %s'
+              % (username, e), flush=True)
+
+
+def _drop_window_block(username, window_id):
+    """Mirror a legacy window clear/disable into the schedule doc."""
+    doc_map = load_schedule()
+    doc = doc_map.get(username)
+    if not schedule.doc_is_migrated(doc):
+        return
+    events = _load_events(doc)
+    if window_id not in events:
+        return
+    events.pop(window_id)
+    doc['events'] = events
+    doc_map[username] = doc
+    try:
+        save_schedule(doc_map)
+    except OSError as e:
+        print('schedule: window block drop failed for %s: %s'
+              % (username, e), flush=True)
+
+
+def ensure_migrated(bedtime_map, overrides_map, schedule_map=None, now=None,
+                    actor='system'):
+    """Idempotent, deterministic hard-cutover migration.
+
+    Every valid username with legacy config (a bedtime entry with any of
+    start/end/days, or a non-empty windows sub-doc) and NO migrated doc
+    gets ``schedule.migrate(...)`` blocks: bedtime entry -> one bedtime
+    block; each ENABLED valid window -> one capped block (same id, so the
+    per-window runtime keys carry over); disabled/dead windows are NOT
+    migrated — but the marker is still stamped, so a rule the parent
+    deleted is never resurrected by a later re-run (the enforcement
+    fallback reads the write-synchronized mirror, see CALENDAR_DESIGN.md
+    §fail-closed). Users with neither legacy config nor a doc are left
+    untouched (no empty docs). Persists once on change; audit-logs one
+    'schedule.migrate' event per user. Returns (schedule_map, migrated).
+    """
+    import budgets
+    now = now or datetime.now()
+    if schedule_map is None:
+        schedule_map = load_schedule()
+    migrated = []
+    bedtime_map = bedtime_map if isinstance(bedtime_map, dict) else {}
+    overrides_map = (overrides_map if isinstance(overrides_map, dict)
+                     else {})
+    for username in sorted(set(bedtime_map) | set(overrides_map)):
+        if not budgets.valid_username(username):
+            continue
+        if schedule.doc_is_migrated(schedule_map.get(username)):
+            continue
+        entry = bedtime_map.get(username)
+        ovr = overrides_map.get(username)
+        has_bedtime = (isinstance(entry, dict)
+                       and any(k in entry for k in ('start', 'end', 'days')))
+        raw_windows = ovr.get('windows') if isinstance(ovr, dict) else None
+        has_windows = bool(raw_windows) if isinstance(raw_windows, dict) \
+            else False
+        if not has_bedtime and not has_windows:
+            continue
+        windows = [win for _wid, win in iter_windows(ovr)]
+        doc = schedule.migrate(entry if has_bedtime else None, windows, now)
+        schedule_map[username] = doc
+        migrated.append(username)
+        audit.safe_log(actor, 'schedule.migrate', username, {
+            'blocks': sorted(doc['events']),
+            'bedtime': has_bedtime, 'windows': len(windows)})
+    if migrated:
+        try:
+            save_schedule(schedule_map)
+        except OSError as e:
+            print('schedule: migration save failed: %s' % e, flush=True)
+    return schedule_map, migrated
 
 
 def window_id_for(target_type, target):
@@ -356,6 +770,7 @@ def set_window(username, target_type, target, days, start, end,
         budgets.save_overrides(data)
     except OSError as e:
         return False, str(e)
+    _upsert_window_block(username, norm)
     audit.safe_log(actor, 'budget.window_set', f'{username}:{window_id}',
                    {'target_type': target_type, 'target': target,
                     'days': norm['days'], 'start': norm['start'],
@@ -400,6 +815,7 @@ def update_window(username, window_id, days=None, start=None, end=None,
         budgets.save_overrides(data)
     except OSError as e:
         return False, str(e)
+    _upsert_window_block(username, norm)
     if enabled is not None and not bool(enabled):
         # Disabling resets the window's runtime and releases its freeze.
         _reset_window_runtime(username, window_id)
@@ -430,6 +846,7 @@ def clear_window(username, window_id=None, target_type=None, target=None,
         budgets.save_overrides(data)
     except OSError as e:
         return False, str(e)
+    _drop_window_block(username, window_id)
     _reset_window_runtime(username, window_id)
     norm = normalize_window(removed, window_id=window_id)
     if norm is not None:

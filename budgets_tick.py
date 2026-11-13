@@ -22,15 +22,22 @@ import time
 # ---------------------------------------------------------------------------
 
 def _clear_window_target_freeze(entry, window, username, act, summary):
-    """Clear a window target's freeze flags on an open/close transition.
+    """Clear a window/block target's freeze flags on an open/close transition.
 
     On open: fresh allowance. On close: auto-resume. Pops the auto-pause
     and resume-inhibit flags and (when acting) thaws the target's cgroup
     so the daily governor or the next window re-evaluates cleanly.
+
+    Accepts BOTH shapes: the legacy window dict (``target_type`` +
+    ``target``) and a calendar block (``target`` = 'bedtime' | category |
+    'app:<comm>', CALENDAR_DESIGN.md) — enforcement now runs on blocks.
     """
     import budgets
     target = window['target']
-    if window['target_type'] == 'category':
+    kind = window.get('target_type')
+    if kind is None:
+        kind = ('app' if str(target).startswith('app:') else 'category')
+    if kind == 'category':
         entry.setdefault('paused', {}).pop(target, None)
         entry.setdefault('resumed', {}).pop(target, None)
         if act:
@@ -38,13 +45,14 @@ def _clear_window_target_freeze(entry, window, username, act, summary):
             if not ok:
                 summary['note'] = f'window thaw failed for {target}: {msg}'
     else:
-        entry.setdefault('app_paused', {}).pop(target, None)
-        entry.setdefault('app_resumed', {}).pop(target, None)
+        comm = target[4:] if str(target).startswith('app:') else target
+        entry.setdefault('app_paused', {}).pop(comm, None)
+        entry.setdefault('app_resumed', {}).pop(comm, None)
         if act:
-            ok, msg = budgets.set_frozen_app(username, target, False)
+            ok, msg = budgets.set_frozen_app(username, comm, False)
             if not ok:
                 summary['note'] = (f'window thaw failed for app:'
-                                   f'{target}: {msg}')
+                                   f'{comm}: {msg}')
 
 
 # _audit_auto_pause_failed dedup state (FIX-3): 'user:tag' -> last logged
@@ -138,7 +146,8 @@ def emit_tick_summaries(summaries, state=None):
     return lines
 
 
-def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry):
+def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry,
+                             schedule_doc=None):
     """Advance a locked account's accounting baselines, billing nothing.
 
     Mirrors the baseline half of account_and_enforce (was_in_bedtime
@@ -150,7 +159,7 @@ def _locked_tick_bookkeeping(entry, procs, now, bedtime_entry):
     """
     import budgets
     entry['was_in_bedtime'] = bool(
-        bedtime_entry and budgets._in_bedtime(bedtime_entry, now))
+        budgets.in_bedtime_for(schedule_doc, bedtime_entry, now))
     if not entry.get('limits'):
         # Mirrors account_and_enforce: no configured limits -> drop the
         # baseline (and leave last_tick alone, exactly like that path).
@@ -229,6 +238,20 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
     import budgets
     data = budgets.load_budgets()
     overrides_map = budgets.load_overrides()
+    # Calendar hard-cutover (CALENDAR_DESIGN.md): migrate legacy bedtime
+    # rows + windows once, then EVERY user reads their blocks from the
+    # schedule doc. Reading the table may fail (corrupt store) — the
+    # per-user fallback to legacy shapes inside the shims keeps the tick
+    # running on the write-synchronized mirrors.
+    try:
+        schedule_map = budgets.load_schedule()
+    except Exception:
+        schedule_map = {}
+    try:
+        schedule_map, _migrated = budgets.ensure_migrated(
+            bedtime_map, overrides_map, schedule_map, now)
+    except Exception as e:
+        print('schedule: tick migration failed: %s' % e, flush=True)
     if prefs is None:
         prefs = budgets.load_prefs()
     if now_bt is None:
@@ -274,7 +297,8 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             # advance exactly as if billed, so the first tick after unlock
             # bills only NEW CPU, never the locked window.
             _locked_tick_bookkeeping(
-                entry, procs, now, (bedtime_map or {}).get(username))
+                entry, procs, now, (bedtime_map or {}).get(username),
+                schedule_doc=schedule_map.get(username))
             # Focus engine: consume the locked window's feed rows (cursor
             # advance) so the first tick after unlock bills only NEW focus.
             if budgets.focus_engine_of(entry) in budgets.FOCUS_FAMILY:
@@ -293,7 +317,8 @@ def tick_budgets(bedtime_map, now, procs_provider=None, prefs=None,
             now, prefs,
             index if index is not None else tick_desktop_index(username),
             act, notify, overrides=user_overrides,
-            focus_provider=focus_provider, now_bt=now_bt))
+            focus_provider=focus_provider, now_bt=now_bt,
+            schedule_doc=schedule_map.get(username)))
     if changed:
         try:
             budgets.save_budgets(data)

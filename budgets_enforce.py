@@ -172,12 +172,21 @@ def _enforce_target(username, t, wall, deltas, summary, act):
 
 def account_and_enforce(username, entry, procs, bedtime_entry, now,
                         prefs=None, index=None, act=True, notify=None,
-                        overrides=None, focus_provider=None, now_bt=None):
+                        overrides=None, focus_provider=None, now_bt=None,
+                        schedule_doc=None):
     """One budget tick for a single user. Mutates `entry` in place.
 
     ``overrides`` is this user's config doc
     (``{"app_overrides": ..., "windows": ...}``) or None/empty; absent
     config reproduces the pre-feature behavior exactly.
+
+    ``schedule_doc`` is this user's calendar doc (CALENDAR_DESIGN.md).
+    Once it carries the migration marker it is the SOLE enforcement
+    source: the weekly windows become capped blocks (same ids, so the
+    window_used/window_active runtime keys carry over) and the bedtime
+    table stops deciding lock transitions. Absent/unmigrated -> the
+    legacy windows are derived into identical blocks on the fly (the
+    equivalence tests pin that this is a no-op behaviorally).
 
     ``focus_provider`` (``focus_provider(username, entry, now_bt)`` ->
     focus_feed parse result) and ``now_bt`` (``CLOCK_BOOTTIME`` seconds)
@@ -186,9 +195,11 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     default CPU behavior is byte-identical.
 
     Precedence (most specific wins): app exemption > app allowance (its
-    own active window, else its daily override) > category active window
-    > category daily limit. An active target window replaces the daily
-    allowance entirely (limit AND reset timing).
+    own active capped block, else its daily override) > category active
+    capped block > category daily limit. An active capped block replaces
+    the daily allowance entirely (limit AND reset timing). A target with
+    >=1 enabled PERMITTED block is gated instead: unlimited inside its
+    permitted blocks, frozen outside.
 
     Returns a summary dict {reset, froze: [...], notified: [...], note}.
     With act=False no privileged cgroup operations are performed (used by
@@ -196,9 +207,10 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     ``notify(username, title, body)`` used for best-effort warnings.
     """
     import budgets
+    import schedule
     today_str = now.date().isoformat()
-    has_bedtime = bool(bedtime_entry and bedtime_entry.get('start'))
-    now_in = bool(bedtime_entry and budgets._in_bedtime(bedtime_entry, now))
+    has_bedtime = budgets.has_bedtime_config(schedule_doc, bedtime_entry)
+    now_in = bool(budgets.in_bedtime_for(schedule_doc, bedtime_entry, now))
     was_in = bool(entry.get('was_in_bedtime', False))
     summary = {'user': username, 'reset': False, 'froze': [],
                'unfroze': [], 'notified': [], 'note': ''}
@@ -223,15 +235,18 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         summary['note'] = note
         return summary
 
-    # ---- weekly-window lifecycle: open/close transitions ----
+    # ---- weekly-block lifecycle: open/close transitions ----
+    # (windows come from the calendar once migrated; the window ids are
+    # preserved, so the per-window runtime keys are continuous).
     window_used = entry.setdefault('window_used', {})
     window_active = entry.setdefault('window_active', {})
-    configured_windows = [w for _wid, w in budgets.iter_windows(overrides)]
+    configured_windows = budgets.user_windows(
+        username, overrides, schedule_doc, today=now.date())
     active_windows = []
     for win in configured_windows:
         wid = win['id']
         was_active = bool(window_active.get(wid, False))
-        is_active = bool(win['enabled'] and budgets._in_window(win, now))
+        is_active = bool(budgets.block_active(win, now))
         if is_active:
             active_windows.append(win)
         if is_active and not was_active:
@@ -270,9 +285,9 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
         summary['reset'] = True
         if act:
             keep_cats = {w['target'] for w in active_windows
-                         if w['target_type'] == 'category'}
-            keep_apps = {w['target'] for w in active_windows
-                         if w['target_type'] == 'app'}
+                         if w['target'] in budgets.CATEGORIES}
+            keep_apps = {w['target'][4:] for w in active_windows
+                         if w['target'].startswith('app:')}
             if keep_cats or keep_apps:
                 ok, _res = budgets.unfreeze_all_user(
                     username, keep_categories=keep_cats,
@@ -335,7 +350,15 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
 
     governed_comms = set(app_overrides)
     win_by_category = {w['target']: w for w in active_windows
-                       if w['target_type'] == 'category'}
+                       if w['target'] in budgets.CATEGORIES
+                       and w['mode'] == schedule.MODE_CAPPED}
+    # Permitted blocks gate their target: unlimited inside, frozen
+    # outside (owner rule #2 — gating applies only where blocks exist).
+    permitted_by_target = {}
+    for w in configured_windows:
+        if (w['mode'] == schedule.MODE_PERMITTED and w['enabled']
+                and w['target'] != schedule.TARGET_BEDTIME):
+            permitted_by_target.setdefault(w['target'], []).append(w)
 
     # ---- focus engine: bill focused seconds instead of CPU deltas ----
     # The CPU path is untouched when focus_seconds stays None (default
@@ -372,20 +395,36 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
             summary['degraded'] = True
         summary['focus'] = focus_info
 
-    # ---- category targets (window replaces the daily limit) ----
+    # ---- category targets (capped block replaces the daily limit) ----
     ordered = list(limits.keys())
     for cat in win_by_category:
         if cat not in ordered:
             ordered.append(cat)
+    for cat in permitted_by_target:
+        if cat not in ordered:
+            ordered.append(cat)
     for category in ordered:
         if category not in budgets.CATEGORIES:
+            continue
+        plist = permitted_by_target.get(category)
+        if plist and any(budgets.block_active(b, now) for b in plist):
+            # Inside a permitted window: unlimited usage for this tick,
+            # and release a gating freeze laid down on an earlier tick.
+            if paused.get(category):
+                if act:
+                    budgets.set_frozen(username, category, False)
+                paused.pop(category, None)
             continue
         members = budgets._visible_category_members(
             procs, username, category, prefs, index,
             exclude_comms=governed_comms)
         label = budgets.CATEGORY_LABELS.get(category, category)
         win = win_by_category.get(category)
-        if win is not None:
+        if plist:
+            # Gated target outside every permitted block: frozen.
+            limit_sec = 0.0
+            used_map, used_key = used, category
+        elif win is not None:
             limit_sec = float(win['allowance_minutes']) * 60.0
             used_map, used_key = window_used, win['id']
         else:
@@ -427,9 +466,22 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     for comm, ov in sorted(app_overrides.items()):
         if ov['mode'] == 'exempt':
             continue  # unlimited: never billed, never placed in a cgroup
-        win = budgets.active_window(overrides, 'app', comm, now)
+        plist = permitted_by_target.get('app:' + comm)
+        if plist and any(budgets.block_active(b, now) for b in plist):
+            # Inside a permitted window: unlimited, release gating freeze.
+            if app_paused.get(comm):
+                if act:
+                    budgets.set_frozen_app(username, comm, False)
+                app_paused.pop(comm, None)
+            continue
+        win = None if plist else budgets.active_capped(
+            configured_windows, 'app', comm, now)
         members = budgets.freezable_app_members(procs, username, comm, prefs)
-        if win is not None:
+        if plist:
+            # Gated app outside every permitted block: frozen.
+            limit_sec = 0.0
+            used_map, used_key = app_used, comm
+        elif win is not None:
             limit_sec = float(win['allowance_minutes']) * 60.0
             used_map, used_key = window_used, win['id']
         else:
