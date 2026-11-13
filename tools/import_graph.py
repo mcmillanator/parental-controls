@@ -202,7 +202,8 @@ def main() -> None:
     add('')
     add('Flask-free stdlib-only modules (no third-party imports):')
     for mod in ('budgets', 'auth', 'store', 'audit', 'remote', 'session_agent',
-                'focus_feed', 'device_policy', 'adminstore'):
+                'focus_feed', 'device_policy', 'adminstore', 'pcstatus',
+                'pcprobe'):
         if mod in roots:
             add(f'- `{mod}.py`')
     add('')

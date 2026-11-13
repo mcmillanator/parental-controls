@@ -326,13 +326,13 @@ REQUIRED_COMMANDS = (
     # --- app.py: account lock/unlock + session control -------------------
     ('app.py:get_lock_status', ['sudo', 'passwd', '-S', USER],
      'sudoers-parental-controls'),
-    ('app.py:lock_user_sessions',
+    ('pcprobe.py:_user_session_ids',
      ['sudo', 'loginctl', 'show-user', USER, '-p', 'Sessions', '--value'],
      'sudoers-parental-controls'),
     ('app.py:lock_user_sessions',
      ['sudo', 'loginctl', 'lock-session'] + SESSION_IDS,
      'sudoers-parental-controls'),
-    ('app.py:_session_supports_lock',
+    ('pcprobe.py:_session_properties',
      ['sudo', 'loginctl', 'show-session', SESSION_ID, '-p', 'Class', '-p',
       'Type'],
      'sudoers-parental-controls'),
@@ -607,8 +607,11 @@ class TestSudoersCoversTheCode(unittest.TestCase):
     # of scanned command shapes is unchanged, which is what
     # test_scanner_sees_every_pinned_command compares. Whenever a privileged
     # argv moves to another module, add that module here — a module missing
-    # from this list silently loses its coverage.
-    MODULES = ('app.py', 'budgets_cgroup.py', 'locks.py', 'users.py')
+    # from this list silently loses its coverage. pcprobe.py joined the list
+    # when the loginctl session probes (show-user / show-session) left
+    # app.py's byte-identical agent mirror (P1, 2026-11-13).
+    MODULES = ('app.py', 'budgets_cgroup.py', 'locks.py', 'users.py',
+               'pcprobe.py')
 
     def test_required_commands_are_authorized(self):
         for origin, argv, expected in REQUIRED_COMMANDS:

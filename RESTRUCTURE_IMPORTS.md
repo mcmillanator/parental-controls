@@ -17,8 +17,8 @@ are what the execution phase must preserve byte-for-byte.
 | module | lines | local imports |
 |---|---:|---|
 | `adminstore.py` | 139 | `auth` _(module only)_ |
-| `agent.py` | 1401 | `audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`store` _(module only)_ |
-| `app.py` | 3185 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`locks` (_emergency_logout, _lock_account_and_screen, _session_supports_lock, _unlock_account, lock_user_sessions, run_lock_command)<br>`remote` _(module only)_<br>`store` _(module only)_<br>`users` (MAX_UID, MIN_UID, _LOCK_STATUS_CACHE, _LOCK_STATUS_TTL_SECONDS, get_human_users, get_lock_status, invalidate_lock_status, valid_username) |
+| `agent.py` | 1280 | `audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`pcprobe` (_session_properties, _user_session_ids)<br>`pcstatus` (STATUS_HUMAN_WORDS, STATUS_NOISE_PATTERNS, STATUS_OK, STATUS_TECHNICAL_PATTERNS, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY, STATUS_VERBATIM, _UNSET, classify_status_detail, status_display, status_residual_lines)<br>`store` _(module only)_ |
+| `app.py` | 2972 | `adminstore` _(module only)_<br>`audit` _(module only)_<br>`auth` _(module only)_<br>`budgets` _(module only)_<br>`device_policy` _(module only)_<br>`locks` (_emergency_logout, _lock_account_and_screen, _session_supports_lock, _unlock_account, lock_user_sessions, run_lock_command)<br>`pcprobe` (_session_properties, _user_session_ids)<br>`pcstatus` (STATUS_HUMAN_WORDS, STATUS_NOISE_PATTERNS, STATUS_OK, STATUS_TECHNICAL_PATTERNS, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY, STATUS_VERBATIM, _UNSET, classify_status_detail, status_display, status_residual_lines)<br>`remote` _(module only)_<br>`store` _(module only)_<br>`users` (MAX_UID, MIN_UID, _LOCK_STATUS_CACHE, _LOCK_STATUS_TTL_SECONDS, get_human_users, get_lock_status, invalidate_lock_status, valid_username) |
 | `audit.py` | 180 | _(none)_ |
 | `auth.py` | 482 | _(none)_ |
 | `budgets.py` | 248 | `audit` _(module only)_<br>`budgets_actions` (_in_bedtime, _in_window, _parse_hhmm, freeze_category, resume_category, unfreeze_category)<br>`budgets_attribution` (CATEGORY_OVERRIDES, _DESKTOP_INDEX_CACHE, _DESKTOP_INDEX_TTL_SECONDS, _DESKTOP_TOKEN_MAP, _GENERIC_DOT_PARTS, _GENERIC_INTERPRETERS, _JVM_APP_NAMES, _JVM_APP_RES, _OVERRIDE_RES, _cmdline_app_tokens, _desktop_category, _exec_candidates, _flatpak_appid_parts, _scan_desktop_files, annotate_display_names, build_desktop_index, build_desktop_names, categorize, desktop_dirs_for, group_by_category, is_user_app, mark_user_apps, parse_desktop_file)<br>`budgets_cgroup` (APP_BUCKET_PREFIX, _app_bucket, _cgroup_members_path, _ensure_cgroup_dir, _read_freeze_path, _set_frozen_path, _sudo_read_file, _sudo_write_file, cgroup_members, cgroup_members_app, cgroup_path, cgroup_path_app, ensure_cgroup, ensure_cgroup_app, migrate_pid, migrate_pid_app, read_freeze, read_freeze_app, set_frozen, set_frozen_app, split_bucket, thaw_bucket, unfreeze_all_user)<br>`budgets_enforce` (_enforce_target, account_and_enforce)<br>`budgets_filter` (DEFAULT_HIDDEN_COMMS, DEFAULT_HIDDEN_PATHS, DEFAULT_HIDDEN_PATH_PREFIXES, NEVER_PAUSE_COMMS, _argv0_basename, apply_filter, is_default_hidden, is_never_pause, load_prefs, save_prefs, set_pref)<br>`budgets_focus` (_default_focus_provider, _feed_cursor_update, _focus_billing, _locked_feed_bookkeeping, boottime_now, focus_engine_of, focus_status)<br>`budgets_format` (etime_to_minutes, format_hm, format_minutes, group_by_comm)<br>`budgets_guards` (ADMIN_GROUP, is_admin_protected, valid_category, valid_comm, valid_username)<br>`budgets_overrides` (_clear_app_runtime, _config_entry, _release_window_freeze, _reset_window_runtime, active_window, clear_window, iter_overrides, iter_windows, load_overrides, normalize_override, normalize_window, override_map, overrides_view, parse_days, save_overrides, set_app_override, set_window, update_window, window_id_for)<br>`budgets_proc` (compute_deltas, list_user_processes, parse_cpu_seconds, read_cmdline)<br>`budgets_state` (app_budget_status, blank_entry, budget_reset_needed, budget_status, group_usage_minutes, load_budgets, save_budgets, set_limit)<br>`budgets_tick` (_LAST_AUTO_PAUSE_SIGS, _LAST_SUMMARY_SIGS, _audit_auto_pause_failed, _clear_window_target_freeze, _locked_tick_bookkeeping, _summary_signature, emit_tick_summaries, summary_line, tick_budgets, tick_desktop_index)<br>`budgets_watchdog` (_read_desired_frozen, _read_effective_frozen, _visible_category_members, freezable_app_members, freezable_members, parse_managed_cgroup, verify_freeze_safety, watchdog_tick)<br>`store` _(module only)_ |
@@ -40,6 +40,8 @@ are what the execution phase must preserve byte-for-byte.
 | `enforce_bedtime_timer.py` | 51 | `app` (enforce_bedtime, get_lock_status, load_bedtime, notify_user)<br>`budgets` _(module only)_ |
 | `focus_feed.py` | 537 | `budgets` _(module only)_ |
 | `locks.py` | 289 | `app` _(module only)_ |
+| `pcprobe.py` | 103 | _(none)_ |
+| `pcstatus.py` | 297 | _(none)_ |
 | `remote.py` | 413 | _(none)_ |
 | `session_agent.py` | 553 | _(none)_ |
 | `store.py` | 480 | _(none)_ |
@@ -58,6 +60,8 @@ Flask-free stdlib-only modules (no third-party imports):
 - `focus_feed.py`
 - `device_policy.py`
 - `adminstore.py`
+- `pcstatus.py`
+- `pcprobe.py`
 
 ## 2. The `app` / `budgets` facade surface — the contract
 
@@ -99,7 +103,7 @@ Flask-free stdlib-only modules (no third-party imports):
 
 ## 3. Tests — the 40-module blast radius
 
-**44 of 57 test modules import `app`/`budgets`; 13 import neither.** Only a `from budgets import x`
+**44 of 58 test modules import `app`/`budgets`; 14 import neither.** Only a `from budgets import x`
 line constrains the *definition site* of `x`; a plain `import app` only
 constrains the module object to keep existing with that name.
 
@@ -111,10 +115,10 @@ constrains the module object to keep existing with that name.
 | `tests/test_auto_hide_names.py` | 438 | `import app`<br>`from budgets import annotate_display_names, apply_filter, build_desktop_index, build_desktop_names, group_by_comm, is_user_app, mark_user_apps, parse_desktop_file` |
 | `tests/test_bonus_time.py` | 464 | `import app` |
 | `tests/test_budget_locked.py` | 267 | `from budgets import blank_entry` |
-| `tests/test_budgets.py` | 350 | `from budgets import ACTIVE_THRESHOLD_SECONDS, account_and_enforce, apply_filter, blank_entry, budget_reset_needed, budget_status, build_desktop_index, categorize, compute_deltas, freezable_members, group_by_category, is_default_hidden, is_never_pause, parse_cpu_seconds, parse_desktop_file` |
+| `tests/test_budgets.py` | 354 | `from budgets import ACTIVE_THRESHOLD_SECONDS, account_and_enforce, apply_filter, blank_entry, budget_reset_needed, budget_status, build_desktop_index, categorize, compute_deltas, freezable_members, group_by_category, is_default_hidden, is_never_pause, parse_cpu_seconds, parse_desktop_file` |
 | `tests/test_countdown.py` | 106 | `import app` |
 | `tests/test_durations.py` | 263 | `import app`<br>`import budgets` |
-| `tests/test_freeze_buttons.py` | 654 | `import app`<br>`import budgets` |
+| `tests/test_freeze_buttons.py` | 658 | `import app`<br>`import budgets` |
 | `tests/test_lock.py` | 154 | `import app` |
 | `tests/test_lock_preserve_session.py` | 301 | `import app` |
 | `tests/test_lock_regression.py` | 924 | `import app` |
@@ -130,21 +134,21 @@ constrains the module object to keep existing with that name.
 | `tests/test_session_agent_phase2.py` | 590 | `import budgets` |
 | `tests/test_sqlite.py` | 470 | `import app`<br>`import budgets` |
 | `tests/test_sqlite_v2.py` | 415 | `import app`<br>`import budgets` |
-| `tests/test_status_detail.py` | 671 | `import app` |
+| `tests/test_status_detail.py` | 778 | `import app` |
 | `tests/test_time12h.py` | 304 | `import app`<br>`import budgets` |
-| `tests/test_tls.py` | 717 | `import app` |
+| `tests/test_tls.py` | 718 | `import app` |
 | `tests/test_ui_a11y.py` | 484 | `import app` |
 | `tests/test_ui_admin.py` | 386 | `import app` |
 | `tests/test_ui_app_overrides.py` | 291 | `import app`<br>`import budgets` |
 | `tests/test_ui_budgets.py` | 226 | `import app`<br>`import budgets` |
-| `tests/test_ui_child_accounts.py` | 188 | `import app` |
+| `tests/test_ui_child_accounts.py` | 243 | `import app` |
 | `tests/test_ui_home.py` | 493 | `import app` |
 | `tests/test_ui_inputs.py` | 241 | `import app`<br>`import budgets` |
 | `tests/test_ui_override_dialog.py` | 294 | `import app`<br>`import budgets` |
 | `tests/test_ui_overview_forms.py` | 477 | `import app` |
 | `tests/test_ui_overview_parity.py` | 496 | `import app` |
 | `tests/test_ui_processes.py` | 241 | `import app`<br>`import budgets` |
-| `tests/test_ui_session_counts.py` | 569 | `import app` |
+| `tests/test_ui_session_counts.py` | 576 | `import app` |
 | `tests/test_ui_settings.py` | 144 | `import app` |
 | `tests/test_ui_shell.py` | 326 | `import app` |
 | `tests/test_ui_user.py` | 620 | `import app`<br>`import budgets` |
@@ -223,7 +227,7 @@ constrains the module object to keep existing with that name.
 | `budgets.unfreeze_category` | `patch.object(mod, "attr")` | 2 — `test_freeze_buttons.py`, `test_multidevice_agent.py` |
 | `budgets.verify_freeze_safety` | `patch.object(mod, "attr")` | 1 — `test_freeze_buttons.py` |
 
-**68 distinct patch targets, 574 patch sites, 39 of 57 test modules affected.**
+**68 distinct patch targets, 574 patch sites, 39 of 58 test modules affected.**
 
 - **52 attribute targets** — `patch.object(app, "X")` and the
   equivalent `patch.object(app.budgets, "X")`, which reaches through the facade
@@ -243,8 +247,8 @@ full container suite matching the recorded baseline.
 | file | reads |
 |---|---|
 | `adminstore.py` | `auth.{AuthStoreError, hash_password, is_system_user, is_wheel_member, load_store, save_store, valid_admin_username}` |
-| `agent.py` | `audit.{read_entries, safe_log, verify_chain}`<br>`auth.{AuthStoreError, is_wheel_member, load_store}`<br>`budgets.{CATEGORIES, annotate_display_names, apply_filter, budget_status, build_desktop_index, build_desktop_names, categorize, format_hm, freeze_category, group_by_category, group_by_comm, group_usage_minutes, is_admin_protected, list_user_processes, load_overrides, load_prefs, mark_user_apps, overrides_view, set_pref, unfreeze_category, valid_category}`<br>`device_policy.{freeze_refusal, valid_username, wheel_refusal}`<br>`store.{db_path_for, load_table, save_table}` |
-| `app.py` | `adminstore.{AdminExistsError, AuthStoreUnavailable, NoSuchAdminError, RefusedError, add_admin, remove_admin}`<br>`audit.{read_entries, safe_log, verify_chain}`<br>`auth.{AuthStoreError, RECOVERY_HINT, SESSION_COOKIE, classify_admin, create_session, destroy_session, ensure_hash_backend, get_session, hash_password, init_store, is_locked_admin, is_must_change, is_system_user, is_wheel_member, load_store, login_backoff_remaining, record_login_failure, record_login_success, save_store, valid_admin_username, validate_csrf, verify_password}`<br>`budgets.{ADMIN_GROUP, CATEGORIES, CATEGORY_LABELS, annotate_display_names, apply_filter, budget_status, build_desktop_index, build_desktop_names, categorize, clear_window, emit_tick_summaries, format_hm, freeze_category, group_by_category, group_by_comm, group_usage_minutes, is_admin_protected, list_user_processes, load_overrides, load_prefs, mark_user_apps, overrides_view, resume_category, set_app_override, set_limit, set_pref, set_window, tick_budgets, unfreeze_category, update_window, valid_category, valid_comm}`<br>`device_policy.{budget_config_refusal, freeze_refusal, wheel_refusal}`<br>`remote.{DevicesError, RemoteError, describe_device, devices_enabled, get_device, list_devices, proxy}`<br>`store.{db_path_for, load_table, save_table}` |
+| `agent.py` | `audit.{read_entries, safe_log, verify_chain}`<br>`auth.{AuthStoreError, is_wheel_member, load_store}`<br>`budgets.{CATEGORIES, annotate_display_names, apply_filter, budget_status, build_desktop_index, build_desktop_names, categorize, format_hm, freeze_category, group_by_category, group_by_comm, group_usage_minutes, is_admin_protected, list_user_processes, load_overrides, load_prefs, mark_user_apps, overrides_view, set_pref, unfreeze_category, valid_category}`<br>`device_policy.{freeze_refusal, valid_username, wheel_refusal}`<br>`pcstatus.{audit_status_probe_core, status_row_core}`<br>`store.{db_path_for, load_table, save_table}` |
+| `app.py` | `adminstore.{AdminExistsError, AuthStoreUnavailable, NoSuchAdminError, RefusedError, add_admin, remove_admin}`<br>`audit.{read_entries, safe_log, verify_chain}`<br>`auth.{AuthStoreError, RECOVERY_HINT, SESSION_COOKIE, classify_admin, create_session, destroy_session, ensure_hash_backend, get_session, hash_password, init_store, is_locked_admin, is_must_change, is_system_user, is_wheel_member, load_store, login_backoff_remaining, record_login_failure, record_login_success, save_store, valid_admin_username, validate_csrf, verify_password}`<br>`budgets.{ADMIN_GROUP, CATEGORIES, CATEGORY_LABELS, annotate_display_names, apply_filter, budget_status, build_desktop_index, build_desktop_names, categorize, clear_window, emit_tick_summaries, format_hm, freeze_category, group_by_category, group_by_comm, group_usage_minutes, is_admin_protected, list_user_processes, load_overrides, load_prefs, mark_user_apps, overrides_view, resume_category, set_app_override, set_limit, set_pref, set_window, tick_budgets, unfreeze_category, update_window, valid_category, valid_comm}`<br>`device_policy.{budget_config_refusal, freeze_refusal, wheel_refusal}`<br>`pcstatus.{audit_status_probe_core, status_row_core}`<br>`remote.{DevicesError, RemoteError, describe_device, devices_enabled, get_device, list_devices, proxy}`<br>`store.{db_path_for, load_table, save_table}` |
 | `budgets_actions.py` | `audit.{safe_log}` |
 | `budgets_cgroup.py` | `audit.{safe_log}`<br>`budgets.{ensure_cgroup, ensure_cgroup_app}` |
 | `budgets_filter.py` | `store.{db_path_for, load_table, save_table}` |
@@ -263,6 +267,7 @@ full container suite matching the recorded baseline.
 | `tests/test_auto_hide_names.py` | `budgets.{CATEGORIES, group_by_comm, is_default_hidden}` |
 | `tests/test_bonus_time.py` | `app.{BONUS_HISTORY_CAP, _append_bonus_history, _parse_bonus_until, app, bonus_state, budgets, compute_bonus_until, enforce_bedtime, format_bonus_minutes, note_bonus_grant, note_bonus_revoke, note_manual_lock}` |
 | `tests/test_budget_locked.py` | `budgets.{load_budgets, save_budgets, tick_budgets}` |
+| `tests/test_budgets.py` | `budgets.{desktop_dirs_for}` |
 | `tests/test_countdown.py` | `app.{_countdown_text, _format_countdown, _format_seconds, countdown_state}` |
 | `tests/test_durations.py` | `app.{app}`<br>`budgets.{CATEGORIES, blank_entry, budget_status, format_hm}` |
 | `tests/test_freeze_buttons.py` | `app.{app, auth, budgets, subprocess}`<br>`budgets.{CATEGORIES, account_and_enforce, blank_entry, budget_status, freezable_members, freeze_category, load_budgets, pwd, resume_category, save_budgets, set_limit, subprocess, unfreeze_category, watchdog_tick}` |
@@ -283,7 +288,7 @@ full container suite matching the recorded baseline.
 | `tests/test_session_agent_phase2.py` | `budgets.{FOCUS_ENGINE_CPU, FOCUS_ENGINE_FOCUS, FOCUS_ENGINE_NO_DATA, blank_entry, focus_engine_of, focus_status, load_budgets, save_budgets, save_overrides, tick_budgets}`<br>`focus_feed.{FEED_STALE_SECONDS, MAX_FEED_BYTES, parse_feed}` |
 | `tests/test_sqlite.py` | `app.{BEDTIME_FILE, load_bedtime, save_bedtime}`<br>`budgets.{blank_entry, load_budgets, load_prefs, save_budgets, save_prefs}`<br>`store.{BASE_DIR, BUSY_TIMEOUT_MS, SCHEMA_VERSION, _connect, db_path_for, default_db_path, load_table, open_db, save_table}` |
 | `tests/test_sqlite_v2.py` | `app.{BEDTIME_FILE, load_bedtime, save_bedtime}`<br>`budgets.{blank_entry, load_budgets, load_prefs, save_budgets, save_prefs}`<br>`store.{SCHEMA_VERSION, TABLES, WHOLE_DOC_FIELD, db_path_for, load_table, open_db, save_table}` |
-| `tests/test_status_detail.py` | `agent.{status_display}`<br>`app.{STATUS_NOISE_PATTERNS, STATUS_OK, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY, STATUS_VERBATIM, _sanitize_remote_status, audit_status_probe, classify_status_detail, get_lock_status, invalidate_lock_status, remote, status_display, status_row, subprocess}` |
+| `tests/test_status_detail.py` | `agent.{_UNSET, status_display}`<br>`app.{STATUS_NOISE_PATTERNS, STATUS_OK, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY, STATUS_VERBATIM, _UNSET, _sanitize_remote_status, audit_status_probe, classify_status_detail, get_lock_status, invalidate_lock_status, remote, status_display, status_row, subprocess}`<br>`pcstatus.{_UNSET}` |
 | `tests/test_time12h.py` | `app.{_twelve_parts, hhmm_12h_parts}`<br>`audit.{log}`<br>`budgets.{CATEGORIES, blank_entry, budget_status}` |
 | `tests/test_tls.py` | `app.{app}`<br>`auth.{clear_login_failures, clear_sessions, hash_password}` |
 | `tests/test_ui_a11y.py` | `app.{app}` |
@@ -301,7 +306,7 @@ full container suite matching the recorded baseline.
 | `tests/test_ui_user.py` | `budgets.{CATEGORIES, blank_entry, budget_status}` |
 | `tests/test_watchdog.py` | `budgets.{BUDGETS_FILE, blank_entry, save_budgets, tick_budgets}` |
 
-58 file(s) reach into another local module by attribute. These are the
+59 file(s) reach into another local module by attribute. These are the
 sites the facade-call convention governs; they are the reason a `from x
 import y` at module import time is banned across a split seam.
 
@@ -417,44 +422,41 @@ Consequences for the split (see RESTRUCTURE_PLAN.md §7 risk 4):
 
 ## 9. Definition index of the two giants
 
-### `app.py` — 86 public, 47 private top-level names
+### `app.py` — 76 public, 44 private top-level names
 
 **public**
 
 ```
 AUDIT_DETAIL_SUMMARY_LEN        BEDTIME_FILE                    BEDTIME_WARN_MINUTES            BONUS_CUSTOM_MIN                BONUS_HISTORY_CAP
 BONUS_KEYS                      BONUS_SHORTCUTS                 DAY_LABELS                      MIN_PASSWORD_LENGTH             NAV_SECTIONS
-SESSION_COUNT_TTL_SECONDS       STATUS_HUMAN_WORDS              STATUS_NOISE_PATTERNS           STATUS_OK                       STATUS_TECHNICAL_PATTERNS
-STATUS_UNAVAILABLE              STATUS_UNAVAILABLE_COPY         STATUS_VERBATIM                 active_session_count            admin_audit
-api_admins_add                  api_admins_list                 api_admins_remove               api_audit                       api_bedtime_get
-api_bedtime_set                 api_bonus_grant                 api_bonus_revoke                api_budgets_freeze              api_budgets_get
-api_budgets_overrides           api_budgets_resume              api_budgets_set                 api_budgets_unfreeze            api_budgets_windows
-api_device_proxy                api_devices                     api_lock                        api_lock_screen                 api_logout
-api_process_prefs               api_unlock                      api_user_live                   api_users                       app
-audit_status_probe              bedtime_loop                    bedtime_window_id               bonus_state                     change_password
-classify_status_detail          clear_manual_override           compute_bonus_until             countdown_state                 enforce_bedtime
-format_12h                      format_bonus_minutes            format_etime                    get_user_live                   hhmm_12h_parts
-index                           invalidate_session_count        is_in_bedtime                   load_bedtime                    login
-logout                          minutes_until_bedtime           note_bonus_grant                note_bonus_revoke               note_manual_lock
-note_manual_unlock              notify_user                     overview_admin_add              overview_admin_remove           overview_lock
-overview_unlock                 processes                       require_admin                   save_bedtime                    settings
-status_display                  status_residual_lines           status_row                      time_budgets                    time_rules
+SESSION_COUNT_TTL_SECONDS       active_session_count            admin_audit                     api_admins_add                  api_admins_list
+api_admins_remove               api_audit                       api_bedtime_get                 api_bedtime_set                 api_bonus_grant
+api_bonus_revoke                api_budgets_freeze              api_budgets_get                 api_budgets_overrides           api_budgets_resume
+api_budgets_set                 api_budgets_unfreeze            api_budgets_windows             api_device_proxy                api_devices
+api_lock                        api_lock_screen                 api_logout                      api_process_prefs               api_unlock
+api_user_live                   api_users                       app                             audit_status_probe              bedtime_loop
+bedtime_window_id               bonus_state                     change_password                 clear_manual_override           compute_bonus_until
+countdown_state                 enforce_bedtime                 format_12h                      format_bonus_minutes            format_etime
+get_user_live                   hhmm_12h_parts                  index                           invalidate_session_count        is_in_bedtime
+load_bedtime                    login                           logout                          minutes_until_bedtime           note_bonus_grant
+note_bonus_revoke               note_manual_lock                note_manual_unlock              notify_user                     overview_admin_add
+overview_admin_remove           overview_lock                   overview_unlock                 processes                       require_admin
+save_bedtime                    settings                        status_row                      time_budgets                    time_rules
 user_detail
 ```
 
 **private**
 
 ```
-_LAST_STATUS_PROBE_SIGS         _MUST_CHANGE_EXEMPT             _SESSION_COUNT_CACHE            _UNSET                          _add_app_admin
-_admin_rows                     _admin_store_names              _append_bonus_history           _audit_detail_summary           _auth_cookie_response
-_clear_auth_cookie              _countdown_seconds              _countdown_text                 _device_entries                 _drop_bonus_keys
-_empty_remote_live              _fixture_preview                _form_bool                      _format_countdown               _format_seconds
-_insecure_lan_banner            _is_admin_account               _is_api_request                 _load_admin_store               _multidevice_gate
-_overview_account_action        _overview_redirect              _parse_bonus_until              _parse_hhmm                     _pick_child
-_refuse_frozen_target           _refuse_protected_budget_target  _remote_live_context            _remote_overview_action         _remote_proxy
-_remote_user_live               _remote_users                   _remove_app_admin               _req_actor                      _safe_audit
-_safe_notify                    _sanitize_remote_status         _session_properties             _shell_context                  _twelve_parts
-_user_session_ids               _wheel_target_refused
+_LAST_STATUS_PROBE_SIGS         _MUST_CHANGE_EXEMPT             _SESSION_COUNT_CACHE            _add_app_admin                  _admin_rows
+_admin_store_names              _append_bonus_history           _audit_detail_summary           _auth_cookie_response           _clear_auth_cookie
+_countdown_seconds              _countdown_text                 _device_entries                 _drop_bonus_keys                _empty_remote_live
+_fixture_preview                _form_bool                      _format_countdown               _format_seconds                 _insecure_lan_banner
+_is_admin_account               _is_api_request                 _load_admin_store               _multidevice_gate               _overview_account_action
+_overview_redirect              _parse_bonus_until              _parse_hhmm                     _pick_child                     _refuse_frozen_target
+_refuse_protected_budget_target  _remote_live_context            _remote_overview_action         _remote_proxy                   _remote_user_live
+_remote_users                   _remove_app_admin               _req_actor                      _safe_audit                     _safe_notify
+_sanitize_remote_status         _shell_context                  _twelve_parts                   _wheel_target_refused
 ```
 
 ### `budgets.py` — 17 public, 3 private top-level names

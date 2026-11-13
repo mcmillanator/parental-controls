@@ -48,6 +48,26 @@ import budgets  # noqa: E402
 import store  # noqa: E402
 import device_policy  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Shared cores (P1, 2026-11-13): the status-detail sanitization table and
+# the logind session probes used to be BYTE-IDENTICAL MIRRORS of app.py's
+# blocks (the agent must never import app -- module docstring,
+# MULTIDEVICE_PLAN §4.1), pinned against drift only by source-comparison
+# tests. Both sides now import the same stdlib-only modules: there is ONE
+# source of truth. The app/agent binding names are unchanged --
+# agent.status_display IS pcstatus.status_display IS app.status_display
+# (tests/test_status_detail.py pins the identity chain).
+# ---------------------------------------------------------------------------
+
+import pcprobe  # noqa: E402
+import pcstatus  # noqa: E402
+from pcstatus import (  # noqa: E402
+    STATUS_HUMAN_WORDS, STATUS_NOISE_PATTERNS, STATUS_OK,
+    STATUS_TECHNICAL_PATTERNS, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY,
+    STATUS_VERBATIM, _UNSET, classify_status_detail, status_display,
+    status_residual_lines)
+from pcprobe import _session_properties, _user_session_ids  # noqa: E402
+
 VERSION = '1.1-multidevice'
 AGENT_NAME = 'parental-controls-agent'
 API_PREFIX = '/api/v1'
@@ -165,7 +185,15 @@ def get_human_users():
 
 
 def get_lock_status(username):
-    """(is_locked, detail) via local ``sudo passwd -S`` (mirrors app)."""
+    """(is_locked, detail) via local ``sudo passwd -S``.
+
+    The agent's UNCACHED twin of users._probe_lock_status: same mapping,
+    deliberately NOT shared — the panel side resolves `app.subprocess` at
+    call time (the suite's patch surface) and parses with an if/elif
+    chain, so the two bodies are not byte-identical. Behavior is pinned
+    by tests/test_multidevice_agent.py on this side and
+    tests/test_lock_status_cache.py on the panel's.
+    """
     try:
         result = subprocess.run(
             ['sudo', 'passwd', '-S', username],
@@ -192,158 +220,44 @@ def get_lock_status(username):
 
 
 # ---------------------------------------------------------------------------
-# Status-detail sanitization — MIRROR of app.py's block
-#
-# The agent must never import app (module docstring, MULTIDEVICE_PLAN §4.1),
-# so this block is duplicated verbatim. It is NOT optional: without it a
-# managed box would ship raw `sudo: pam_open_session: Permission denied`
-# text to the hub, which renders it straight onto the parent's account
-# cards. tests/test_status_detail.py::StatusDetailMirrorTest compares every
-# constant and function source here against app.py, so the two cannot
-# drift apart silently.
-#
-# Rationale for each piece is in app.py beside the original.
-# ---------------------------------------------------------------------------
-
-STATUS_OK = 'ok'
-STATUS_UNAVAILABLE = 'unavailable'
-STATUS_VERBATIM = 'verbatim'
-
-STATUS_UNAVAILABLE_COPY = 'Status check needs help — ask your admin'
-
-_UNSET = object()
-
-STATUS_NOISE_PATTERNS = (
-    'pam_open_session',
-    'pam_close_session',
-    'pam_unix',
-    'pam_systemd',
-    'policy plugin',
-    'session initialization',
-    'session opened',
-    'session closed',
-    'toomanysessions',
-    'too many sessions',
-    'io.systemd.login',
-    'varlink',
-)
-
-STATUS_TECHNICAL_PATTERNS = (
-    'sudo',
-    'pam_',
-    'policy plugin',
-    'cgroup',
-    '/sys/',
-    '/usr/',
-    '/bin/',
-    '/sbin/',
-    '/etc/',
-    '/var/',
-    'errno',
-    'traceback',
-    'exception',
-    'command not found',
-    'not found',
-    'no such file',
-    'permission denied',
-    'not permitted',
-    'operation not permitted',
-    'access denied',
-    'authentication failure',
-    'incorrect password',
-    'is not in the sudoers',
-    'sorry, user',
-    'timed out',
-    'timeout',
-    'unexpected passwd output',
-    'unknown status',
-    'failed',
-    'error',
-)
-
-STATUS_HUMAN_WORDS = (
-    'locked',
-    'unlocked',
-    'no password',
-    'unreachable',
-)
-
-
-def status_residual_lines(detail):
-    """The detail's lines with the BENIGN noise lines dropped."""
-    try:
-        lines = str(detail if detail is not None else '').splitlines()
-    except Exception:
-        return []
-    kept = []
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        low = line.lower()
-        if any(pattern in low for pattern in STATUS_NOISE_PATTERNS):
-            continue
-        kept.append(line)
-    return kept
-
-
-def classify_status_detail(detail):
-    """Classify one probe detail: OK / UNAVAILABLE / VERBATIM."""
-    residual = status_residual_lines(detail)
-    if not residual:
-        return STATUS_UNAVAILABLE
-    text = ' '.join(residual)
-    low = text.lower()
-    if any(pattern in low for pattern in STATUS_TECHNICAL_PATTERNS):
-        return STATUS_UNAVAILABLE
-    if any(low == word or low.startswith(word + ':')
-           for word in STATUS_HUMAN_WORDS):
-        return STATUS_OK
-    return STATUS_VERBATIM
-
-
-def status_display(detail, locked=_UNSET):
-    """(parent_safe_text, klass) for one probe detail."""
-    residual = status_residual_lines(detail)
-    klass = classify_status_detail(detail)
-    if klass == STATUS_UNAVAILABLE:
-        if not residual and locked is not _UNSET and locked is not None:
-            return ('Locked' if locked else 'Unlocked'), STATUS_OK
-        return STATUS_UNAVAILABLE_COPY, STATUS_UNAVAILABLE
-    return ' '.join(residual), klass
-
+# Status-detail sanitization — SHARED CORE (see pcstatus.py, imported at
+# the top of this module). The block that used to live here was a
+# byte-identical mirror of app.py's; both sides now import the one table
+# and re-export it under the same names. Rationale for each piece is in
+# pcstatus.py beside the original.
 
 # Dedup state: username -> (klass, raw detail). Process-local by design,
 # exactly like budgets._LAST_AUTO_PAUSE_SIGS — the hub polls every 10s, so
-# an identical persistent failure must be logged once, not forever.
+# an identical persistent failure must be logged once, not forever. THIS
+# map (not one in pcstatus) is what the agent's tests patch and clear.
 _LAST_STATUS_PROBE_SIGS = {}
 
 
 def audit_status_probe(username, klass, raw, state=None):
-    """Audit one status-probe outcome the parent must not see raw."""
-    if klass not in (STATUS_UNAVAILABLE, STATUS_OK):
-        return False
-    noisy = any(pattern in str(raw if raw is not None else '').lower()
-                for pattern in STATUS_NOISE_PATTERNS)
-    if klass == STATUS_OK and not noisy:
-        return False
-    if state is None:
-        state = _LAST_STATUS_PROBE_SIGS
-    sig = (klass, raw)
-    if state.get(username) == sig:
-        return False
-    state[username] = sig
-    _safe_audit('system', 'account.status_probe', username,
-                {'ok': klass == STATUS_OK, 'class': klass, 'raw': raw})
-    return True
+    """Audit one status-probe outcome the parent must not see raw.
+
+    Thin wiring to pcstatus.audit_status_probe_core (shared with the
+    panel): injects THIS module's dedup map and audit writer, resolved at
+    call time so patches on agent names still bind. Decision + once-per-
+    CHANGE bookkeeping are the shared core's (pcstatus.audit_needed).
+    """
+    return pcstatus.audit_status_probe_core(
+        username, klass, raw,
+        _LAST_STATUS_PROBE_SIGS if state is None else state, _safe_audit)
 
 
 def status_row(username):
-    """(locked, parent_safe_detail, status_ok) for one local account."""
-    locked, detail = get_lock_status(username)
-    safe, klass = status_display(detail, locked)
-    audit_status_probe(username, klass, detail)
-    return locked, safe, klass != STATUS_UNAVAILABLE
+    """(locked, parent_safe_detail, status_ok) for one local account.
+
+    Thin wiring to pcstatus.status_row_core (shared with the panel):
+    get_lock_status here is the agent's own UNCACHED probe — the cache is
+    the one accepted app/agent difference (the panel memoizes in
+    users.py); sanitize + audit are the shared core, so a managed box
+    classifies exactly like the hub.
+    """
+    return pcstatus.status_row_core(username, get_lock_status,
+                                    audit_status_probe)
+
 
 
 def load_bedtime():
@@ -481,50 +395,13 @@ def bonus_state(entry, now=None):
     }
 
 
-def _user_session_ids(username):
-    """The logind session IDs currently attached to `username` ([] if none).
-
-    Mirrors app._user_session_ids: one `sudo loginctl show-user <u> -p
-    Sessions --value` call, which is already on the scoped allowlist the
-    agent runs under (sudoers-parental-controls) — the agent needs no new
-    grant to count its own sessions. A timeout is re-raised so the screen
-    lock still reports it; anything else degrades to [].
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
-             '--value'], capture_output=True, text=True, timeout=15)
-        return result.stdout.split() if result.returncode == 0 else []
-    except subprocess.TimeoutExpired:
-        raise
-    except Exception:
-        return []
-
-
-def _session_properties(session_id):
-    """`{'Class': ..., 'Type': ...}` for one logind session, {} if unknown.
-
-    Mirrors app._session_properties — the second scoped allowlist entry,
-    shared with the screen-lock filter so neither adds a rule. Timeout
-    re-raised; every other failure is {}.
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-session', session_id,
-             '-p', 'Class', '-p', 'Type'],
-            capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired:
-        raise
-    except Exception:
-        return {}
-    if result.returncode != 0:
-        return {}
-    props = {}
-    for line in result.stdout.splitlines():
-        if '=' in line:
-            key, _, value = line.partition('=')
-            props[key.strip()] = value.strip()
-    return props
+# _user_session_ids / _session_properties are IMPORTED from pcprobe.py
+# (top of this module) — the byte-identical copy of app.py's helpers they
+# used to be was retired 2026-11-13 (P1). `app._user_session_ids`,
+# `agent._user_session_ids` and `pcprobe._user_session_ids` are one and
+# the same function object; the sudoers-argv scans follow the literals
+# into pcprobe.py (tests/test_ui_session_counts.py pins the binding
+# identity for both sides).
 
 
 def _session_supports_lock(session_id):
@@ -536,12 +413,14 @@ def _session_supports_lock(session_id):
             and props.get('Type') in ('wayland', 'x11'))
 
 
-# Active login sessions for the hub's Overview Summary card (mirrors
-# app.active_session_count): only `Class=user` sessions count — every user
-# running a systemd user manager also has a `Class=manager` session that is
-# NOT a login, which is why the raw `show-user` list overstates. Cached
-# 30s per user for the same sudo-session reason as the panel's probe cache;
-# the emergency logout is the one call site that invalidates it.
+# Active login sessions for the hub's Overview Summary card: the same
+# rule app.active_session_count applies (Class=user only — every user
+# running a systemd user manager also has a `Class=manager` session that
+# is NOT a login, which is why the raw `show-user` list overstates), and
+# the same two shared pcprobe calls. Cached 30s per user for the same
+# sudo-session reason as the panel's probe cache. The cache MUST stay a
+# separate map per module: the panel and the agent are separate processes,
+# and tests pin `agent._SESSION_COUNT_CACHE` as its own patch surface.
 SESSION_COUNT_TTL_SECONDS = 30.0
 _SESSION_COUNT_CACHE = {}  # username -> (monotonic time, count)
 

@@ -24,8 +24,33 @@ import auth
 import audit
 import budgets
 import device_policy
+import pcprobe
+import pcstatus
 import remote
 import store
+
+# --- shared cores: the names the old in-file definitions bound -------------
+# pcstatus.py is the ONE parent-safe status sanitizer table (P1, 2026-11-13:
+# it replaces the byte-identical app/agent mirror). Needs: every payload
+# producer below (status_row/_sanitize_remote_status and the views),
+# agent.py's matching re-export, and tests/test_status_detail.py, which
+# pins IDENTITY (app.X is pcstatus.X is agent.X) for each name.
+# The bodies of audit_status_probe/status_row above delegate to
+# pcstatus.audit_status_probe_core / pcstatus.status_row_core, injecting
+# THIS module's _LAST_STATUS_PROBE_SIGS / _safe_audit / get_lock_status at
+# call time so the facade stays the patch surface (plan §1.1).
+from pcstatus import (  # noqa: E402
+    STATUS_HUMAN_WORDS, STATUS_NOISE_PATTERNS, STATUS_OK,
+    STATUS_TECHNICAL_PATTERNS, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY,
+    STATUS_VERBATIM, _UNSET, classify_status_detail, status_display,
+    status_residual_lines)
+
+# pcprobe.py is the two logind session probes behind the active-session
+# count and the screen lock. Needs: locks.py (as `app._user_session_ids` /
+# `app._session_properties`, call time), `active_session_count` below, and
+# agent.py's matching re-export; the sudoers-argv scans (test_deployment,
+# test_ui_session_counts) follow the literals into pcprobe.py.
+from pcprobe import _session_properties, _user_session_ids  # noqa: E402
 
 app = Flask(__name__)
 
@@ -150,197 +175,18 @@ BONUS_HISTORY_CAP = 20
 
 
 # ---------------------------------------------------------------------------
-# Status-detail sanitization (the ONE parent-safe mapping)
+# Status-detail sanitization — SHARED CORE (the ONE parent-safe mapping).
 #
-# Bug (owner report, 2026-10-18): the child cards on the Overview showed a
-# warning box full of raw system text --
-#
-#     sudo: pam_open_session: Permission denied
-#     sudo: policy plugin failed session initialization
-#
-# `get_lock_status` above captures the probe's stderr verbatim whenever
-# `sudo passwd -S` exits non-zero, and every payload below copied that
-# string straight into `status_detail`, which accountHtml()'s status pill
-# and `templates/user.html` render to the parent. A parent can do nothing
-# with "pam_open_session"; the raw text belongs in the admin-only audit
-# log, never on a card.
-#
-# So the RAW probe output never crosses the payload boundary. Every
-# producer below runs `status_display()` and puts its RETURN VALUE in
-# `status_detail`. The helper is pure (text in, text + class out) so the
-# Jinja/JS renderers cannot leak: by the time a row leaves app.py it
-# already carries parent-safe copy, and there is no code path left that
-# hands raw stderr to a template.
-#
-# agent.py carries a byte-identical mirror of this block (the agent must
-# never import app -- see its module docstring), pinned by
-# tests/test_status_detail.py::StatusDetailMirrorTest.
-
-# Probe outcome classes. Only UNAVAILABLE ever reaches a parent as the
-# "needs help" copy; OK is a real status the pill already had; VERBATIM is
-# already-human product copy that must survive untouched.
-STATUS_OK = 'ok'
-STATUS_UNAVAILABLE = 'unavailable'
-STATUS_VERBATIM = 'verbatim'
-
-STATUS_UNAVAILABLE_COPY = 'Status check needs help — ask your admin'
-
-# Sentinel: "no probe ran behind this detail". Distinct from None, which
-# is a real probe outcome (get_lock_status returns None for "could not
-# determine") and must therefore NOT be treated as "status succeeded".
-_UNSET = object()
-
-# BENIGN NOISE. These markers mean the probe's *session* layer (sudo's PAM
-# stack / logind / systemd-logind via Varlink) was unhappy while the
-# password-status read itself was fine. A line containing one of these is
-# DROPPED before the detail is judged: with a real status word left over
-# the parent keeps the normal pill and sees no warning box at all. This is
-# the exact pair the VM produced -- pam_systemd's login policy answered
-# `io.systemd.Login.TooManySessions`, `passwd -S` still reported the
-# account status. Matched case-insensitively against each line.
-STATUS_NOISE_PATTERNS = (
-    'pam_open_session',
-    'pam_close_session',
-    'pam_unix',
-    'pam_systemd',
-    'policy plugin',
-    'session initialization',
-    'session opened',
-    'session closed',
-    'toomanysessions',
-    'too many sessions',
-    'io.systemd.login',
-    'varlink',
-)
-
-# NEVER PARENT-SAFE. Anything still carrying one of these after the noise
-# lines are dropped is a genuine probe failure or a leak: a missing
-# binary, a permission error, a timeout, a malformed status line, or an
-# exception string with a path/cgroup in it. Treated fail-closed --
-# UNAVAILABLE -- so the parent gets the friendly copy and the raw text goes
-# to the audit log.
-STATUS_TECHNICAL_PATTERNS = (
-    'sudo',
-    'pam_',
-    'policy plugin',
-    'cgroup',
-    '/sys/',
-    '/usr/',
-    '/bin/',
-    '/sbin/',
-    '/etc/',
-    '/var/',
-    'errno',
-    'traceback',
-    'exception',
-    'command not found',
-    'not found',
-    'no such file',
-    'permission denied',
-    'not permitted',
-    'operation not permitted',
-    'access denied',
-    'authentication failure',
-    'incorrect password',
-    'is not in the sudoers',
-    'sorry, user',
-    'timed out',
-    'timeout',
-    'unexpected passwd output',
-    'unknown status',
-    'failed',
-    'error',
-)
-
-# The status words `get_lock_status` produces on a successful read. A
-# residual line that is one of these is a real status (OK), which is what
-# keeps the parent's pill reading "Unlocked"/"Locked"/"No password" even
-# when the probe also logged PAM noise.
-STATUS_HUMAN_WORDS = (
-    'locked',
-    'unlocked',
-    'no password',
-    'unreachable',
-)
-
-
-def status_residual_lines(detail):
-    """The detail's lines with the BENIGN noise lines dropped.
-
-    Split on newlines, strip empties, and drop any line carrying a
-    `STATUS_NOISE_PATTERNS` marker. Pure and total: never raises, whatever
-    `detail` is (None, a number, a multi-kilobyte blob).
-    """
-    try:
-        lines = str(detail if detail is not None else '').splitlines()
-    except Exception:
-        return []
-    kept = []
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        low = line.lower()
-        if any(pattern in low for pattern in STATUS_NOISE_PATTERNS):
-            continue
-        kept.append(line)
-    return kept
-
-
-def classify_status_detail(detail):
-    """Classify one probe detail: OK / UNAVAILABLE / VERBATIM.
-
-    The table, in order:
-      1. noise lines dropped -> nothing left ......... UNAVAILABLE
-         (pure PAM/systemd chatter with no usable status behind it: the
-         probe told the parent nothing, so say so kindly)
-      2. anything left carries a technical marker .... UNAVAILABLE
-         (command not found, permission error, timeout, paths, cgroups)
-      3. what is left is a known human status word .... OK
-         (the normal pill, no warning box -- even when the probe also
-         logged benign session noise)
-      4. anything else ............................... VERBATIM
-         (already-human product copy: passed through UNCHANGED)
-
-    Pure function of the text: no I/O, no globals, no exception.
-    """
-    residual = status_residual_lines(detail)
-    if not residual:
-        return STATUS_UNAVAILABLE
-    text = ' '.join(residual)
-    low = text.lower()
-    if any(pattern in low for pattern in STATUS_TECHNICAL_PATTERNS):
-        return STATUS_UNAVAILABLE
-    if any(low == word or low.startswith(word + ':')
-           for word in STATUS_HUMAN_WORDS):
-        return STATUS_OK
-    return STATUS_VERBATIM
-
-
-def status_display(detail, locked=_UNSET):
-    """(parent_safe_text, klass) for one probe detail.
-
-    This is the ONLY function that writes a `status_detail` value into a
-    payload. Raw probe output can therefore not reach a rendered page for
-    ANY input: OK details render the status word, UNAVAILABLE renders
-    `STATUS_UNAVAILABLE_COPY`, VERBATIM renders the text unchanged
-    because the table has already established it is non-technical.
-
-    `locked` is the probe's other return value, and is consulted for exactly
-    one degenerate case: the probe succeeded but produced no text at all.
-    Then the status IS the answer and the parent should see it rather than
-    the warning copy. Omit it for details with no probe behind them
-    (remote rows, where `locked` may legitimately be None/unreachable).
-    """
-    residual = status_residual_lines(detail)
-    klass = classify_status_detail(detail)
-    if klass == STATUS_UNAVAILABLE:
-        if not residual and locked is not _UNSET and locked is not None:
-            # No text at all, but the probe told us a status: render it.
-            return ('Locked' if locked else 'Unlocked'), STATUS_OK
-        return STATUS_UNAVAILABLE_COPY, STATUS_UNAVAILABLE
-    return ' '.join(residual), klass
-
+# The table lives in pcstatus.py: a pure, stdlib-only module both this
+# panel and agent.py import and re-export below (the names app.* and
+# agent.* bind are unchanged). It used to be duplicated here verbatim,
+# with a byte-identical mirror in agent.py (the agent must never import
+# app -- see its module docstring); that mirror was retired 2026-11-13 as
+# P1 of the restructure roadmap, and tests/test_status_detail.py now pins
+# IDENTITY (app.status_display is pcstatus.status_display is
+# agent.status_display) instead of comparing two copies' source. The full
+# rationale (the 2026-10-18 raw-stderr leak and why the pattern tables are
+# fail-closed) travels with the code in pcstatus.py's module docstring.
 
 # Dedup state for the admin audit hook: username -> (klass, raw detail).
 # Process-local by design, exactly like budgets._LAST_AUTO_PAUSE_SIGS and
@@ -349,107 +195,48 @@ def status_display(detail, locked=_UNSET):
 # identical line forever. The per-minute enforce timer process keeps its
 # own fresh state and re-emits, so a persistent problem still surfaces in
 # the journal; the long-running app thread stays quiet until the text
-# changes.
+# changes. THIS dict (not one in pcstatus) is the patch surface
+# tests/test_lock_status_cache.py and tests/test_status_detail.py bind.
 _LAST_STATUS_PROBE_SIGS = {}
 
 
 def audit_status_probe(username, klass, raw, state=None):
     """Audit one status-probe outcome that a parent must not see raw.
 
-    Fires for UNAVAILABLE (the probe genuinely failed) and for OK-with-
-    noise (the status is fine but the probe logged session chatter) --
-    both carry text that belongs in the admin log, not on a card. A plain
-    OK/VERBATIM outcome is not worth a line. Deduped to once per
-    (username, class, raw) CHANGE, mirroring
-    budgets._audit_auto_pause_failed's `state=None` injection so tests
-    can pass their own map.
+    Thin wiring to pcstatus.audit_status_probe_core: it injects THIS
+    module's dedup map and THIS module's audit writer, both resolved at
+    CALL time, so patching app._LAST_STATUS_PROBE_SIGS / app._safe_audit
+    still reaches the audit path exactly as when the body lived here.
+    The decision (which classes/notes are worth a line) and the once-per-
+    CHANGE bookkeeping are the shared core's; see pcstatus.audit_needed.
     """
-    if klass not in (STATUS_UNAVAILABLE, STATUS_OK):
-        return False
-    noisy = any(pattern in str(raw if raw is not None else '').lower()
-                for pattern in STATUS_NOISE_PATTERNS)
-    if klass == STATUS_OK and not noisy:
-        return False
-    if state is None:
-        state = _LAST_STATUS_PROBE_SIGS
-    sig = (klass, raw)
-    if state.get(username) == sig:
-        return False
-    state[username] = sig
-    _safe_audit('system', 'account.status_probe', username,
-                {'ok': klass == STATUS_OK, 'class': klass, 'raw': raw})
-    return True
+    return pcstatus.audit_status_probe_core(
+        username, klass, raw,
+        _LAST_STATUS_PROBE_SIGS if state is None else state, _safe_audit)
 
 
 def status_row(username):
     """(locked, parent_safe_detail, status_ok) for one local account.
 
-    The single payload-boundary helper: it probes once, sanitizes the
-    detail, records the raw text in the admin audit log when the class
-    demands it, and returns only parent-safe values. index(), api_users(),
+    Thin wiring to pcstatus.status_row_core: it injects this module's
+    get_lock_status (the CACHED read from users.py — the cache is the one
+    accepted difference from the agent's uncached probe) and this
+    module's audit_status_probe, both resolved at call time so the
+    facade's 19+ patch sites keep binding. index(), api_users(),
     get_user_live() and time_rules() all build their rows from this, so
     no producer can forget the mapping.
     """
-    locked, detail = get_lock_status(username)
-    safe, klass = status_display(detail, locked)
-    audit_status_probe(username, klass, detail)
-    return locked, safe, klass != STATUS_UNAVAILABLE
+    return pcstatus.status_row_core(username, get_lock_status,
+                                    audit_status_probe)
 
 
-def _user_session_ids(username):
-    """The logind session IDs currently attached to `username`.
-
-    One `sudo loginctl show-user <u> -p Sessions --value` call — already on
-    the scoped allowlist (sudoers-parental-controls), so reading sessions
-    costs the service user no new privilege. Returns [] when the account is
-    offline, logind refuses the call or anything else goes wrong; never
-    raises. A timeout is re-raised so a caller that reports it (the screen
-    lock) still says so.
-
-    The screen-lock consumer lives in locks.py and reaches this helper as
-    `app._user_session_ids` at call time (RESTRUCTURE_PLAN.md §1.1).
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-user', username, '-p', 'Sessions',
-             '--value'],
-            capture_output=True, text=True, timeout=15
-        )
-        return result.stdout.split() if result.returncode == 0 else []
-    except subprocess.TimeoutExpired:
-        raise
-    except Exception:
-        return []
-
-
-def _session_properties(session_id):
-    """`{'Class': ..., 'Type': ...}` for one logind session, {} if unknown.
-
-    One `sudo loginctl show-session <id> -p Class -p Type` call — the other
-    scoped allowlist entry, shared by the screen-lock filter and the
-    active-session count so neither adds a rule. A vanished session, a
-    refused probe or an empty answer is {}; a timeout is re-raised for the
-    same reason as `_user_session_ids`. (Consumed by locks.py through
-    `app._session_properties`, call time, per §1.1.)
-    """
-    try:
-        result = subprocess.run(
-            ['sudo', 'loginctl', 'show-session', session_id,
-             '-p', 'Class', '-p', 'Type'],
-            capture_output=True, text=True, timeout=15
-        )
-    except subprocess.TimeoutExpired:
-        raise
-    except Exception:
-        return {}
-    if result.returncode != 0:
-        return {}
-    props = {}
-    for line in result.stdout.splitlines():
-        if '=' in line:
-            key, _, value = line.partition('=')
-            props[key.strip()] = value.strip()
-    return props
+# The two logind session probes (`sudo loginctl show-user -p Sessions` and
+# `sudo loginctl show-session -p Class -p Type`) moved to pcprobe.py
+# 2026-11-13 (P1): agent.py carried a byte-identical copy and locks.py
+# reaches them as `app._user_session_ids` / `app._session_properties` at
+# call time, so the re-export below keeps both bindings — and the pinned
+# sudoers-argv scan's home — intact. `tests/test_ui_session_counts.py` and
+# `tests/test_deployment.py` now follow the argv literals to pcprobe.py.
 
 
 # ---------------------------------------------------------------------------

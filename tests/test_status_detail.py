@@ -22,11 +22,12 @@ parent could act on them.
 
 Three properties are pinned here:
 
-1. **CLASSIFICATION.** One pure table in app.py (mirrored in agent.py)
-   splits a probe detail into OK / UNAVAILABLE / VERBATIM. Known-benign
-   session noise is dropped so the parent keeps the normal pill; genuine
-   failures become friendly copy; already-human product copy passes
-   through untouched.
+1. **CLASSIFICATION.** One pure table in pcstatus.py, imported by BOTH
+   app.py and agent.py (the old byte-identical mirror was retired as P1 of
+   the restructure roadmap, 2026-11-13). It splits a probe detail into OK /
+   UNAVAILABLE / VERBATIM. Known-benign session noise is dropped so the
+   parent keeps the normal pill; genuine failures become friendly copy;
+   already-human product copy passes through untouched.
 2. **NO LEAK, ANYWHERE.** The raw text is cut at the payload boundary —
    every producer writes ``status_display()``'s return value, never the raw
    detail — so ``/``, ``/api/users``, ``/user/<name>`` and the agent's
@@ -61,6 +62,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import agent
 import app
 import auth
+import pcprobe
+import pcstatus
+from pathlib import Path
 from test_lock_regression import _AdminSessionMixin
 from test_multidevice_agent import BaseAgentTest, auth_header, call
 
@@ -554,11 +558,14 @@ class AgentStatusNoLeakTest(BaseAgentTest):
 
 
 # ---------------------------------------------------------------------------
-# 5. app.py <-> agent.py mirror (the agent may not import app)
+# 5. The shared core (P1: the app<->agent mirror is retired)
 # ---------------------------------------------------------------------------
 
 class StatusDetailMirrorTest(unittest.TestCase):
-    """agent.py duplicates the table; the two must not drift."""
+    """app.py and agent.py used to duplicate this table; both now import
+    pcstatus, so the guard is IDENTITY, not source comparison. A rebinding
+    (a re-inlined copy, or a `from app import` chain that silently forks
+    the name) fails `is` even when the behaviour still matches."""
 
     MIRRORED = ('STATUS_OK', 'STATUS_UNAVAILABLE', 'STATUS_VERBATIM',
                 'STATUS_UNAVAILABLE_COPY', 'STATUS_NOISE_PATTERNS',
@@ -567,19 +574,36 @@ class StatusDetailMirrorTest(unittest.TestCase):
     def test_constants_are_identical(self):
         for name in self.MIRRORED:
             with self.subTest(name=name):
-                self.assertEqual(getattr(app, name), getattr(agent, name),
-                                 'app.%s and agent.%s have drifted — the '
-                                 'agent must classify exactly like the hub'
-                                 % (name, name))
+                self.assertIs(getattr(app, name), getattr(pcstatus, name),
+                              'app.%s is not the shared pcstatus object'
+                              % name)
+                self.assertIs(getattr(agent, name), getattr(pcstatus, name),
+                              'agent.%s is not the shared pcstatus object — '
+                              'the agent must classify exactly like the hub'
+                              % name)
+
+    def test_sentinel_is_one_object(self):
+        # _UNSET used to be TWO separate object() calls; the default arg of
+        # status_display and both modules' lookups must be one sentinel.
+        self.assertIs(app._UNSET, pcstatus._UNSET)
+        self.assertIs(agent._UNSET, pcstatus._UNSET)
+        self.assertIs(app.status_display.__defaults__[0], pcstatus._UNSET)
+
+    def test_pure_sanitizers_are_one_function(self):
+        for name in ('status_residual_lines', 'classify_status_detail',
+                     'status_display'):
+            with self.subTest(name=name):
+                self.assertIs(getattr(app, name), getattr(pcstatus, name))
+                self.assertIs(getattr(agent, name), getattr(pcstatus, name))
 
     @staticmethod
     def _code_without_docstring(fn):
         """`fn`'s AST with the docstring removed, as a canonical string.
 
-        app.py carries the full rationale in its docstrings and agent.py
-        carries a pointer to it, so the PROSE is expected to differ; the
-        EXECUTABLE body must not, or the two boxes would classify a probe
-        detail differently.
+        The rationale prose lives once in pcstatus.py and may be phrased
+        differently in each wrapper; the EXECUTABLE body must not differ,
+        or the two boxes would wire their module-local dedup maps and
+        audit/probe functions differently.
         """
         tree = ast.parse(textwrap.dedent(inspect.getsource(fn)).strip())
         fn_def = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
@@ -590,15 +614,25 @@ class StatusDetailMirrorTest(unittest.TestCase):
             body = body[1:]
         return ast.dump(ast.Module(body=body, type_ignores=[]))
 
-    def test_function_bodies_are_identical(self):
-        for name in ('status_residual_lines', 'classify_status_detail',
-                     'status_display', 'audit_status_probe', 'status_row'):
+    def test_module_wiring_wrappers_are_identical(self):
+        # Only the thin wrappers stay per-module (they inject each side's
+        # own _LAST_STATUS_PROBE_SIGS / _safe_audit / get_lock_status);
+        # the logic they call is the single pcstatus core.
+        for name in ('audit_status_probe', 'status_row'):
             with self.subTest(name=name):
+                self.assertTrue(inspect.getsourcefile(
+                    getattr(app, name)).endswith('app.py'),
+                    f'app.{name} should stay the wiring wrapper defined '
+                    'in app.py (it injects app-local names)')
+                self.assertTrue(inspect.getsourcefile(
+                    getattr(agent, name)).endswith('agent.py'),
+                    f'agent.{name} should stay the wiring wrapper defined '
+                    'in agent.py')
                 self.assertEqual(
                     self._code_without_docstring(getattr(app, name)),
                     self._code_without_docstring(getattr(agent, name)),
-                    'app.%s and agent.%s have drifted — the agent must '
-                    'classify exactly like the hub' % (name, name))
+                    'app.%s and agent.%s wiring have drifted — the agent '
+                    'must wire exactly like the hub' % (name, name))
 
     def test_both_modules_agree_on_every_nasty_detail(self):
         for detail in NASTY_DETAILS:
@@ -607,12 +641,85 @@ class StatusDetailMirrorTest(unittest.TestCase):
                                  agent.status_display(detail, None))
 
     def test_agent_does_not_import_app(self):
-        """The mirror is the price of this hard property — keep it true."""
+        """The hard property the shared cores replaced the mirror FOR."""
         with open(os.path.join(ROOT, 'agent.py'), encoding='utf-8') as fh:
             src = fh.read()
         self.assertNotRegex(
             re.sub(r'#.*', '', src), r'^\s*import\s+app\b',
             'agent.py must not import app (MULTIDEVICE_PLAN §4.1)')
+
+    def test_agent_never_imports_the_panel_stack(self):
+        # pcstatus/pcprobe exist so the agent can share WITHOUT app/store/
+        # budgets-flavoured imports. Only the documented shared modules are
+        # allowed as local imports in agent.py.
+        allowed = {'audit', 'auth', 'budgets', 'store', 'device_policy',
+                   'pcstatus', 'pcprobe'}
+        with open(os.path.join(ROOT, 'agent.py'), encoding='utf-8') as fh:
+            tree = ast.parse(fh.read())
+        local = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                local.update(a.name.split('.')[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                local.add((node.module or '').split('.')[0])
+        runtime = {p.name[:-3] for p in Path(ROOT).glob('*.py')}
+        self.assertLessEqual(local & runtime, allowed,
+                             'agent.py gained a local import outside the '
+                             'shared-module allowlist')
+
+
+class SharedCorePurityTest(unittest.TestCase):
+    """pcstatus.py / pcprobe.py are stdlib-only and import NOTHING local.
+
+    That is what lets the panel AND the agent share one copy: any local
+    import (app, store, auth, budgets...) would either drag Flask in or
+    reintroduce the cycle the mirror existed to dodge. Pinned by AST, so
+    a future "while I'm here" import fails loudly here, not at deploy.
+    """
+
+    SHARED = ('pcstatus.py', 'pcprobe.py')
+
+    def test_shared_modules_import_only_stdlib(self):
+        stdlib = set(sys.stdlib_module_names)
+        for name in self.SHARED:
+            with self.subTest(module=name):
+                with open(os.path.join(ROOT, name), encoding='utf-8') as fh:
+                    tree = ast.parse(fh.read())
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        roots = [a.name.split('.')[0] for a in node.names]
+                    elif isinstance(node, ast.ImportFrom):
+                        self.assertEqual(node.level, 0,
+                                         f'{name}: no relative imports')
+                        roots = [(node.module or '').split('.')[0]]
+                    else:
+                        continue
+                    for root in roots:
+                        self.assertIn(root, stdlib,
+                                      f'{name} imports {root!r} — shared '
+                                      'cores are stdlib-only (and must '
+                                      'never import app/store/auth/budgets/'
+                                      'flask)')
+
+    def test_shared_names_resolve_to_the_shared_objects(self):
+        # The re-export guard: every name that used to be DEFINED in
+        # app.py/agent.py still binds there, and binds the shared core.
+        # Phase-1 rule: relocate code, never names.
+        for name in ('STATUS_OK', 'STATUS_UNAVAILABLE', 'STATUS_VERBATIM',
+                     'STATUS_UNAVAILABLE_COPY', 'STATUS_NOISE_PATTERNS',
+                     'STATUS_TECHNICAL_PATTERNS', 'STATUS_HUMAN_WORDS',
+                     '_UNSET', 'status_residual_lines',
+                     'classify_status_detail', 'status_display'):
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(app, name) and hasattr(agent, name),
+                                f'{name} left the app/agent namespace — '
+                                'phase-1 rule: relocate code, never names')
+                self.assertIs(getattr(app, name), getattr(pcstatus, name))
+                self.assertIs(getattr(agent, name), getattr(pcstatus, name))
+        for name in ('_user_session_ids', '_session_properties'):
+            with self.subTest(name=name):
+                self.assertIs(getattr(app, name), getattr(pcprobe, name))
+                self.assertIs(getattr(agent, name), getattr(pcprobe, name))
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import agent
 import app
 import auth
+import pcprobe
 import test_deployment as dep
 from test_lock_regression import _AdminSessionMixin
 from test_multidevice_agent import BaseAgentTest, auth_header, call
@@ -519,30 +520,36 @@ class NoNewSudoersLineTest(unittest.TestCase):
                          set(specs))
 
     def test_the_count_helpers_run_only_the_two_allowlisted_argv(self):
-        # Both modules resolve sessions with the SAME two pre-existing
-        # grants — a new one would be a new root rule, which this feature
-        # explicitly must not add.
+        # The two probes now live ONCE, in pcprobe.py (P1 mirror retirement,
+        # 2026-11-13): the argv literals are pinned there, and both modules
+        # are pinned to that single implementation by binding identity —
+        # a re-inlined copy could not satisfy `is` and would reappear here.
         expected = (
             "sudo loginctl show-user <username> -p Sessions --value",
             "sudo loginctl show-session <session_id> -p Class -p Type",
         )
-        for module in ('app.py', 'agent.py'):
-            for function in ('_user_session_ids', '_session_properties'):
-                with self.subTest(module=module, function=function):
-                    self.assertEqual(
-                        [expected[0] if function == '_user_session_ids'
-                         else expected[1]],
-                        self._argv_literals(module, function),
-                        f'{module}:{function} must run exactly one '
-                        'already-allowlisted argv')
+        for function, argv in zip(('_user_session_ids', '_session_properties'),
+                                  expected):
+            with self.subTest(module='pcprobe.py', function=function):
+                self.assertEqual([argv],
+                                 self._argv_literals('pcprobe.py', function),
+                                 f'pcprobe.py:{function} must run exactly one '
+                                 'already-allowlisted argv')
+            for mod in (app, agent):
+                with self.subTest(module=mod.__name__, function=function):
+                    self.assertIs(getattr(mod, function),
+                                  getattr(pcprobe, function),
+                                  f'{mod.__name__}.{function} must BE the '
+                                  'shared pcprobe helper, not a copy')
 
     def test_the_shared_helpers_are_the_only_session_probes(self):
         # `lock_user_sessions` used to inline both calls; it must now go
         # through the shared helpers, so the surface really is unchanged
         # and not two call sites that drifted apart. The panel's core lives
         # in locks.py since RESTRUCTURE_PLAN.md slice 10; the helpers it
-        # resolves stay facade-side (app.py, read as `app._user_session_ids`
-        # / `app._session_properties` at call time per §1.1).
+        # resolves stay facade-side (app.py re-exports the pcprobe.py
+        # definitions as `app._user_session_ids` / `app._session_properties`
+        # at call time per §1.1) — pinned by the identity subtests above.
         for module in ('locks.py', 'agent.py'):
             with self.subTest(module=module):
                 fn = self._argv_literals(module, 'lock_user_sessions')
