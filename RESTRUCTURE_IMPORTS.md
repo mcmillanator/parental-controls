@@ -43,7 +43,7 @@ are what the execution phase must preserve byte-for-byte.
 | `pcprobe.py` | 103 | _(none)_ |
 | `pcstatus.py` | 297 | _(none)_ |
 | `remote.py` | 413 | _(none)_ |
-| `schedule.py` | 753 | _(none)_ |
+| `schedule.py` | 751 | _(none)_ |
 | `session_agent.py` | 553 | _(none)_ |
 | `store.py` | 498 | _(none)_ |
 | `tls_serve.py` | 192 | `wsgi` (application) |
@@ -133,9 +133,9 @@ constrains the module object to keep existing with that name.
 | `tests/test_qa_time_tracking.py` | 801 | `from budgets import account_and_enforce, annotate_display_names, apply_filter, blank_entry, budget_status, categorize, is_user_app` |
 | `tests/test_safeguards.py` | 231 | `import app`<br>`from budgets import account_and_enforce, blank_entry, tick_budgets` |
 | `tests/test_schedule_agent.py` | 230 | `import budgets` |
-| `tests/test_schedule_api.py` | 536 | `import app`<br>`import budgets` |
+| `tests/test_schedule_api.py` | 535 | `import app`<br>`import budgets` |
 | `tests/test_schedule_budgets.py` | 615 | `import budgets` |
-| `tests/test_schedule_eval.py` | 928 | `import budgets` |
+| `tests/test_schedule_eval.py` | 927 | `import budgets` |
 | `tests/test_session_agent_phase2.py` | 590 | `import budgets` |
 | `tests/test_sqlite.py` | 470 | `import app`<br>`import budgets` |
 | `tests/test_sqlite_v2.py` | 415 | `import app`<br>`import budgets` |
