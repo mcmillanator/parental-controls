@@ -675,3 +675,45 @@ pinned by identity assertions in `tests/test_status_detail.py`).
   (skipped=22)`, skip delta **0** vs the 2026-11-01 VM baseline (every VM
   subtest that ran still runs; loginctl resolves there, so the moved argvs
   are executed coverage, not skips).
+
+## Calendar refactor — BACKEND slice (2026-11-13, `feature/calendar-schedule`)
+
+Replaces the bedtime table + the overrides `windows` sub-doc with ONE
+recurring **block** model (`schedule.py` pure evaluator + the whole-doc
+`schedule` table, store v4 `schedule.json`). **Full spec + decisions:
+`CALENDAR_DESIGN.md`** — read it before touching time config. Highlights:
+
+- Block = target (`bedtime` | category | `app:<comm>`) × mode (`null`=lock
+  for bedtime, `capped`=window-replaces-limit, `permitted`=gate inside/
+  outside) × preset (`ONE`/`DAILY`/`SCHOOL`/`WEEKLY:BYDAY=…`/
+  `BIWEEKLY:BYDAY=…`) × `dtstart`/`start`/`end`/`until`. Fail closed
+  everywhere: a malformed block is absent; enforcement reads ONLY the
+  schedule once a user's `migrated` marker exists.
+- Migration is idempotent+deterministic, triggered by the panel
+  `/api/schedule` routes (deliberately NOT the tick/agent verbs — see the
+  design doc §3 for the hermeticity incident that decided this), audit
+  `schedule.migrate` once per user. Legacy tables stay as
+  write-synchronized mirrors: every mutation path (old `/api/bedtime`,
+  old windows routes, new schedule API) syncs BOTH, so a corrupt schedule
+  store falls back to current mirrors and deleted rules never resurrect.
+- Bonus time is untouched live state; the events endpoint only reports it
+  as a `derived: true` pseudo-band. UI slice is NOT built (later slice);
+  the existing pages keep working off the mirrors + live-state fields.
+- Patch surfaces preserved verbatim (`app/agent.is_in_bedtime`,
+  `budgets._in_window/iter_windows/active_window/normalize_window`…):
+  migrated users resolve through `_bedtime_flag`/`user_windows` shims;
+  RESTRUCTURE_IMPORTS.md regenerated — name-additive (zero lost names),
+  `schedule.py` joined `SharedCorePurityTest.SHARED`, the agent's local
+  import allowlist gained exactly `schedule`.
+- New API: `GET/POST/DELETE /api/schedule`, `GET /api/schedule/events`.
+- Container suite: **Ran 1515 → Ran 1657, OK (skipped=158)** — 142 new
+  tests in `tests/test_schedule_{eval,budgets,api,agent}.py`; two
+  consecutive full runs leave ZERO residue in the checkout (state.db /
+  schedule.json / overrides.json must never appear in a worktree root —
+  the suite is hermetic again).
+- PENDING (manager, on the VM): full suite expect `Ran 1657, OK
+  (skipped=22)` skip-delta 0 vs the 1515/22 baseline; panel smoke:
+  Overview/user-page chips + countdowns identical on a migrated config,
+  `GET /api/schedule` shows the migrated blocks + `schedule.migrate`
+  audit rows; enforce journal shows unchanged tick behaviour after the
+  cutover.

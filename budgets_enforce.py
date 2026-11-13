@@ -17,6 +17,10 @@ budgets_guards.py).
 
 from datetime import datetime
 
+import schedule  # pure stdlib evaluator — no cycle risk (schedule imports
+                 # nothing local), unlike the deferred `import budgets`
+                 # facade seam this module keeps for patchability.
+
 
 def _enforce_target(username, t, wall, deltas, summary, act):
     """Shared billing + freeze state machine for one target.
@@ -207,7 +211,6 @@ def account_and_enforce(username, entry, procs, bedtime_entry, now,
     ``notify(username, title, body)`` used for best-effort warnings.
     """
     import budgets
-    import schedule
     today_str = now.date().isoformat()
     has_bedtime = budgets.has_bedtime_config(schedule_doc, bedtime_entry)
     now_in = bool(budgets.in_bedtime_for(schedule_doc, bedtime_entry, now))
