@@ -61,6 +61,7 @@ import device_policy  # noqa: E402
 
 import pcprobe  # noqa: E402
 import pcstatus  # noqa: E402
+import schedule  # noqa: E402  (pure stdlib calendar evaluator — CALENDAR_DESIGN.md)
 from pcstatus import (  # noqa: E402
     STATUS_HUMAN_WORDS, STATUS_NOISE_PATTERNS, STATUS_OK,
     STATUS_TECHNICAL_PATTERNS, STATUS_UNAVAILABLE, STATUS_UNAVAILABLE_COPY,
@@ -269,6 +270,40 @@ def save_bedtime(data):
                      BEDTIME_FILE)
 
 
+# ---------------------------------------------------------------------------
+# Calendar schedule glue (CALENDAR_DESIGN.md). The schedule table lives in
+# this box's state.db — pinned to the BEDTIME_FILE home so a test that
+# redirects the bedtime store also redirects the calendar (and the agent
+# never touches a store its caller does not own). Enforcement on this box
+# (the enforce timer / panel process) resolves the same file in production.
+# ---------------------------------------------------------------------------
+
+def load_schedule():
+    return budgets.load_schedule(home_file=BEDTIME_FILE)
+
+
+def _schedule_map():
+    try:
+        return load_schedule()
+    except Exception:
+        return {}
+
+
+def _schedule_doc_for(username, schedule_map=None):
+    if schedule_map is None:
+        schedule_map = _schedule_map()
+    doc = schedule_map.get(username)
+    return doc if isinstance(doc, dict) else None
+
+
+def _bedtime_flag(entry, schedule_doc=None, now=None):
+    """is_in_bedtime with the calendar source of truth folded in (the
+    legacy path keeps calling the bare patched-name surface unchanged)."""
+    if schedule.doc_is_migrated(schedule_doc):
+        return schedule.in_bedtime(schedule_doc, now or datetime.now())
+    return is_in_bedtime(entry, now)
+
+
 def _safe_audit(actor, action, target='', detail=None):
     try:
         audit.safe_log(actor, action, target, detail)
@@ -328,28 +363,18 @@ def format_bonus_minutes(total):
     return ' '.join(parts)
 
 
-def is_in_bedtime(entry, now=None):
-    if not entry:
-        return False
-    start = _parse_hhmm(entry.get('start', ''))
-    end = _parse_hhmm(entry.get('end', ''))
-    try:
-        days = {int(d) for d in entry.get('days', [])}
-    except (ValueError, TypeError):
-        return False
-    if start is None or end is None or not days or start == end:
-        return False
+def is_in_bedtime(entry, now=None, schedule_doc=None):
+    """Bedtime predicate for a raw bedtime row.
+
+    Calendar (2026-11-13): a migrated user's bedtime comes from their
+    schedule doc's blocks (see _bedtime_flag); this keeps the verbatim
+    legacy predicate for everything else (agent must stay Flask-free and
+    the name is a pinned patch surface).
+    """
     now = now or datetime.now()
-    cur = now.hour * 60 + now.minute
-    today = now.weekday()
-    yesterday = (today - 1) % 7
-    if start < end:
-        return today in days and start <= cur < end
-    if today in days and cur >= start:
-        return True
-    if yesterday in days and cur < end:
-        return True
-    return False
+    if schedule.doc_is_migrated(schedule_doc):
+        return schedule.in_bedtime(schedule_doc, now)
+    return schedule.in_bedtime_entry(entry, now)
 
 
 def _parse_bonus_until(entry):
@@ -548,7 +573,7 @@ def note_manual_unlock(username, actor=None):
         entry = data.get(username)
         if entry is not None:
             entry['locked_by_bedtime'] = False
-            if is_in_bedtime(entry):
+            if _bedtime_flag(entry, _schedule_doc_for(username)):
                 entry['manual_override'] = True
             save_bedtime(data)
     except OSError:
@@ -655,6 +680,7 @@ def read_users():
     users = get_human_users()
     bedtime = load_bedtime()
     admin_names = _admin_store_names()
+    schedule_map = _schedule_map()
     data = []
     for u in users:
         locked, detail, status_ok = status_row(u['username'])
@@ -665,7 +691,8 @@ def read_users():
             'locked': locked, 'status_detail': detail,
             'status_ok': status_ok,
             'bedtime': entry,
-            'in_bedtime': is_in_bedtime(entry),
+            'in_bedtime': _bedtime_flag(
+                entry, schedule_map.get(u['username'])),
             'bonus': bonus_state(entry),
             # The hub's Overview rebuilds remote cards from this payload with
             # accountHtml(), which branches on `u.wheel`; without it a remote
@@ -696,6 +723,7 @@ def read_user_live(username):
     """Mirror of the panel's /api/user/<u>/live payload."""
     users = get_human_users()
     bedtime = load_bedtime()
+    schedule_map = _schedule_map()
     user_row = None
     for u in users:
         if u['username'] == username:
@@ -706,7 +734,9 @@ def read_user_live(username):
                 'home': u['home'], 'shell': u['shell'],
                 'locked': locked, 'status_detail': detail,
                 'status_ok': status_ok,
-                'bedtime': entry, 'in_bedtime': is_in_bedtime(entry),
+                'bedtime': entry,
+                'in_bedtime': _bedtime_flag(
+                    entry, schedule_map.get(username)),
                 'bonus': bonus_state(entry),
             }
             break
@@ -945,7 +975,8 @@ def do_bonus_revoke(username, actor):
     data = load_bedtime()
     entry = data.get(username, {})
     locked_now = bool(get_lock_status(username)[0])
-    if (is_in_bedtime(entry, now) and not entry.get('manual_override')
+    if (_bedtime_flag(entry, _schedule_doc_for(username), now)
+            and not entry.get('manual_override')
             and not locked_now):
         success, _msg = run_lock_command(username, 'lock', actor=actor)
         if success:
@@ -967,12 +998,23 @@ def do_bedtime(username, form, actor):
     start = (form.get('start') or '').strip()
     end = (form.get('end') or '').strip()
     all_days = 'all_days' in form
+    # Write-through only if THIS box already carries a migrated doc (the
+    # panel's /api/schedule GET owns the cutover). When there is no doc
+    # the legacy entry governs, and the enforcement shims derive blocks
+    # on the fly — behaviourally identical (tests/test_schedule_eval).
+    # The agent never MIGRATES here so a test that mocks load_bedtime
+    # but leaves the store constants pointed at the checkout cannot
+    # write a doc into the real state.db.
+    migrated = schedule.doc_is_migrated(_schedule_doc_for(username))
     if form.get('clear') or (not start and not end):
         data = load_bedtime()
         existing = data.get(username, {})
         if username in data:
             del data[username]
             save_bedtime(data)
+        if migrated:
+            budgets.set_bedtime_block(username, [], '', '', actor=actor,
+                                      home_file=BEDTIME_FILE)
         _safe_audit(actor, 'bedtime.clear', username,
                     {'success': True, 'via': 'remote'})
         if existing.get('locked_by_bedtime'):
@@ -1006,6 +1048,9 @@ def do_bedtime(username, form, actor):
         if key in existing:
             data[username][key] = existing[key]
     save_bedtime(data)
+    if migrated:
+        budgets.set_bedtime_block(username, days, start, end, actor=actor,
+                                  home_file=BEDTIME_FILE)
     _safe_audit(actor, 'bedtime.set', username,
                 {'success': True, 'start': start, 'end': end,
                  'days': sorted(days), 'via': 'remote'})
@@ -1016,7 +1061,7 @@ def do_bedtime(username, form, actor):
                      'message': 'Bedtime saved (bonus time active — lock '
                                 'suppressed until bonus ends)',
                      'locked': bool(get_lock_status(username)[0])}
-    if is_in_bedtime(entry):
+    if _bedtime_flag(entry, _schedule_doc_for(username)):
         if not entry.get('locked_by_bedtime'):
             if budgets.is_admin_protected(username):
                 return 200, {'success': True,

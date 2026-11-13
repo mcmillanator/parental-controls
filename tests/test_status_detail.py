@@ -653,7 +653,7 @@ class StatusDetailMirrorTest(unittest.TestCase):
         # budgets-flavoured imports. Only the documented shared modules are
         # allowed as local imports in agent.py.
         allowed = {'audit', 'auth', 'budgets', 'store', 'device_policy',
-                   'pcstatus', 'pcprobe'}
+                   'pcstatus', 'pcprobe', 'schedule'}
         with open(os.path.join(ROOT, 'agent.py'), encoding='utf-8') as fh:
             tree = ast.parse(fh.read())
         local = set()

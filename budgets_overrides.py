@@ -23,6 +23,7 @@ truth while the legacy tables stay exact mirrors.
 """
 
 import audit
+import os
 import schedule
 import store
 from datetime import datetime, timedelta
@@ -54,24 +55,31 @@ def save_overrides(data):
 # enforcement source of truth; the bedtime table and the windows sub-doc are
 # write-synchronized mirrors (see _sync_windows_mirror). Pure evaluation
 # lives in schedule.py; everything here is table IO + wiring.
+#
+# ``home_file`` pins the schedule table to the SQLite db next to a given
+# state file. Production: every *_FILE sits in one dir, so the default
+# (OVERRIDES_FILE) and an explicit hint resolve to the same state.db.
+# agent.py passes its BEDTIME_FILE so patched-store tests stay hermetic.
 # ---------------------------------------------------------------------------
 
-def load_schedule():
+def load_schedule(home_file=None):
     import budgets
-    return store.load_table(store.db_path_for(budgets.OVERRIDES_FILE),
-                            'schedule')
+    home = home_file if home_file is not None else budgets.OVERRIDES_FILE
+    return store.load_table(store.db_path_for(home), 'schedule')
 
 
-def save_schedule(data):
+def save_schedule(data, home_file=None):
     import budgets
-    store.save_table(store.db_path_for(budgets.OVERRIDES_FILE), 'schedule',
-                     data, budgets.SCHEDULE_FILE)
+    home = home_file if home_file is not None else budgets.OVERRIDES_FILE
+    mirror = os.path.join(os.path.dirname(os.path.abspath(home)),
+                          'schedule.json')
+    store.save_table(store.db_path_for(home), 'schedule', data, mirror)
 
 
-def user_schedule(username, schedule_map=None):
+def user_schedule(username, schedule_map=None, home_file=None):
     """One user's schedule doc ({} when absent/unreadable)."""
     if schedule_map is None:
-        schedule_map = load_schedule()
+        schedule_map = load_schedule(home_file)
     doc = schedule_map.get(username) if isinstance(schedule_map, dict) else None
     return doc if isinstance(doc, dict) else {}
 
@@ -241,7 +249,8 @@ def _stamp_migrated(doc, now):
     return doc
 
 
-def upsert_block(username, raw_block, actor='system', block_id=None):
+def upsert_block(username, raw_block, actor='system', block_id=None,
+                 home_file=None):
     """Create/replace one calendar block (validated, overlap-checked).
 
     Returns (ok, message). The first calendar write is the cutover: the
@@ -256,7 +265,7 @@ def upsert_block(username, raw_block, actor='system', block_id=None):
     if norm is None:
         return False, ('Invalid block (target/mode/preset/times/allowance'
                        ' — see the calendar grammar)')
-    doc_map = load_schedule()
+    doc_map = load_schedule(home_file)
     doc = doc_map.get(username)
     doc = doc if isinstance(doc, dict) else {}
     events = _load_events(doc)
@@ -271,7 +280,7 @@ def upsert_block(username, raw_block, actor='system', block_id=None):
     _stamp_migrated(doc, datetime.now())
     doc_map[username] = doc
     try:
-        save_schedule(doc_map)
+        save_schedule(doc_map, home_file)
     except OSError as e:
         return False, str(e)
     _sync_windows_mirror(username, doc, actor=actor)
@@ -285,12 +294,12 @@ def upsert_block(username, raw_block, actor='system', block_id=None):
     return True, 'OK'
 
 
-def remove_block(username, block_id, actor='system'):
+def remove_block(username, block_id, actor='system', home_file=None):
     """Delete one block (series-only; no per-occurrence exceptions in v1)."""
     import budgets
     if not budgets.valid_username(username):
         return False, 'Invalid username'
-    doc_map = load_schedule()
+    doc_map = load_schedule(home_file)
     doc = doc_map.get(username)
     events = _load_events(doc)
     if block_id not in events:
@@ -301,7 +310,7 @@ def remove_block(username, block_id, actor='system'):
     _stamp_migrated(doc, datetime.now())
     doc_map[username] = doc
     try:
-        save_schedule(doc_map)
+        save_schedule(doc_map, home_file)
     except OSError as e:
         return False, str(e)
     _sync_windows_mirror(username, doc, actor=actor)
@@ -311,7 +320,7 @@ def remove_block(username, block_id, actor='system'):
 
 
 def set_bedtime_block(username, days, start, end, actor='system',
-                      enabled=True):
+                      enabled=True, home_file=None):
     """Write-through for the OLD bedtime editor: replace the user's
     bedtime-target blocks with exactly one derived from (days,start,end).
 
@@ -324,7 +333,7 @@ def set_bedtime_block(username, days, start, end, actor='system',
     import budgets
     if not budgets.valid_username(username):
         return False, 'Invalid username'
-    doc_map = load_schedule()
+    doc_map = load_schedule(home_file)
     doc = doc_map.get(username)
     doc = doc if isinstance(doc, dict) else {}
     events = _load_events(doc)
@@ -350,10 +359,14 @@ def set_bedtime_block(username, days, start, end, actor='system',
     _stamp_migrated(doc, now)
     doc_map[username] = doc
     try:
-        save_schedule(doc_map)
+        save_schedule(doc_map, home_file)
     except OSError as e:
         return False, str(e)
-    _sync_windows_mirror(username, doc, actor=actor)
+    # NOTE: no windows-mirror sync here. A bedtime-target block never
+    # expresses as a legacy window, and rewriting the overrides document
+    # would touch a store the caller (possibly the agent, on a different
+    # box) does not own. Window mirror sync belongs to the window/block
+    # writers only.
     audit.safe_log(actor, 'schedule.block_set',
                    '%s:b-bedtime-1' % username,
                    {'target': 'bedtime', 'days': list(days or []),
@@ -401,7 +414,7 @@ def _drop_window_block(username, window_id):
 
 
 def ensure_migrated(bedtime_map, overrides_map, schedule_map=None, now=None,
-                    actor='system'):
+                    actor='system', home_file=None):
     """Idempotent, deterministic hard-cutover migration.
 
     Every valid username with legacy config (a bedtime entry with any of
@@ -419,7 +432,7 @@ def ensure_migrated(bedtime_map, overrides_map, schedule_map=None, now=None,
     import budgets
     now = now or datetime.now()
     if schedule_map is None:
-        schedule_map = load_schedule()
+        schedule_map = load_schedule(home_file)
     migrated = []
     bedtime_map = bedtime_map if isinstance(bedtime_map, dict) else {}
     overrides_map = (overrides_map if isinstance(overrides_map, dict)
@@ -447,7 +460,7 @@ def ensure_migrated(bedtime_map, overrides_map, schedule_map=None, now=None,
             'bedtime': has_bedtime, 'windows': len(windows)})
     if migrated:
         try:
-            save_schedule(schedule_map)
+            save_schedule(schedule_map, home_file)
         except OSError as e:
             print('schedule: migration save failed: %s' % e, flush=True)
     return schedule_map, migrated
