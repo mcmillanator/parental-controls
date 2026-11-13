@@ -618,3 +618,60 @@ Pinned by `tests/test_ui_child_accounts.py::OverviewCardMetaTest`
 `test_the_rebuild_script_emits_no_role_or_status_meta`). NOTE: the
 `feature/index-components` branch was NOT touched per owner instruction —
 this change lives on `fix/card-meta-row` off the master line only.
+
+**P1 mirror retirement — shared cores `pcstatus.py` / `pcprobe.py`
+(2026-11-13, `feature/shared-core`, NOT yet merged/deployed).** The
+byte-identical app.py↔agent.py blocks that existed only because the agent
+must never import app are gone; both sides now import ONE stdlib-only
+source of truth and re-export under the unchanged names (phase-1 rule:
+relocate code, never names — `app.status_display` / `agent.status_display`
+/ `pcstatus.status_display` are now literally the same function object,
+pinned by identity assertions in `tests/test_status_detail.py`).
+- `pcstatus.py` (zero imports): the whole status-detail sanitizer —
+  STATUS_OK/UNAVAILABLE/VERBATIM, STATUS_UNAVAILABLE_COPY, the ONE `_UNSET`
+  sentinel (previously two separate `object()` calls), all three pattern
+  tables (moved byte-identically — security boundary), and
+  `status_residual_lines` / `classify_status_detail` / `status_display`.
+  Plus `audit_needed` / `audit_status_probe_core` / `status_row_core`: the
+  audit-decision + dedup + row-wiring logic. app.py and agent.py keep thin
+  byte-identical WRAPPERS that inject their own module-local
+  `_LAST_STATUS_PROBE_SIGS`, `_safe_audit` and `get_lock_status` at call
+  time, so every existing `patch.object(app/agent, ...)` target still
+  binds; `StatusDetailMirrorTest` became identity-based and a new
+  `SharedCorePurityTest` AST-pins that both shared modules import nothing
+  but the stdlib (agent's local imports are additionally allow-listed).
+- `pcprobe.py` (imports only `subprocess`): the two loginctl session
+  probes `_user_session_ids` / `_session_properties`, byte-identical
+  between app.py and agent.py, moved verbatim and re-exported by both.
+  `locks.py` untouched — it already resolves `app._user_session_ids` at
+  call time. The 30s caches (`_SESSION_COUNT_CACHE`, TTL constants) stay
+  per-module BY DESIGN (separate processes; `test_ui_session_counts` pins
+  them as separate dicts); `active_session_count` / `invalidate_session_count`
+  therefore remain intentionally-duplicated cache shells.
+- Sudoers-scan follow-through: `test_deployment.MODULES` gained
+  `pcprobe.py` (argv coverage cannot silently leave the scanned set — the
+  slice-6 rule); `test_the_count_helpers_run_only_the_two_allowlisted_argv`
+  now pins the argv literals in pcprobe.py AND binding identity in
+  app/agent; `test_multidevice_install`'s agent.py argv scan simply sees
+  two fewer inline argvs (they are shared now).
+- DIVERGENT pairs audited and deliberately LEFT ALONE (unifying semantics
+  needs owner decisions): agent.get_lock_status vs users._probe_lock_status
+  (behaviourally identical, textually diverged: if-chain vs if/elif,
+  `subprocess` vs `app.subprocess` call-time facade spelling — the cache
+  difference is sanctioned); agent.get_human_users vs users.get_human_users;
+  agent._session_supports_lock vs locks._session_supports_lock (locks.py
+  resolves `app._session_properties` at call time per §1.1);
+  agent.lock_user_sessions / run_lock_command vs the locks.py cores;
+  agent._safe_notify vs app.notify_user; agent._admin_store_names vs
+  app._admin_rows; agent.read_user_live vs app.get_user_live (payload-shape
+  mirror); do_lock's 'OK (<screen note>)' text parse. `_safe_audit` is
+  AST-identical app↔agent but unmarked and a patch target — left.
+- Container suite: before **Ran 1510, OK (skipped=160)** → after **Ran
+  1515, OK (skipped=158)**. The 5 new tests are the identity/purity/
+  binding guards; the −2 skips are structural, not gating: two `loginctl`
+  argv subtests left agent.py's scan with pcprobe.py's scan. UI set 428
+  OK under `python -O`; both import orders smoke; zero failures/errors.
+- PENDING: verify on the VM (human/manager) — expect `Ran 1515, OK
+  (skipped=22)`, skip delta **0** vs the 2026-11-01 VM baseline (every VM
+  subtest that ran still runs; loginctl resolves there, so the moved argvs
+  are executed coverage, not skips).
