@@ -669,7 +669,8 @@ class StatusDetailMirrorTest(unittest.TestCase):
 
 
 class SharedCorePurityTest(unittest.TestCase):
-    """pcstatus.py / pcprobe.py are stdlib-only and import NOTHING local.
+    """pcstatus.py / pcprobe.py / schedule.py are stdlib-only and import
+    NOTHING local.
 
     That is what lets the panel AND the agent share one copy: any local
     import (app, store, auth, budgets...) would either drag Flask in or
@@ -677,7 +678,7 @@ class SharedCorePurityTest(unittest.TestCase):
     a future "while I'm here" import fails loudly here, not at deploy.
     """
 
-    SHARED = ('pcstatus.py', 'pcprobe.py')
+    SHARED = ('pcstatus.py', 'pcprobe.py', 'schedule.py')
 
     def test_shared_modules_import_only_stdlib(self):
         stdlib = set(sys.stdlib_module_names)
