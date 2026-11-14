@@ -1,0 +1,28 @@
+FullCalendar 6.1.22 — vendored JS distribution (calendar UI)
+=============================================================
+
+File:   index.global.min.js
+Source: https://registry.npmjs.org/fullcalendar/-/fullcalendar-6.1.22.tgz
+        (package `fullcalendar`, "Standard Bundle" global build; upstream
+        https://github.com/fullcalendar/fullcalendar)
+Bytes:  285554  (upstream 285276 + 278-byte VENDORING banner added on top)
+SHA256 (upstream file, pre-banner):
+        65f927f1802cb35428b9c5e2a8d2276633880a89ee5ea5f9a7727f79892786ea
+SHA256 (committed file, with banner):
+        03b1c43bbb5e0e793f218f5218842c4422df49d79fe55877a28ead6968491b9f
+
+Vendored instead of linked from a CDN on purpose: the panel is a home-LAN /
+localhost tool that must render with zero external requests (UI_UX_PLAN.md
+§6.3, pinned by tests/test_ui_assets.py). v6 injects its own CSS from the JS
+bundle at runtime (the .fc-* stylesheets are inlined in the file and appended
+as <style> elements — verified: `createElement("style")` present, no separate
+CSS artifact needed).
+
+Only the premium-free core views are used: dayGridMonth, timeGridWeek plus
+the interaction + list plugins. License: MIT (Copyright (c) 2021 Adam Shaw) —
+see LICENSE.md vendored next to the bundle. No premium plugins, no network
+calls, no telemetry in the bundle.
+
+Do not edit by hand; replace wholesale when bumping the pinned version and
+update the hashes above, the banner, tests/test_ui_assets.py and the
+'UI slice' section of CALENDAR_DESIGN.md together.

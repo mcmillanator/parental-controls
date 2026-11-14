@@ -234,3 +234,51 @@ Calendar page/templates/JS (explicitly out of this slice), per-occurrence
 exceptions, richer target grammar, hub->agent schedule proxying, and
 retiring the old `overrides.windows` writer once the panel speaks
 `/api/schedule` natively.
+
+## 10. UI slice (2026-11-14, `feature/calendar-ui`)
+
+Owner-approved build of the parent-facing **Calendar page** on the
+`/api/schedule` backend above, replacing the Time-rules landing page and
+the Weekly-Windows editors. Decisions + pins:
+
+* **Vendored artifact:** `static/vendor/fullcalendar/index.global.min.js` —
+  FullCalendar **Standard Bundle v6.1.22**, MIT license
+  (`package fullcalendar` on npm; upstream
+  https://github.com/fullcalendar/fullcalendar). Single file, no separate
+  CSS artifact: v6 inlines its stylesheets and injects them as `<style>`
+  elements from the JS (verified in the bundle: `createElement("style")` +
+  the `.fc-*` selector set). Committed with a VENDORING banner; hashes,
+  byte counts and the upgrade procedure live in
+  `static/vendor/fullcalendar/NOTICE.txt`. **No CDN/network reference may
+  ever appear in templates or static** — pinned by
+  `tests/test_ui_assets.py` (offline-asset guard extended to the new page).
+* **Page:** `/calendar` (replaces `/time-rules` as the `time` nav section).
+  Child selector follows the budgets-page pattern (`?user=`), week grid
+  (`timeGridWeek`) default + month toggle (`dayGridMonth`), live `now`
+  indicator, events fed by `GET /api/schedule/events?username&start&end`.
+* **Editor:** drag-select creates, resize/move edits, **series-only** (v1
+  has no per-occurrence exception model — §2). Modal writes
+  `POST /api/schedule`; delete writes `DELETE /api/schedule/<id>` with a
+  confirm. Preset dropdown emits exactly the §2 canonical strings
+  (`ONE` / `DAILY` / `SCHOOL` / `WEEKLY:BYDAY=…` / `BIWEEKLY:BYDAY=…`);
+  `until` is a block FIELD (`UNTIL=<date>` in the mission shorthand is
+  stored as `until`, never inside the preset string).
+* **Polling choice:** the grid re-fetches events on every successful
+  mutation **plus a gentle 60 s timer** (calendar minute resolution needs
+  no more; the Overview's 10 s contract is for lock/budget status and is
+  untouched). `nowIndicator` is client-side, so the marker moves without
+  network.
+* **Fail closed:** an events fetch failure renders an explicit error
+  banner over the grid (copy style mirrors `_insecure_banner`/status-probe
+  language) — a render error never implies "no restrictions"; enforcement
+  is unaffected (server-side).
+* **Retired surfaces (hard cutover):** `templates/time_rules.html` + the
+  `/time-rules` route/nav entry, the `POST /api/bedtime` config writer
+  (GET stays for the live chips/mirror readers), the Weekly-Windows UI
+  section on `budgets.html` + the per-child windows/bedtime editors on
+  `user.html`, and the `POST /api/budgets/windows` writer (§9's
+  "retire the old overrides.windows writer — now"). Legacy tables remain
+  migration source + write-synchronized mirrors maintained by the
+  schedule API itself (§6) — no UI path writes them anymore. Daily
+  limits, per-app overrides, freeze/resume and the bonus dialog are
+  unchanged.
