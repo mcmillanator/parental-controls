@@ -2416,6 +2416,13 @@ body.pc-reduced-motion *::after {
 .pc-calendar-card .fc .fc-more-popover .fc-event {
   cursor: pointer;
 }
+/* Create affordance: the time grid is drag-selectable (calendar.js
+   `selectable: true`), but the v6 bundle styles cursors only on events/
+   buttons/navlinks — empty slots get none (zero 'crosshair' rules in
+   index.global.min.js), so the hint lives here. */
+.pc-calendar-card .fc .fc-timegrid-col-frame {
+  cursor: crosshair;
+}
 /* Event shapes: the fill colour comes from the JS palette; bedtime is the
    device-wide state so it reads as a solid, heavier block, capped app-time
    windows as a lighter tint with a left rule, and the derived bonus band is

@@ -6,6 +6,18 @@
    (static/vendor/fullcalendar/) renders the grid. No CDN, no network except
    same-origin /api/schedule calls.
 
+   Creating a block has three paths, all landing in the same
+   openEditor({mode:'create', ...}) modal:
+     * drag-select over slots        -> select callback (needs `selectable`)
+     * plain click on a slot/day     -> dateClick callback (week: clicked
+                                        hour + 1 h; month: the date, modal
+                                        time defaults untouched)
+     * '+ New block' toolbar button  -> customButtons -> openEditor for the
+                                        displayed child (today, 16:00-18:00)
+   `selectMinDistance` keeps a plain click out of `select` so dateClick owns
+   the click path (the vendored bundle fires both on a zero-move click
+   otherwise — see tests/test_ui_calendar.py create-path pins).
+
    Data flow:
      * GET /api/schedule?user       -> block cache (series definitions)
      * GET /api/schedule/events     -> expanded occurrences for the visible
@@ -556,14 +568,32 @@ function boot() {
     slotMaxTime: '24:00:00',
     expandRows: true,
     headerToolbar: {
-      left: 'prev,next today',
+      left: 'prev,next today,newBlock',
       center: 'title',
       right: 'timeGridWeek,dayGridMonth',
     },
     buttonText: { today: 'Today', timeGridWeek: 'Week', dayGridMonth: 'Month' },
+    customButtons: {
+      // Third create path: works without touching the grid. Defaults:
+      // today, 16:00-18:00, the modal's own initial repeat state ('one').
+      newBlock: {
+        text: '+ New block',
+        click: () => {
+          if (editorState) { return; }                // never clobber open edits
+          openEditor({
+            mode: 'create',
+            dtstart: localDate(new Date()),
+            start: '16:00',
+            end: '18:00',
+          });
+        },
+      },
+    },
     editable: true,
     eventStartEditable: true,
     eventDurationEditable: true,
+    selectable: true,          // without this the grid ignores drag-select
+    selectMinDistance: 5,      // clicks belong to dateClick; drags to select
     selectMirror: true,
     dayMaxEventRows: 4,
     events: async (info, success, failure) => {
@@ -577,12 +607,27 @@ function boot() {
       }
     },
     select: (info) => {
+      if (editorState) { return; }   // dateClick already opened it (drag back
+                                     // onto the same slot fires both)
       const allDay = info.allDay;
       openEditor({
         mode: 'create',
         dtstart: localDate(info.start),
         start: allDay ? '' : hhmm(info.start),
         end: allDay ? '' : hhmm(info.end > info.start ? info.end : info.start),
+      });
+    },
+    dateClick: (info) => {
+      if (editorState) { return; }                // never clobber open edits
+      // Plain click (selectMinDistance keeps `select` off these): timed
+      // slots prefill the clicked hour + 1 h; all-day cells (month grid,
+      // the all-day row) set only the date and keep the modal's defaults.
+      const timed = !info.allDay;
+      openEditor({
+        mode: 'create',
+        dtstart: localDate(info.date),
+        start: timed ? hhmm(info.date) : '',
+        end: timed ? hhmmOfMin(minutesOf(hhmm(info.date)) + 60) : '',
       });
     },
     eventDrop: (info) => {
