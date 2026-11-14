@@ -717,3 +717,53 @@ recurring **block** model (`schedule.py` pure evaluator + the whole-doc
   `GET /api/schedule` shows the migrated blocks + `schedule.migrate`
   audit rows; enforce journal shows unchanged tick behaviour after the
   cutover.
+
+## Calendar refactor — UI slice (2026-11-14, `feature/calendar-ui`)
+
+The parent-facing **Calendar page** on the merged `/api/schedule` backend
+(spec + decisions: `CALENDAR_DESIGN.md` §10). Highlights:
+
+- `/calendar` (endpoint `calendar`, nav section `time`): vendored
+  **FullCalendar 6.1.22** global bundle in
+  `static/vendor/fullcalendar/` (MIT, banner + NOTICE.txt + hashes pinned
+  by `tests/test_ui_calendar.py`); NO CDN anywhere (page + JS + vendor
+  files pinned offline). Week grid default + month toggle, live `now`
+  marker, child selector via `?user=`, events from
+  `GET /api/schedule/events`, derived bonus band rendered read-only with
+  a hint pointing at the child page's bonus dialog.
+- Editor = `static/js/calendar.js` (vanilla ES module, no build step):
+  drag creates, resize/move edits the WHOLE series (drag moves shift the
+  times + anchor day; weekday-bearing presets rotate their BYDAY set),
+  modal posts exactly the §2 grammar presets, overlap/validation errors
+  surface inline in the modal. Polling: refetch on every mutation + a
+  gentle 60 s timer (pauses while the modal is open / tab hidden); fetch
+  failure shows a fail-closed banner, never an empty grid.
+- **Retired (hard cutover):** `/time-rules` + `templates/time_rules.html`
+  (404), `POST /api/bedtime` + `POST /api/budgets/windows` (405), the
+  bedtime editor form + Weekly-Windows sections on `user.html`, the
+  Weekly-Windows card on `budgets.html` (daily limits, per-app overrides,
+  freeze/resume, bonus dialog and all live-state READS stay as-is;
+  `GET /api/bedtime` still serves the mirrors for the chips).
+- The old bedtime writer's immediate lock/unlock tail MOVED to
+  `POST/DELETE /api/schedule` (`app._enforce_bedtime_now`): a bedtime
+  save still auto-locks (session-preserving `usermod -L`, notification,
+  bonus suppression, admin self-protection) and deleting the last bedtime
+  series still releases a BEDTIME-owned lock — manual locks survive
+  (pinned by `test_lock_regression`). One deliberate delta, design §6:
+  deleting the bedtime series now KEEPS live keys (bonus until expiry);
+  the old CLEAR deleted the whole row.
+- Container suite: **Ran 1657 → Ran 1681, OK (skipped=158)**. New
+  `tests/test_ui_calendar.py` (22: vendor pins, render guards, editor
+  e2e incl. overlap 400 + lock argv path); 12 test modules re-pinned
+  (retired-endpoint fixtures route through `/api/schedule`; behavioral
+  assertions preserved, none deleted outright — old-editor write-through
+  tests replaced by `RetiredLegacyWritersTest` retirement pins).
+  `RESTRUCTURE_IMPORTS.md` regenerated (app loses
+  api_bedtime_set/api_budgets_windows/time_rules, gains calendar +
+  _enforce_bedtime_now).
+- PENDING (manager, on the VM): run the suite (expect `Ran 1681, OK`,
+  skip-delta vs the 22-skip VM baseline like the backend slice's) + the
+  VERIFY-ON-VM checklist at the end of `CALENDAR_DESIGN.md` §10; after
+  pull, a human eyeball on aiden-pc (calendar renders with real fonts/
+  theme, drag-create a bedtime block, windows section gone from
+  /budgets).

@@ -283,3 +283,46 @@ the Weekly-Windows editors. Decisions + pins:
   schedule API itself (§6) — no UI path writes them anymore. Daily
   limits, per-app overrides, freeze/resume and the bonus dialog are
   unchanged.
+
+### 10.1 VERIFY-ON-VM checklist (UI slice — owner/manager, on the box)
+
+Deploy the merged branch (`sudo ./install.sh` from the checkout), then
+against the URL install.sh prints:
+
+1. **Login → sidebar shows 'Calendar' (clock icon)** where 'Time rules'
+   used to be; `/time-rules` now 404s. Daily-limits page still reachable
+   from the child page links.
+2. **Open /calendar** with an existing legacy bedtime row + weekly
+   windows: first load triggers the migration (audit `schedule.migrate`);
+   the week grid shows the bedtime block (violet, midnight-crossing),
+   each capped window as its own block, and — if a bonus is live — the
+   striped blue band. Click the band → hint strip pointing at the child
+   page's bonus dialog. No browser-console 404s; devtools Network tab
+   shows ZERO off-origin requests (offline promise).
+3. **Drag Mon 21:00→Tue 08:00** on the grid → modal: target Bedtime,
+   repeat Every day, save → block appears; Overview/user-page chips +
+   countdown reflect it (mirror writes work); `curl -s -b <session>
+   .../api/bedtime` shows the mirrored start/end/days.
+4. **Cap-edit**: drag/create a Games block 16:00–18:00, Capped 45m;
+   then drag its bottom edge to resize → toast "Resize applied to the
+   whole series"; next day's occurrence moved too (series-only).
+5. **Overlap**: create a second Games block overlapping the first →
+   modal stays open with the inline error naming the conflicting id
+   (no vanishing alert).
+6. **Bedtime lock path**: create an in-window bedtime block while the
+   child is logged in → account locks without terminating the session
+   (journal shows `usermod -L`, no `terminate-user`); delete the series
+   → bedtime-owned lock releases; a MANUALLY locked account does not.
+7. **Delete series** via the modal → confirm dialog → block vanishes on
+   refresh; enforcement stops at the next tick.
+8. **budgets.html**: no Weekly-Windows card (only the one-line Calendar
+   pointer); daily limits, App override dialog, freeze/resume behave
+   exactly as before; `/user/<child>` shows the read-only bedtime mirror
+   + "Edit bedtime on the Calendar".
+9. **Month toggle** renders the same blocks in `dayGridMonth`; the now
+   indicator tracks the minute without any network call; kill the
+   service's data dir read (or set an invalid `?user=`) → the grid shows
+   the explicit "Calendar could not refresh" banner, never an empty
+   "no restrictions" grid.
+10. Full suite on the box: expect `Ran 1681, OK` with the VM's ~22-skip
+    profile (skip-delta vs backend slice's baseline as before).
