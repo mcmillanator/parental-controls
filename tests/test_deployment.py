@@ -853,6 +853,7 @@ class TestNoHardcodedPaths(unittest.TestCase):
         'sudo-audit.md',
         'tls_serve.py',
         'tls_lib.sh',
+        'venv_lib.sh',
     ]
 
     def test_no_checkout_home_paths_in_deployment_files(self):

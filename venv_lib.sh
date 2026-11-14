@@ -51,11 +51,12 @@
 #   1  structural: no runnable interpreter, or requirements unreadable/empty
 #   2  interpreter runs but a required distribution is missing/unimportable
 #
-# Import-name rule: this project's stack maps trivially (flask, argon2-cffi
-# -> argon2, waitress, cheroot), so the smoke import is the distribution
-# name up to the first '-'. -B keeps the probe from ever writing bytecode
-# into the service user's tree when run as root; on success it prints
-# nothing, on failure one line naming what broke (stderr).
+    # Import-name rule (applied inside): this project's stack maps
+    # trivially (flask, argon2-cffi -> argon2, waitress, cheroot), so the
+    # smoke import is the distribution name up to the first '-'. -B keeps
+    # the probe from ever writing bytecode into the service user's tree
+    # when run as root; on success it prints nothing, on failure one line
+    # naming what broke (stderr).
 venv_healthy() {
     local venv_dir="$1" req_file="${2:-}"
     local py="$venv_dir/bin/python"
@@ -68,7 +69,8 @@ venv_healthy() {
         return 1
     fi
     local pkgs
-    pkgs="$(grep -Eo '^[A-Za-z0-9][A-Za-z0-9._-]*' "$req_file" | tr '\n' ' ')"
+    pkgs="$(grep -Eo '^[A-Za-z0-9][A-Za-z0-9._-]*' "$req_file" | tr '\n' ' ' \
+        || true)"
     if [ -z "${pkgs// /}" ]; then
         echo "venv_healthy: no distribution names found in $req_file" >&2
         return 1

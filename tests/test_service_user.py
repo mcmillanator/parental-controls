@@ -355,7 +355,11 @@ class TestHomelessVenv(unittest.TestCase):
                       script)
 
     def test_venv_and_pip_run_with_the_pinned_home(self):
-        script = read('install.sh')
+        # 2026-11-14: the venv create moved into venv_lib.sh's ensure_venv
+        # (probe + self-heal); the pip install stayed inline. Both must
+        # still run under the pinned HOME, so match against the installer
+        # plus the helper it sources.
+        script = read('install.sh') + read('venv_lib.sh')
         self.assertRegex(
             script, r'(?s)as_user env HOME=.*?python3 -m venv',
             'venv creation must run under the pinned HOME')

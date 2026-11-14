@@ -360,9 +360,9 @@ run mkdir -p "$VENV_CACHE"
 run chown "$SERVICE_USER:$SERVICE_USER" "$VENV_CACHE"
 # A PRESENT venv is not a WORKING venv: an image update can swap the
 # interpreter under it and orphan the installed packages (incident
-# 2026-11-14; the old `[ ! -d "$INSTALL_DIR/.venv" ]` presence check was
-# blind to exactly that). ensure_venv probes the interpreter itself and
-# self-heals by rebuilding — see venv_lib.sh for the full rationale.
+# 2026-11-14; the old directory-existence check was blind to exactly
+# that). ensure_venv probes the interpreter itself and self-heals by
+# rebuilding — see venv_lib.sh for the full rationale.
 ensure_venv "$INSTALL_DIR/.venv" "$INSTALL_DIR/requirements.txt"
 as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
     PIP_CACHE_DIR="$VENV_CACHE/pip" \
