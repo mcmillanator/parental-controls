@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{# =========================================================================
+   Calendar (/calendar) — the one recurring-block editor (CALENDAR_DESIGN.md
+   'UI slice'). Bedtime + weekly windows are edited as blocks on the
+   /api/schedule backend: drag on the grid creates, resize/move edits the
+   WHOLE series (v1 has no per-occurrence exceptions), the editor modal
+   mirrors the stored block shape, and the derived bonus band (§5) renders
+   read-only with a pointer to the bonus dialog on the child's page.
+
+   The grid is vendored FullCalendar 6.1.22 (static/vendor/fullcalendar/,
+   MIT, no CDN — offline promise pinned by tests/test_ui_assets.py); the
+   page logic is static/js/calendar.js (vanilla ES module, no build step).
+   ========================================================================= #}
+{% from '_partials/flash.html' import pc_empty %}
+
+{% block title %}Parental Controls — Calendar{% endblock %}
+{% block shell_class %}{% endblock %}
+
+{% macro cal_time_select(prefix, label) -%}
+{# 12-hour edit control (no native clock picker; see tests/test_time12h) —
+   same shape as the budgets-page macro, empty default. #}
+<span class="pc-time">
+<select name="{{ prefix }}_hour" class="pc-input" aria-label="{{ label }} hour">
+<option value="" selected disabled>--</option>
+{% for h in range(1, 13) %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+</select>
+<span class="pc-time__sep">:</span>
+<select name="{{ prefix }}_minute" class="pc-input" aria-label="{{ label }} minute">
+<option value="" selected disabled>--</option>
+{% for m in range(60) %}<option value="{{ '%02d' % m }}">{{ '%02d' % m }}</option>{% endfor %}
+</select>
+<select name="{{ prefix }}_meridiem" class="pc-input" aria-label="{{ label }} AM/PM">
+<option value="" selected disabled>--</option>
+<option value="AM">AM</option>
+<option value="PM">PM</option>
+</select>
+</span>
+{%- endmacro %}
+
+{% block content %}
+<p class="pc-eyebrow">Time rules</p>
+<div class="pc-toolbar">
+    <div>
+        <h1 class="pc-page-title">Calendar</h1>
+        <p class="pc-subtitle">Bedtime and app time, scheduled the way you schedule meetings{% if username %} for {{ username }}{% endif %}. Drag on the grid to create; click a block to edit its whole series.</p>
+    </div>
+</div>
+
+{% if not users %}
+<div class="pc-card">{{ pc_empty('No child accounts found', 'Create a human account on this machine, then reload.') }}</div>
+{% else %}
+{# Child selector — same pattern as the budgets page. #}
+<div class="pc-card">
+    <div class="pc-inline-form">
+        <div class="pc-field">
+            <label class="pc-field__label" for="calendar-user">Child</label>
+            <select id="calendar-user" class="pc-input" onchange="switchCalendarUser(this.value)">
+                {% for u in users %}
+                <option value="{{ u.username }}"{% if u.username == username %} selected{% endif %}>{{ u.username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <span class="pc-meta" role="status" aria-live="polite">
+            <svg class="pc-chip__icon" aria-hidden="true" focusable="false"><use href="#pc-i-refresh"/></svg>
+            <span id="calendar-refresh-note">Events refresh automatically</span>
+        </span>
+    </div>
+</div>
+
+{# Fail-closed notice strip: an events fetch error never implies "no
+   restrictions" — the grid keeps its last render and this banner explains. #}
+<div class="pc-card pc-card--error" id="calendar-error" role="alert" hidden>
+    <h2 class="pc-card__title">Calendar could not refresh</h2>
+    <p id="calendar-error-text">The schedule could not be loaded. Restrictions still enforce exactly as configured — this is a display problem, not a permissions change.</p>
+    <button type="button" class="pc-btn pc-btn--ghost" onclick="window.pcCalendarRetry()">Retry</button>
+</div>
+<div class="pc-card pc-card--muted" id="calendar-notice" hidden>
+    <p class="pc-row" id="calendar-notice-text"></p>
+</div>
+
+{# The grid. #}
+<section class="pc-card pc-calendar-card" aria-label="Schedule calendar">
+    <div id="pc-calendar" data-pc-calendar></div>
+    <p class="pc-hint">Colours: bedtime blocks are violet, capped app-time windows carry their allowance, permitted blocks their target, and the blue striped band is <em>bonus time</em> (live state — click it for where to edit).</p>
+</section>
+
+{# Block editor — one native <dialog> shared by create + edit (series-only). #}
+<dialog id="pc-block-editor" class="pc-dialog" aria-labelledby="pc-block-editor-title" aria-modal="true">
+    <form class="pc-dialog__form" method="dialog" id="block-editor-form">
+        <div class="pc-dialog__header" id="pc-block-editor-title">Schedule block</div>
+        <div class="pc-dialog__body">
+            <p class="pc-meta" id="block-editor-sub"></p>
+            <div class="pc-field">
+                <label class="pc-field__label" for="block-target">Target</label>
+                <select id="block-target" class="pc-input" onchange="window.pcCalendarTargetChanged()">
+                    <option value="bedtime">Bedtime (device lock)</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}">{{ category_labels[cat] }} ({{ cat }})</option>
+                    {% endfor %}
+                    <option value="app">App (command)</option>
+                </select>
+            </div>
+            <div class="pc-field" id="block-app-field" hidden>
+                <label class="pc-field__label" for="block-app">App command</label>
+                <input id="block-app" class="pc-input" list="calendar-installed-apps" placeholder="e.g. steam" autocomplete="off">
+                <span class="pc-field__hint">Validated by the backend (letters, digits, dot, dash, underscore).</span>
+            </div>
+            <div class="pc-field" id="block-mode-field" hidden>
+                <span class="pc-field__label">Mode</span>
+                <label class="pc-switch"><input type="radio" name="block-mode" value="capped" checked onchange="window.pcCalendarTargetChanged()"><span>Capped allowance</span></label>
+                <label class="pc-switch"><input type="radio" name="block-mode" value="permitted" onchange="window.pcCalendarTargetChanged()"><span>Permitted (unlimited inside, frozen outside)</span></label>
+                <span class="pc-row" id="block-allowance-row">
+                    <span class="pc-duration__unit">h</span>
+                    <input type="number" id="block-allowance-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" placeholder="h" aria-label="Allowance hours">
+                    <span class="pc-duration__unit">m</span>
+                    <input type="number" id="block-allowance" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" placeholder="m" aria-label="Allowance minutes">
+                    <span class="pc-field__hint">Replaces the daily limit while the block is active (min 5m).</span>
+                </span>
+            </div>
+            <div class="pc-field">
+                <span class="pc-field__label">Times</span>
+                {{ cal_time_select('block_start', 'Block start') }}
+                <span class="pc-field__label">to</span>
+                {{ cal_time_select('block_end', 'Block end') }}
+                <span class="pc-field__hint">End before start wraps past midnight into the next day.</span>
+            </div>
+            <div class="pc-field">
+                <label class="pc-field__label" for="block-repeat">Repeats</label>
+                <select id="block-repeat" class="pc-input" onchange="window.pcCalendarRepeatChanged()">
+                    <option value="one">Does not repeat</option>
+                    <option value="daily">Every day</option>
+                    <option value="school">School days (Mon–Fri)</option>
+                    <option value="weekly">Weekly (chosen days)</option>
+                    <option value="biweekly">Every 2nd week (chosen days)</option>
+                </select>
+            </div>
+            <div class="pc-field" id="block-days-field" hidden>
+                <span class="pc-field__label">Days</span>
+                <span class="pc-row">
+                {% for label in day_labels %}
+                <label class="pc-daybtn"><input type="checkbox" class="block-day" value="{{ loop.index0 }}"> <span>{{ label }}</span></label>
+                {% endfor %}
+                </span>
+            </div>
+            <div class="pc-field">
+                <label class="pc-field__label" for="block-until">Until (optional)</label>
+                <input type="date" id="block-until" class="pc-input" aria-label="Repeat until date (inclusive)">
+                <span class="pc-field__hint">Last day the series occurs, inclusive. Leave empty to repeat indefinitely.</span>
+            </div>
+            <div class="pc-field">
+                <label class="pc-switch"><input type="checkbox" id="block-enabled" checked><span>Enabled</span></label>
+            </div>
+            <p class="pc-field__error" role="alert" aria-live="assertive" id="block-editor-error" hidden></p>
+        </div>
+        <div class="pc-dialog__footer">
+            <button type="button" class="pc-btn pc-btn--danger" id="block-delete" style="margin-right:auto" onclick="window.pcCalendarDeleteSeries()" hidden>Delete series</button>
+            <button type="button" class="pc-btn pc-btn--neutral" id="block-cancel">Cancel</button>
+            <button type="submit" class="pc-btn pc-btn--primary" id="block-save">Save block</button>
+        </div>
+    </form>
+</dialog>
+<datalist id="calendar-installed-apps">{% for comm in app_names %}<option value="{{ comm }}">{% endfor %}</datalist>
+
+{# Page config for the JS module: user, labels, presets, app tints. #}
+<script type="application/json" id="calendar-config">
+{{ {
+  'username': username,
+  'dayCodes': ['MO','TU','WE','TH','FR','SA','SU'],
+  'dayLabels': day_labels,
+  'categories': categories,
+  'categoryLabels': category_labels,
+  'appCategories': app_categories
+} | tojson }}
+</script>
+<script src="{{ url_for('static', filename='vendor/fullcalendar/index.global.min.js') }}" defer></script>
+<script type="module" src="{{ url_for('static', filename='js/calendar.js') }}" defer></script>
+{% endif %}
+{% endblock %}

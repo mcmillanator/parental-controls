@@ -2325,3 +2325,115 @@ body.pc-reduced-motion *::after {
 .pc-annotation p:last-child {
   margin-bottom: 0;
 }
+
+/* --- Calendar grid (vendored FullCalendar, /calendar) -------------------- *
+   FullCalendar v6 injects its own CSS from the JS bundle with :root custom
+   properties; the block below re-points every one of them onto the panel
+   tokens so the grid follows the active theme. Event colours are set
+   inline from static/js/calendar.js; only non-colour shapes live here.     */
+.pc-calendar-card .fc {
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: var(--surface);
+  --fc-neutral-bg-color: var(--surface-2);
+  --fc-neutral-text-color: var(--text-muted);
+  --fc-today-bg-color: var(--surface-3);
+  --fc-highlight-color: var(--accent-bg);
+  --fc-mirror-bg: var(--accent-bg);
+  --fc-now-indicator-color: var(--danger-fg);
+  --fc-small-font-size: var(--fs-xs);
+  --fc-popover-background-color: var(--surface-raised);
+  --fc-popover-text-color: var(--text);
+  --fc-popover-border-color: var(--border-strong);
+  --fc-popover-box-shadow: var(--el-2);
+  --fc-event-border-color: transparent;
+  --fc-event-text-color: inherit;
+  --fc-more-link-bg-color: var(--surface-3);
+  --fc-more-link-text-color: var(--link);
+  font-size: var(--fs-sm);
+}
+.pc-calendar-card .fc .fc-toolbar-title {
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+.pc-calendar-card .fc .fc-col-header-cell-cushion,
+.pc-calendar-card .fc .fc-daygrid-day-number,
+.pc-calendar-card .fc .fc-list-day-text,
+.pc-calendar-card .fc .fc-list-day-side-text,
+.pc-calendar-card .fc .fc-navlink {
+  color: var(--text);
+  text-decoration: none;
+}
+.pc-calendar-card .fc .fc-button {
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-transform: none;
+  box-shadow: none;
+  padding: 0 var(--sp-3);
+  min-height: 2.25rem;
+}
+.pc-calendar-card .fc .fc-button:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.pc-calendar-card .fc .fc-button-primary:not(:disabled).fc-button-active,
+.pc-calendar-card .fc .fc-button-primary:not(:disabled):active {
+  background: var(--accent-bg);
+  border-color: var(--accent-bg);
+  color: var(--accent-fg);
+}
+.pc-calendar-card .fc .fc-button:disabled {
+  opacity: .5;
+}
+.pc-calendar-card .fc .fc-daygrid-day.fc-day-today,
+.pc-calendar-card .fc .fc-timegrid-col.fc-day-today {
+  background: var(--bedtime-bg);
+  background: color-mix(in oklab, var(--bedtime-bg) 30%, var(--surface));
+}
+.pc-calendar-card .fc .fc-scrollgrid {
+  border-color: var(--border);
+}
+.pc-calendar-card .fc .fc-scrollgrid-section > * {
+  border-color: var(--border);
+}
+.pc-calendar-card .fc .fc-timegrid-slot-label-cushion {
+  color: var(--text-muted);
+}
+.pc-calendar-card .fc .fc-icon {
+  color: inherit;
+}
+.pc-calendar-card .fc .fc-popover {
+  background: var(--fc-popover-background-color);
+  border: 1px solid var(--fc-popover-border-color);
+  box-shadow: var(--fc-popover-box-shadow);
+}
+.pc-calendar-card .fc .fc-popover-header {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.pc-calendar-card .fc .fc-more-popover .fc-event {
+  cursor: pointer;
+}
+/* Event shapes: the fill colour comes from the JS palette; bedtime is the
+   device-wide state so it reads as a solid, heavier block, capped app-time
+   windows as a lighter tint with a left rule, and the derived bonus band is
+   striped so it can never be mistaken for a stored series. */
+.pc-calendar-card .fc-event {
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.pc-calendar-card .fc-event.pc-cal-event--bedtime {
+  font-weight: 700;
+  border-left: 3px solid var(--bedtime-fg);
+}
+.pc-calendar-card .fc-event.pc-cal-event--bonus {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, .28) 0 6px,
+    transparent 6px 12px);
+  cursor: help;
+  font-weight: 700;
+}

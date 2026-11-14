@@ -108,6 +108,7 @@ def _multidevice_gate():
 NAV_SECTIONS = {
     'index': 'overview',
     'time_rules': 'time',
+    'calendar': 'time',
     'user_detail': 'time',
     'budgets': 'time',
     'processes': 'activity',
@@ -3208,6 +3209,41 @@ def time_rules():
             'bonus': bonus_state(entry),
         })
     return render_template('time_rules.html', children=children,
+                           day_labels=DAY_LABELS)
+
+
+@app.route('/calendar')
+@require_admin
+def calendar():
+    """Calendar section (/calendar) — the one recurring-block editor.
+
+    CALENDAR_DESIGN.md 'UI slice': bedtime + weekly windows are edited as
+    blocks on the /api/schedule backend; the server renders the shell
+    (child picker, grid mount point, editor modal) and the JS fetches
+    blocks/occurrences from the API. ``app_categories`` tints app-target
+    events by their desktop category (fail-safe 'other' when unknown).
+    """
+    users = get_human_users()
+    requested = (request.args.get('user', '') or '').strip()
+    username, data = _pick_child(requested)
+    app_names = (data or {}).get('app_names') or []
+    app_categories = {}
+    if username and app_names:
+        try:
+            index = budgets.build_desktop_index(username)
+        except Exception:
+            index = {}
+        for comm in app_names:
+            try:
+                app_categories[comm] = budgets.categorize({'comm': comm},
+                                                          index)
+            except Exception:
+                app_categories[comm] = 'other'
+    return render_template('calendar.html', username=username, users=users,
+                           app_names=app_names,
+                           app_categories=app_categories,
+                           categories=budgets.CATEGORIES,
+                           category_labels=budgets.CATEGORY_LABELS,
                            day_labels=DAY_LABELS)
 
 
