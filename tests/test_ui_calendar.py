@@ -10,7 +10,11 @@ Three layers:
 2. **Render pins** (Flask test client, mocked users + live payload): the
    page requires the admin session, carries the child selector, the grid
    mount, the editor modal, the fail-closed error banner and the config
-   block; the Time-rules surface it replaced is gone.
+   block; the Time-rules surface it replaced is gone. There is no JS
+   runner in this suite, so the shipped ``calendar.js`` create paths
+   (2026-11-14 fix: drag-select, slot click, '+ New block' button) are
+   pinned as config-literal strings, alongside pins that the vendored
+   bundle itself implements the options those paths rely on.
 3. **API e2e** (the exact form fields the modal posts): create bedtime +
    capped-game blocks, edit, disable, delete, the overlap-rejection path
    and the immediate bedtime-lock path — all through /api/schedule with
@@ -209,6 +213,78 @@ class CalendarRenderTest(_AdminSessionMixin, unittest.TestCase):
         sidebar = sidebar[:sidebar.index('</aside>')]
         self.assertIn('aria-current="page"', sidebar)
         self.assertIn('Calendar', sidebar)
+
+
+# ---------------------------------------------------------------------------
+# 2b. Create-path pins (no JS runner here: the shipped config literals ARE
+#     the contract, mirrored against what the vendored bundle implements).
+# ---------------------------------------------------------------------------
+
+APP_CSS = ROOT / 'static' / 'css' / 'app.css'
+
+
+class CalendarCreatePathTest(unittest.TestCase):
+    """2026-11-14 fix: there was NO way to create a block.
+
+    boot() configured select/selectMirror/eventDrop/eventResize/eventClick
+    but never `selectable: true` — and the bundle's shipped default is
+    `selectable: !1` (pinned below), so drag-select silently did nothing.
+    Three creation paths now: drag-select, plain click (dateClick), and a
+    '+ New block' toolbar button (customButtons).
+
+    Without a JS runner these are string pins on calendar.js + a capability
+    check against the vendored bundle: if an option name does not appear in
+    index.global.min.js at all, the pin below fails LOUD instead of the
+    option quietly dying (a mis-set option is otherwise invisible).
+    """
+
+    def js(self):
+        return CALENDAR_JS.read_text(encoding='utf-8')
+
+    def bundle(self):
+        return FC_BUNDLE.read_text(encoding='utf-8')
+
+    def test_drag_select_enabled_and_click_button_wired_in_js(self):
+        src = self.js()
+        self.assertIn('selectable: true', src)
+        self.assertIn('dateClick:', src)          # plain click -> create modal
+        self.assertIn('customButtons', src)       # the + New block button
+        self.assertIn("'+ New block'", src)
+        self.assertIn('newBlock', src)
+        # headerToolbar left group carries the custom button id
+        self.assertIn("left: 'prev,next today,newBlock'", src)
+
+    def test_click_select_race_guarded(self):
+        # With plain selectable, the bundle fires select AND dateClick for a
+        # zero-move interaction; selectMinDistance makes select drag-only so
+        # dateClick owns clicks and the modal opens exactly once.
+        src = self.js()
+        self.assertIn('selectMinDistance', src)
+        # All three paths land in the same create-modal call (no new modal):
+        self.assertGreaterEqual(src.count("mode: 'create'"), 3)
+
+    def test_bundle_ships_selectable_off_by_default(self):
+        # Root cause, pinned against the artifact: absent an explicit option
+        # the grid ignores drag-select. (selectable:!1 is in the defaults.)
+        self.assertIn('selectable:!1', self.bundle())
+
+    def test_bundle_implements_the_pinned_options(self):
+        bundle = self.bundle()
+        # Capability proof for every option calendar.js now depends on:
+        # option refiners + the dateClick trigger + customButtons toolbar.
+        self.assertIn('selectable:Boolean', bundle)
+        self.assertIn('selectMinDistance:Number', bundle)
+        self.assertIn('dateClick:An', bundle)
+        self.assertIn('trigger("dateClick"', bundle)
+        self.assertIn('customButtons:An', bundle)
+
+    def test_time_grid_cursor_hint_css(self):
+        # The v6 bundle styles no cursor for selectable slots (zero
+        # 'crosshair' rules in it), so app.css owns the affordance.
+        css = APP_CSS.read_text(encoding='utf-8')
+        self.assertIn('.pc-calendar-card .fc .fc-timegrid-col-frame', css)
+        self.assertIn('cursor: crosshair', css)
+        self.assertNotIn('crosshair', self.bundle())
 
 
 # ---------------------------------------------------------------------------
