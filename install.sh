@@ -102,6 +102,10 @@ SESSION_USERS=()
     || { echo "Missing $SOURCE_DIR/tls_lib.sh — run install.sh from the app checkout." >&2; exit 1; }
 # shellcheck disable=SC1091
 . "$SOURCE_DIR/tls_lib.sh"
+[ -f "$SOURCE_DIR/venv_lib.sh" ] \
+    || { echo "Missing $SOURCE_DIR/venv_lib.sh — run install.sh from the app checkout." >&2; exit 1; }
+# shellcheck disable=SC1091
+. "$SOURCE_DIR/venv_lib.sh"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -354,10 +358,12 @@ VENV_HOME="$INSTALL_DIR"
 VENV_CACHE="$INSTALL_DIR/.cache"
 run mkdir -p "$VENV_CACHE"
 run chown "$SERVICE_USER:$SERVICE_USER" "$VENV_CACHE"
-if [ ! -d "$INSTALL_DIR/.venv" ]; then
-    as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
-        python3 -m venv "$INSTALL_DIR/.venv"
-fi
+# A PRESENT venv is not a WORKING venv: an image update can swap the
+# interpreter under it and orphan the installed packages (incident
+# 2026-11-14; the old `[ ! -d "$INSTALL_DIR/.venv" ]` presence check was
+# blind to exactly that). ensure_venv probes the interpreter itself and
+# self-heals by rebuilding — see venv_lib.sh for the full rationale.
+ensure_venv "$INSTALL_DIR/.venv" "$INSTALL_DIR/requirements.txt"
 as_user env HOME="$VENV_HOME" XDG_CACHE_HOME="$VENV_CACHE" \
     PIP_CACHE_DIR="$VENV_CACHE/pip" \
     "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
@@ -582,8 +588,14 @@ exec ${INSTALL_DIR}/.venv/bin/python ${INSTALL_DIR}/cli.py "\$@"
 WRAPPER
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] install -m 0750 -o root -g root $CLI_WRAPPER /usr/local/bin/parental-controls"
-elif [ ! -x "${INSTALL_DIR}/.venv/bin/python" ]; then
-    echo "ERROR: ${INSTALL_DIR}/.venv/bin/python missing; cannot install the recovery CLI." >&2
+elif ! venv_healthy "${INSTALL_DIR}/.venv" "${INSTALL_DIR}/requirements.txt"; then
+    # The same interpreter-health probe as step 2/8, not a bare `-x`: an
+    # orphaned venv passes `-x` (the symlink exists and runs) yet every
+    # cli.py invocation would die on imports, and the escape hatch must
+    # not be that kind of broken. Step 2/8 normally heals this; getting
+    # here means the heal did not stick.
+    echo "ERROR: ${INSTALL_DIR}/.venv/bin/python missing or unusable; cannot install the recovery CLI." >&2
+    echo "Fix the venv step above (step 2/8 rebuilds it) and re-run install.sh." >&2
     exit 1
 else
     run install -m 0750 -o root -g root "$CLI_WRAPPER" /usr/local/bin/parental-controls
