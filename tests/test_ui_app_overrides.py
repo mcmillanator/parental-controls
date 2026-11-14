@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """App-overrides area polish on the user detail page.
 
-Three focused changes to the weekly-windows / app-overrides part of
-``templates/user.html``:
+Pins for the app-overrides area of ``templates/user.html`` (calendar
+cutover: the weekly-windows disclosure + #window-app-target retired —
+the combobox contract below now guards the ONE surviving app field):
 
-* the app fields are labelled **"App"** (not the developer-speak
-  "App comm:") for both ``#override-comm`` and ``#window-app-target``,
-  with a friendly "Search installed apps…" placeholder,
-* both app fields become a searchable, accessible **combobox** backed by
+* the app field is labelled **"App"** (not the developer-speak
+  "App comm:") with a friendly "Search installed apps…" placeholder,
+* the app field is a searchable, accessible **combobox** backed by
   the existing ``<datalist id="installed-apps">`` (which the server renders
   from ``app_names``) — one reusable vanilla-JS implementation, no build
   step, and the committed ``.value`` is still the raw comm so the
@@ -37,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
 CSS = os.path.join(ROOT, 'static', 'css', 'app.css')
 
-# The friendly placeholder both app fields share.
+# The friendly placeholder the app field carries.
 PLACEHOLDER = 'Search installed apps…'
 
 # The ids the selector contract + stdlib suite pin in this area. The rename
@@ -45,7 +45,7 @@ PLACEHOLDER = 'Search installed apps…'
 PINNED_IDS = (
     'override-comm', 'override-add-mode', 'override-add-hours',
     'override-add-minutes', 'app-override-list',
-    'window-app-target', 'installed-apps',
+    'installed-apps',
 )
 
 
@@ -117,34 +117,33 @@ class SourceTest(unittest.TestCase):
     def test_labels_read_app_not_app_comm(self):
         self.assertNotIn('App comm', self.src)
         self.assertIn('for="override-comm">App</label>', self.src)
-        self.assertIn('for="window-app-target">App</label>', self.src)
+        # Calendar cutover: the window editor (and its app field) retired.
+        self.assertNotIn('window-app-target', self.src)
 
-    def test_both_fields_share_the_friendly_placeholder(self):
-        self.assertEqual(2, self.src.count('placeholder="%s"' % PLACEHOLDER))
+    def test_app_field_carries_the_friendly_placeholder(self):
+        self.assertEqual(1, self.src.count('placeholder="%s"' % PLACEHOLDER))
         self.assertNotIn('placeholder="comm"', self.src)
         self.assertNotIn('placeholder="app comm"', self.src)
 
     # --------------------------------------------------------- combobox markup
-    def test_both_inputs_are_comboboxes(self):
-        # Two <input> tags carry the enhancement hook (the JS also mentions
-        # the selector, so match the tags themselves).
+    def test_the_input_is_a_combobox(self):
+        # The <input> tag carries the enhancement hook (the JS also mentions
+        # the selector, so match the tag itself). Exactly one field survives
+        # the calendar cutover.
         self.assertEqual(
-            2, len(re.findall(r'<input[^>]*data-app-picker', self.src)))
-        self.assertEqual(2, self.src.count('role="combobox"'))
-        self.assertEqual(2, self.src.count('aria-autocomplete="list"'))
-        self.assertEqual(2, self.src.count('aria-haspopup="listbox"'))
+            1, len(re.findall(r'<input[^>]*data-app-picker', self.src)))
+        self.assertEqual(1, self.src.count('role="combobox"'))
+        self.assertEqual(1, self.src.count('aria-autocomplete="list"'))
+        self.assertEqual(1, self.src.count('aria-haspopup="listbox"'))
 
     def test_combobox_wires_the_aria_contract(self):
         self.assertIn('aria-expanded="false"', self.src)
         self.assertIn('aria-controls="override-comm-listbox"', self.src)
-        self.assertIn('aria-controls="window-app-target-listbox"', self.src)
+        self.assertNotIn('window-app-target-listbox', self.src)
 
     def test_listbox_panels_are_role_listbox(self):
         self.assertIn(
             'id="override-comm-listbox" class="pc-combobox__list" '
-            'role="listbox"', self.src)
-        self.assertIn(
-            'id="window-app-target-listbox" class="pc-combobox__list" '
             'role="listbox"', self.src)
 
     def test_fallback_datalist_is_kept(self):
@@ -152,8 +151,8 @@ class SourceTest(unittest.TestCase):
         self.assertIn('<datalist id="installed-apps">', self.src)
         self.assertIn('{% for comm in app_names %}<option value="{{ comm }}">',
                       self.src)
-        # The inputs keep `list=` so the no-JS path still autocompletes.
-        self.assertEqual(2, self.src.count('list="installed-apps"'))
+        # The input keeps `list=` so the no-JS path still autocompletes.
+        self.assertEqual(1, self.src.count('list="installed-apps"'))
 
     # -------------------------------------------------------------- the JS
     def test_reusable_picker_reads_the_datalist(self):
@@ -193,9 +192,11 @@ class SourceTest(unittest.TestCase):
         # The old in-section heading is gone.
         self.assertNotIn('<h3>App overrides</h3>', self.src)
 
-    def test_weekly_windows_no_longer_owns_app_overrides(self):
-        self.assertIn('<span>Weekly windows</span>', self.src)
-        self.assertNotIn('Weekly windows &amp; app overrides', self.src)
+    def test_weekly_windows_disclosure_retired(self):
+        # Calendar cutover: the whole disclosure is gone from this page
+        # (blocks + their app picker live on /calendar now).
+        self.assertNotIn('<span>Weekly windows</span>', self.src)
+        self.assertNotIn('id="weekly-windows"', self.src)
 
     # ---------------------------------------------------------------- the CSS
     def test_combobox_panel_css_uses_existing_tokens(self):
@@ -224,15 +225,13 @@ class AppOverridesRenderTest(_Render):
         self.assertNotIn('App comm', html)
         self.assertIn('<label class="pc-field__label" for="override-comm">'
                       'App</label>', html)
-        self.assertIn('<label class="pc-field__label" for="window-app-target">'
-                      'App</label>', html)
-        self.assertEqual(2, html.count('placeholder="%s"' % PLACEHOLDER))
+        self.assertEqual(1, html.count('placeholder="%s"' % PLACEHOLDER))
 
     def test_combobox_roles_render(self):
         html = self.render()
-        self.assertGreaterEqual(html.count('role="combobox"'), 2)
+        self.assertGreaterEqual(html.count('role="combobox"'), 1)
         self.assertIn('aria-controls="override-comm-listbox"', html)
-        self.assertIn('aria-controls="window-app-target-listbox"', html)
+        self.assertNotIn('window-app-target-listbox', html)
         self.assertIn('role="listbox"', html)
         self.assertIn('data-app-picker', html)
 
@@ -251,18 +250,17 @@ class AppOverridesRenderTest(_Render):
         self.assertIn('<span>App overrides</span>', html)
         self.assertIn('configured', html)  # summary value: "1 configured"
 
-    def test_app_overrides_left_the_weekly_windows_disclosure(self):
+    def test_app_overrides_own_the_only_app_field(self):
+        # Calendar cutover re-pin: with the weekly-windows disclosure gone,
+        # the app-overrides disclosure owns override-comm + the list + the
+        # datalist and no retired window markup may resurface anywhere.
         html = self.render()
-        weekly = details_slice(html, 'id="weekly-windows"')
         apps = details_slice(html, 'id="app-overrides"')
-        # The window picker stays with the windows ...
-        self.assertIn('id="window-app-target"', weekly)
-        self.assertNotIn('id="override-comm"', weekly)
-        self.assertNotIn('id="app-override-list"', weekly)
-        # ... while the override list/add-row/datalist moved to their own.
         self.assertIn('id="override-comm"', apps)
         self.assertIn('id="app-override-list"', apps)
         self.assertIn('id="installed-apps"', apps)
+        self.assertNotIn('id="weekly-windows"', html)
+        self.assertNotIn('window-app-target', html)
 
     def test_pinned_ids_intact(self):
         html = self.render()
@@ -284,7 +282,8 @@ class AppOverridesRenderTest(_Render):
         src = read(TEMPLATE)
         self.assertIn("comm: comm, mode: mode,", src)
         self.assertIn("minutes: mode === 'limit' ? minutes : ''", src)
-        self.assertIn("target_type: type, target: target,", src)
+        # Calendar cutover: no page may still post to the retired writer.
+        self.assertNotIn('/api/budgets/windows', src)
 
 
 if __name__ == '__main__':

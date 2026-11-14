@@ -107,7 +107,6 @@ def _multidevice_gate():
 # ---------------------------------------------------------------------------
 NAV_SECTIONS = {
     'index': 'overview',
-    'time_rules': 'time',
     'calendar': 'time',
     'user_detail': 'time',
     'budgets': 'time',
@@ -226,7 +225,7 @@ def status_row(username):
     accepted difference from the agent's uncached probe) and this
     module's audit_status_probe, both resolved at call time so the
     facade's 19+ patch sites keep binding. index(), api_users(),
-    get_user_live() and time_rules() all build their rows from this, so
+    get_user_live() and calendar() all build their rows from this, so
     no producer can forget the mapping.
     """
     return pcstatus.status_row_core(username, get_lock_status,
@@ -1775,132 +1774,6 @@ def api_bedtime_get():
     return jsonify(load_bedtime())
 
 
-@app.route('/api/bedtime', methods=['POST'])
-@require_admin
-def api_bedtime_set():
-    """Set bedtime for a user.
-
-    Form fields:
-      username, start, end, all_days, day_0 through day_6, save/clear
-    """
-    username = request.form.get('username', '').strip()
-    if not username:
-        return jsonify({'success': False, 'error': 'No username provided'}), 400
-    if not valid_username(username):
-        return jsonify({'success': False, 'error': 'Invalid username'}), 400
-
-    start = request.form.get('start', '').strip()
-    end = request.form.get('end', '').strip()
-    all_days = 'all_days' in request.form
-
-    # --- CLEAR HANDLING (absolute priority) ---
-    # Checkbox or explicit clear request → always clear the bedtime
-    if request.form.get('clear') or not start and not end:
-        data = load_bedtime()
-        existing = data.get(username, {})
-        if username in data:
-            del data[username]
-            save_bedtime(data)
-        if schedule.doc_is_migrated(_schedule_doc_for(username)):
-            # Migrated: the old editor still owns the WHOLE bedtime
-            # schedule, so mirror the clear into the calendar (drops all
-            # bedtime blocks; every other block survives).
-            budgets.set_bedtime_block(username, [], '', '',
-                                      actor=_req_actor())
-        _safe_audit(_req_actor(), 'bedtime.clear', username,
-                    {'success': True})
-        if existing.get('locked_by_bedtime'):
-            success, message = run_lock_command(username, 'unlock')
-            if not success:
-                return jsonify({'success': False, 'message': message, 'locked': True})
-            return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
-        return jsonify({'success': True, 'message': 'Bedtime cleared', 'locked': False})
-
-    if _parse_hhmm(start) is None or _parse_hhmm(end) is None:
-        return jsonify({'success': False, 'error': 'Invalid time format (use HH:MM)'}), 400
-
-    # Determine days: all_days checkbox takes precedence, otherwise individual days
-    if all_days:
-        days = [0, 1, 2, 3, 4, 5, 6]
-    else:
-        days = [i for i in range(7) if f'day_{i}' in request.form]
-        if not days:
-            return jsonify({'success': False, 'error': 'Select at least one day or check "Apply to all days"'}), 400
-
-    try:
-        days = sorted(days)
-    except ValueError:
-        return jsonify({'success': False, 'error': 'Invalid days'}), 400
-
-    data = load_bedtime()
-    existing = data.get(username, {})
-    data[username] = {
-        'start': start,
-        'end': end,
-        'days': days,
-        # Preserve locked_by_bedtime if it was already set, otherwise default to False
-        'locked_by_bedtime': bool(existing.get('locked_by_bedtime', False)),
-        # Saving a schedule is the latest parent action: clear any override
-        # so the new schedule enforces immediately.
-        'manual_override': False,
-    }
-    # Preserve any live bonus-plus-term state across schedule edits (a
-    # saved window must not silently eat an active bonus grant).
-    for key in BONUS_KEYS + ('bonus_history',):
-        if key in existing:
-            data[username][key] = existing[key]
-    save_bedtime(data)
-    _safe_audit(_req_actor(), 'bedtime.set', username,
-                {'success': True, 'start': start, 'end': end, 'days': days})
-    if schedule.doc_is_migrated(_schedule_doc_for(username)):
-        # Migrated user: write the same schedule through to the calendar
-        # blocks (the single enforcement source). Unmigrated users keep
-        # governing from this row until the first-access/tick cutover.
-        budgets.set_bedtime_block(username, days, start, end,
-                                  actor=_req_actor())
-
-    # Immediately enforce the new bedtime for this user
-    entry = data[username]
-    # An active bonus-plus-term keeps the account unlocked: the saved
-    # schedule must not contradict the parent's explicit grant.
-    if _parse_bonus_until(entry) is not None and _parse_bonus_until(entry) > datetime.now():
-        return jsonify({'success': True,
-                        'message': 'Bedtime saved (bonus time active — '
-                                   'lock suppressed until bonus ends)',
-                        'locked': bool(get_lock_status(username)[0])})
-    if _bedtime_flag(entry, _schedule_doc_for(username)):
-        # Only lock if not already manually unlocked
-        if not entry.get('locked_by_bedtime'):
-            if budgets.is_admin_protected(username):
-                # Saving a schedule must not auto-lock an admin out.
-                print(f'skipped bedtime auto-lock for {username}: '
-                      f'{budgets.ADMIN_GROUP} member (admin self-protection)',
-                      flush=True)
-                return jsonify({'success': True,
-                                'message': 'Bedtime saved (auto-lock skipped: admin user)',
-                                'locked': False})
-            # Session-preserving auto-lock (usermod -L + screen-lock).
-            success, message = run_lock_command(username, 'lock')
-            if success:
-                entry['locked_by_bedtime'] = True
-                save_bedtime(data)
-                _safe_notify(username, 'Locked for bedtime',
-                             'Good night! The device unlocks at '
-                             f'{format_12h(entry.get("end"))} '
-                             'unless a parent changes it.')
-                return jsonify({'success': True, 'message': 'Locked', 'locked': True})
-        return jsonify({'success': True, 'message': 'Already locked by bedtime', 'locked': True})
-    else:
-        # Outside bedtime - if was previously bedtime-locked, unlock now
-        if existing.get('locked_by_bedtime'):
-            success, message = run_lock_command(username, 'unlock')
-            if success:
-                entry['locked_by_bedtime'] = False
-                save_bedtime(data)
-                return jsonify({'success': True, 'message': 'Unlocked', 'locked': False})
-        return jsonify({'success': True, 'message': 'Bedtime saved', 'locked': False})
-
-
 @app.route('/api/logout', methods=['POST'])
 @require_admin
 def api_logout():
@@ -2007,66 +1880,13 @@ def api_budgets_overrides():
     return jsonify({'success': True, 'message': msg})
 
 
-@app.route('/api/budgets/windows', methods=['POST'])
-@require_admin
-def api_budgets_windows():
-    """Set/update/clear a recurring weekly window.
-
-    Form fields: username, action (set|update|clear), target_type
-    (category|app), target, days (csv 0-6), start, end (HH:MM),
-    allowance_minutes, enabled (1|0), window_id (update/clear).
-    """
-    username = request.form.get('username', '').strip()
-    action = (request.form.get('action', 'set').strip() or 'set')
-    target_type = request.form.get('target_type', '').strip()
-    target = request.form.get('target', '').strip()
-    window_id = request.form.get('window_id', '').strip()
-    if not username:
-        return jsonify({'success': False,
-                        'error': 'No username provided'}), 400
-    if not valid_username(username):
-        return jsonify({'success': False, 'error': 'Invalid username'}), 400
-    refused = _refuse_protected_budget_target(username)
-    if refused is not None:
-        return refused
-
-    if action == 'clear':
-        ok, msg = budgets.clear_window(
-            username, window_id=window_id or None,
-            target_type=target_type or None, target=target or None,
-            actor=_req_actor())
-    elif action == 'update' or window_id:
-        if not window_id:
-            return jsonify({'success': False,
-                            'error': 'window_id required'}), 400
-        enabled = (_form_bool(request.form.get('enabled'))
-                   if 'enabled' in request.form else None)
-        ok, msg = budgets.update_window(
-            username, window_id,
-            days=request.form.get('days') or None,
-            start=request.form.get('start') or None,
-            end=request.form.get('end') or None,
-            allowance_minutes=request.form.get('allowance_minutes') or None,
-            enabled=enabled, actor=_req_actor())
-    else:
-        ok, msg = budgets.set_window(
-            username, target_type, target,
-            request.form.get('days', ''),
-            request.form.get('start', '').strip(),
-            request.form.get('end', '').strip(),
-            request.form.get('allowance_minutes', '').strip(),
-            enabled=_form_bool(request.form.get('enabled', '1'), default=True),
-            actor=_req_actor())
-    if not ok:
-        return jsonify({'success': False, 'error': msg}), 400
-    return jsonify({'success': True, 'message': msg})
-
-
 # ---------------------------------------------------------------------------
 # Calendar schedule API (CALENDAR_DESIGN.md). One recurring "block" model
-# replaces the bedtime table + weekly windows: same auth pattern as
-# /api/budgets/windows (require_admin: session + admin + CSRF on writes;
-# protected-target refusal; the budgets-side write funnel owns the audit).
+# replaces the bedtime table + weekly windows: same auth pattern as the
+# retired /api/budgets/windows editor (require_admin: session + admin +
+# CSRF on writes; protected-target refusal; the budgets-side write funnel
+# owns the audit). The bedtime writes carry the old route's immediate
+# lock/unlock tail (_enforce_bedtime_now).
 # ---------------------------------------------------------------------------
 
 SCHEDULE_EVENT_MAX_SPAN_DAYS = 92
@@ -2156,6 +1976,67 @@ def _sync_bedtime_entry(username, doc):
         pass
 
 
+def _enforce_bedtime_now(username):
+    """Immediate lock/unlock pass after a calendar bedtime-series write.
+
+    Ported verbatim from the retired POST /api/bedtime writer (UI slice,
+    CALENDAR_DESIGN.md 'UI slice'): saving or removing a bedtime block
+    used to enforce at once, and /api/schedule must behave the same so
+    enforcement semantics survive the cutover. Reads the bedtime row
+    (live-state keys + config mirror the schedule writers just refreshed)
+    plus the migrated doc via _bedtime_flag. Clears any manual override:
+    a bedtime edit IS the latest parent action (the old route's contract).
+    Returns None when there is no row to speak of (nothing to enforce),
+    else (ok, message, locked): ok is False only when the lock/unlock
+    command itself failed, mirroring the old route's JSON.
+    """
+    try:
+        data = load_bedtime()
+    except Exception:
+        return None
+    entry = data.get(username)
+    if not isinstance(entry, dict):
+        return None
+    if entry.get('manual_override'):
+        entry['manual_override'] = False
+        try:
+            save_bedtime(data)
+        except OSError:
+            pass
+    doc = _schedule_doc_for(username)
+    if (_parse_bonus_until(entry) is not None
+            and _parse_bonus_until(entry) > datetime.now()):
+        return (True, 'bonus time active — lock suppressed until '
+                'bonus ends', bool(get_lock_status(username)[0]))
+    if _bedtime_flag(entry, doc):
+        if not entry.get('locked_by_bedtime'):
+            if budgets.is_admin_protected(username):
+                print(f'skipped bedtime auto-lock for {username}: '
+                      f'{budgets.ADMIN_GROUP} member (admin self-protection)',
+                      flush=True)
+                return (True, 'auto-lock skipped: admin user', False)
+            success, _message = run_lock_command(username, 'lock')
+            if success:
+                entry['locked_by_bedtime'] = True
+                save_bedtime(data)
+                _safe_notify(username, 'Locked for bedtime',
+                             'Good night! The device unlocks at '
+                             f'{format_12h(entry.get("end"))} '
+                             'unless a parent changes it.')
+                return (True, 'Locked', True)
+            # Verbatim from the retired route: a failed lock command falls
+            # through to the "already locked" answer (the tick re-locks).
+        return (True, 'Already locked by bedtime', True)
+    if entry.get('locked_by_bedtime'):
+        success, message = run_lock_command(username, 'unlock')
+        if success:
+            entry['locked_by_bedtime'] = False
+            save_bedtime(data)
+            return (True, 'Unlocked', False)
+        return (False, message, True)
+    return (True, 'no immediate lock (outside the window)', False)
+
+
 @app.route('/api/schedule', methods=['GET'])
 @require_admin
 def api_schedule_get():
@@ -2229,6 +2110,18 @@ def api_schedule_set():
         _sync_bedtime_entry(username, doc)
     block = next((b for bid, b in schedule.iter_blocks(doc)
                   if bid == raw['id']), None)
+    if raw['target'] == schedule.TARGET_BEDTIME:
+        # Immediate enforcement tail ported from the retired old writer:
+        # a bedtime-series save locks/unlocks now, same as before (and the
+        # lock command's own failure surfaces as success:false like it did).
+        enforced = _enforce_bedtime_now(username)
+        if enforced is not None:
+            e_ok, e_msg, locked = enforced
+            if not e_ok:
+                return jsonify({'success': False, 'message': e_msg,
+                                'locked': locked, 'block': block})
+            return jsonify({'success': True, 'message': msg + ' (' + e_msg + ')',
+                            'block': block, 'locked': locked})
     return jsonify({'success': True, 'message': msg, 'block': block})
 
 
@@ -2255,6 +2148,17 @@ def api_schedule_delete(block_id):
         return jsonify({'success': False, 'error': msg}), 400
     if was_bedtime:
         _sync_bedtime_entry(username, _schedule_doc_for(username))
+        # Same immediate-enforcement tail as the create/edit path: the
+        # retired old writer unlocked on clear, this one re-reads the
+        # mirrors (the tick stays the backstop either way).
+        enforced = _enforce_bedtime_now(username)
+        if enforced is not None:
+            e_ok, e_msg, locked = enforced
+            if not e_ok:
+                return jsonify({'success': False, 'message': e_msg,
+                                'locked': locked})
+            return jsonify({'success': True, 'message': msg + ' (' + e_msg + ')',
+                            'locked': locked})
     return jsonify({'success': True, 'message': msg})
 
 
@@ -3180,36 +3084,6 @@ def admin_audit():
                            admins=admins,
                            verified_count=verified_count,
                            entry_count=len(entries))
-
-
-@app.route('/time-rules')
-@require_admin
-def time_rules():
-    """Time rules section home: pick a child, then edit their rules.
-
-    Overview of every human account with its live lock/bedtime state; each
-    card links into the per-child Time rules screen (``/user/<username>``).
-    """
-    users = get_human_users()
-    bedtime = load_bedtime()
-    schedule_map = _schedule_map()
-    children = []
-    for u in users:
-        locked, detail, status_ok = status_row(u['username'])
-        entry = bedtime.get(u['username'], {})
-        doc = schedule_map.get(u['username'])
-        children.append({
-            'username': u['username'],
-            'uid': u['uid'],
-            'locked': locked,
-            'status_detail': detail,
-            'status_ok': status_ok,
-            'bedtime': entry,
-            'in_bedtime': _bedtime_flag(entry, doc),
-            'bonus': bonus_state(entry),
-        })
-    return render_template('time_rules.html', children=children,
-                           day_labels=DAY_LABELS)
 
 
 @app.route('/calendar')

@@ -7,8 +7,8 @@
    User details — the busiest screen (UI_UX_PLAN.md §5.4, Phase 3).
 
    Layout: a status-first hero (who + live lock state + the one safe action),
-   then progressive-disclosure sections for Bedtime / Bonus time / Time budgets
-   / Weekly windows / App overrides / Processes. Tables use `.pc-table--stack`
+   then progressive-disclosure sections for Bedtime (read-only since the
+   calendar cutover) / Bonus time / Time budgets / App overrides / Processes. Tables use `.pc-table--stack`
    + `data-label` so a 360px phone gets labelled cards while the semantic
    `<table>` (thead/th scope) stays in the DOM for screen readers.
 
@@ -25,33 +25,6 @@
 
 {% block content %}
 <a href="/" class="back-link">← Back to Parental Controls</a>
-
-{% macro time_select(prefix, label, part) -%}
-{# 12-hour edit control: hour (1-12) + minute (00-59) + AM/PM selects (the
-   native clock picker is deliberately not used; pinned by test_time12h).
-   saveBedtime() composes HH:MM from them so /api/bedtime and bedtime.json stay
-   24-hour. `part` is the
-   twelve_parts dict when a stored HH:MM exists (its values render `selected`);
-   None renders a required placeholder so a missing selection blocks the save.
-   The selects keep `name` as the first attribute (parsed by the test suite). #}
-{% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
-<span class="pc-time">
-<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour, 12-hour format">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-{% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
-</select>
-<span class="pc-time__sep">:</span>
-<select name="{{ prefix }}_minute" class="pc-input" required aria-label="{{ label }} minute">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-{% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
-</select>
-<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM, 12-hour format">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-<option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
-<option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
-</select>
-</span>
-{%- endmacro %}
 
 {% if devices_enabled %}
 <div class="device-bar pc-card" id="device-selector">
@@ -139,103 +112,21 @@
         <span class="pc-disclosure__summary-value">{% if bedtime and bedtime.start %}{{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}{% else %}No schedule set{% endif %}</span>
     </summary>
     <div class="pc-disclosure__body">
-    {# Enable switch + warning lead-time (design Screen 2). The switch is a
-       client-side affordance over the existing form; the warning lead-time is
-       fixed at 15 minutes server-side, so it renders as a labelled disabled
-       select rather than inventing a persisted setting. #}
-    <div class="pc-card__header">
-        <span class="pc-field__label">Enable bedtime schedule</span>
-        <label class="pc-switch"><input type="checkbox" id="bedtime-enabled" {% if bedtime and bedtime.start %}checked{% endif %} onchange="toggleBedtimeEnabled(this)"><span class="pc-visually-hidden">Enable bedtime schedule</span></label>
-    </div>
-    <div class="pc-field">
-        <label class="pc-field__label" for="bedtime-warning">Warning lead-time</label>
-        <select id="bedtime-warning" class="pc-input" disabled title="Fixed at 15 minutes in this version">
-            <option value="5">5 minutes before</option>
-            <option value="15" selected>15 minutes before</option>
-            <option value="30">30 minutes before</option>
-        </select>
-        <span class="pc-field__hint">Warning lead-time is fixed at 15 minutes in this version (not persisted yet).</span>
-    </div>
+    {# Read-only mirror card since the calendar cutover (CALENDAR_DESIGN.md
+       'UI slice'): the bedtime editor + the old weekly-windows section are
+       retired; bedtime is a block on /calendar. The row below is the §6
+       write-synchronized mirror (config fields only) the schedule API keeps
+       fresh for exactly this display. #}
     {% if bedtime and bedtime.start %}
     <p class="pc-meta">Bedtime: {{ bedtime.start|twelve }} – {{ bedtime.end|twelve }}</p>
     <p class="pc-meta">Days: {% for d in bedtime.days %}{% if d in [0,1,2,3,4,5,6] %}{{ day_labels[d] }}{% if not loop.last and d < 6 %}, {% endif %}{% endif %}{% endfor %}</p>
     {% if user.in_bedtime %}<p><span class="badge-bedtime{{ ' pc-chip pc-chip--bedtime' }}">In Bedtime</span>{% if bedtime.manual_override %} <span class="badge-override{{ ' pc-chip pc-chip--override' }}">Override</span>{% endif %}</p>{% endif %}
-    <form action="/api/bedtime" method="POST" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
-        <input type="hidden" name="username" value="{{ username }}">
-        <div class="pc-field">
-            <span class="pc-field__label">Start time:</span>
-            {{ time_select('start', 'Start', bedtime.start|twelve_parts) }}
-        </div>
-        <div class="pc-field">
-            <span class="pc-field__label">End time:</span>
-            {{ time_select('end', 'End', bedtime.end|twelve_parts) }}
-        </div>
-        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
-        <div class="pc-field">
-            {# Label + checkbox share one row (they used to sit on separate
-               lines); the checkbox's id/name/behaviour are unchanged. #}
-            <span class="pc-row">
-                <input type="checkbox" name="all_days"{% if bedtime and 0 in bedtime.days and 6 in bedtime.days %}checked{% endif %} id="all_days_checkbox">
-                <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
-            </span>
-            <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
-        </div>
-        <fieldset class="pc-field pc-fieldset">
-            <legend class="pc-field__label">Custom days:</legend>
-            <span class="pc-row">
-            <label class="pc-daybtn"><input type="checkbox" name="day_0"{% if bedtime and 0 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 0 in bedtime.days else 'false' }}" class="day-checkbox"> Mon</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_1"{% if bedtime and 1 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 1 in bedtime.days else 'false' }}" class="day-checkbox"> Tue</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_2"{% if bedtime and 2 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 2 in bedtime.days else 'false' }}" class="day-checkbox"> Wed</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_3"{% if bedtime and 3 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 3 in bedtime.days else 'false' }}" class="day-checkbox"> Thu</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_4"{% if bedtime and 4 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 4 in bedtime.days else 'false' }}" class="day-checkbox"> Fri</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_5"{% if bedtime and 5 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 5 in bedtime.days else 'false' }}" class="day-checkbox"> Sat</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_6"{% if bedtime and 6 in bedtime.days %}checked{% endif %} aria-pressed="{{ 'true' if bedtime and 6 in bedtime.days else 'false' }}" class="day-checkbox"> Sun</label>
-            </span>
-        </fieldset>
-        <div class="pc-card__footer">
-            <button type="button" name="save" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
-            <button type="button" class="btn-bedtime-clear{{ ' pc-btn pc-btn--danger pc-btn--block' }}" onclick="clearBedtime('{{ username }}')">Clear schedule</button>
-        </div>
-    </form>
     {% else %}
     <p>No bedtime schedule set</p>
-    <form action="/api/bedtime" method="POST" onsubmit="event.preventDefault(); saveBedtime('{{ username }}');">
-        <input type="hidden" name="username" value="{{ username }}">
-        <div class="pc-field">
-            <span class="pc-field__label">Start time:</span>
-            {{ time_select('start', 'Start', None) }}
-        </div>
-        <div class="pc-field">
-            <span class="pc-field__label">End time:</span>
-            {{ time_select('end', 'End', None) }}
-        </div>
-        <p class="pc-hint">Times use 12-hour AM/PM; schedule edits are reversible.</p>
-        <div class="pc-field">
-            {# Label + checkbox share one row (they used to sit on separate
-               lines); the checkbox's id/name/behaviour are unchanged. #}
-            <span class="pc-row">
-                <input type="checkbox" name="all_days" id="all_days_checkbox">
-                <label class="pc-field__label" for="all_days_checkbox">Apply to all days:</label>
-            </span>
-            <span class="pc-field__hint">Apply this bedtime to every day of the week</span>
-        </div>
-        <fieldset class="pc-field pc-fieldset">
-            <legend class="pc-field__label">Custom days:</legend>
-            <span class="pc-row">
-            <label class="pc-daybtn"><input type="checkbox" name="day_0" aria-pressed="false" class="day-checkbox"> Mon</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_1" aria-pressed="false" class="day-checkbox"> Tue</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_2" aria-pressed="false" class="day-checkbox"> Wed</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_3" aria-pressed="false" class="day-checkbox"> Thu</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_4" aria-pressed="false" class="day-checkbox"> Fri</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_5" aria-pressed="false" class="day-checkbox"> Sat</label>
-            <label class="pc-daybtn"><input type="checkbox" name="day_6" aria-pressed="false" class="day-checkbox"> Sun</label>
-            </span>
-        </fieldset>
-        <div class="pc-card__footer">
-            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary pc-btn--block' }}" onclick="saveBedtime('{{ username }}')">Save</button>
-        </div>
-    </form>
     {% endif %}
+    <div class="pc-card__footer">
+        <a class="pc-btn pc-btn--primary" href="{{ url_for('calendar', user=username) }}">Edit bedtime on the Calendar</a>
+    </div>
     </div>
 </details>
 
@@ -301,96 +192,6 @@
             {% endfor %}
         </tbody>
     </table>
-    </div>
-    </div>
-</details>
-
-<!-- Weekly windows (power feature, collapsed by default) -->
-<details class="pc-disclosure" id="weekly-windows">
-    <summary>
-        <span>Weekly windows</span>
-    </summary>
-    <div class="pc-disclosure__body">
-    <p class="pc-hint">A weekly window is a recurring day/time range whose allowance <em>replaces</em> the daily limit while it is active (so usage can carry across midnight). An app override sets a per-app allowance, or marks an app Unlimited (never billed, never frozen).</p>
-
-    <h3>Windows</h3>
-    {% if overrides and overrides.windows and overrides.windows|length > 0 %}
-    <div class="table-responsive">
-    <table class="pc-table pc-table--stack">
-        <thead>
-            <tr><th scope="col">Target</th><th scope="col">Days</th><th scope="col">Time</th><th scope="col">Allowance</th><th scope="col">Enabled</th><th scope="col"></th></tr>
-        </thead>
-        <tbody>
-            {% for w in overrides.windows %}
-            <tr class="window-row" data-window-id="{{ w.id }}">
-                <td data-label="Target">{{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}</td>
-                <td data-label="Days">{% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-                <td data-label="Time">{{ w.start }}–{{ w.end }}</td>
-                <td class="window-allowance" data-label="Allowance">{{ w.allowance_minutes|hm }}{% if w.window_active %} <span class="badge-window{{ ' pc-chip pc-chip--info' }}">Window active</span>{% endif %}</td>
-                <td data-label="Enabled"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"></td>
-                <td data-label=""><button type="button" class="btn-unfreeze{{ ' pc-btn pc-btn--sm pc-btn--danger' }}" data-window-id="{{ w.id }}" onclick="clearWindow(this)">Delete</button></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    </div>
-    {% else %}
-    <p id="windows-empty">No weekly windows configured.</p>
-    {% endif %}
-
-    <div class="window-add-row pc-card" id="window-add">
-        <div class="pc-field">
-            <label class="pc-field__label" for="window-target-type">Target type:</label>
-            <select id="window-target-type" class="pc-input" onchange="windowTargetTypeChanged()">
-                <option value="category">Category</option>
-                <option value="app">App</option>
-            </select>
-        </div>
-        <div class="pc-field">
-            <label class="pc-field__label" for="window-category-target">Category:</label>
-            <select id="window-category-target" class="pc-input">
-                {% for cat in categories %}<option value="{{ cat }}">{{ category_labels[cat] }}</option>{% endfor %}
-            </select>
-        </div>
-        <div class="pc-field">
-            <label class="pc-field__label" for="window-app-target">App</label>
-            <span class="pc-combobox">
-                <input id="window-app-target" class="pc-input" list="installed-apps" data-app-picker style="display:none;"
-                       role="combobox" aria-expanded="false" aria-controls="window-app-target-listbox"
-                       aria-autocomplete="list" aria-haspopup="listbox" autocomplete="off"
-                       placeholder="Search installed apps…">
-                <div id="window-app-target-listbox" class="pc-combobox__list" role="listbox" aria-label="Installed apps" hidden></div>
-            </span>
-        </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Days:</span>
-            <span class="pc-row">
-            {% for label in day_labels %}
-            <label class="pc-hint"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> {{ label }}</label>
-            {% endfor %}
-            </span>
-        </div>
-        <div class="pc-field">
-            <span class="pc-field__label">From:</span>
-            {{ time_select('window_start', 'Window start', {'hour': 2, 'minute': 0, 'meridiem': 'PM'}) }}
-            <span class="pc-field__label">to:</span>
-            {{ time_select('window_end', 'Window end', {'hour': 5, 'minute': 0, 'meridiem': 'PM'}) }}
-        </div>
-        <div class="pc-field">
-            <span class="pc-field__label">Allowance:</span>
-            {# Hours + minutes compose the POSTed allowance (the server still
-               takes whole `allowance_minutes`). The pinned `#window-allowance`
-               id stays on the minutes field, mirroring the budget h/m pair. #}
-            <span class="pc-row">
-                <span class="pc-duration__unit">h</span>
-                <input type="number" id="window-allowance-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" value="1" placeholder="h" aria-label="Window allowance hours">
-                <span class="pc-duration__unit">m</span>
-                <input type="number" id="window-allowance" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" value="0" placeholder="m" aria-label="Window allowance minutes">
-            </span>
-        </div>
-        <div class="pc-card__footer">
-            <button type="button" class="btn-bedtime-save{{ ' pc-btn pc-btn--primary' }}" onclick="saveWindow()">Add window</button>
-        </div>
     </div>
     </div>
 </details>
@@ -857,7 +658,7 @@
     }
 
     // Compose an hours + minutes input pair into whole minutes for the
-    // unchanged POST contracts (budgets/overrides/windows all take a
+    // unchanged POST contracts (budgets/overrides all take a
     // single minutes/allowance_minutes field). Both blank -> '' (clear);
     // a non-numeric or out-of-range part (hours 0-99, minutes 0-59) -> null
     // so the caller can refuse the save.
@@ -871,23 +672,6 @@
             return null;
         }
         return h * 60 + m;
-    }
-
-    // '1', '5', 'PM' -> '13:05'. Inverse of fmt12()/format_12h():
-    // composes the bedtime selects back to 24h 'HH:MM' for the
-    // unchanged /api/bedtime contract. Edges: 12 AM -> 00, 12 PM ->
-    // 12. Any missing/out-of-range part -> null so a partial
-    // selection blocks the save (the selects are also `required`).
-    function toHHMM(hour, minute, meridiem) {
-        if (hour === '' || minute === '' || meridiem === '') return null;
-        const h = parseInt(hour, 10);
-        if (isNaN(h) || h < 1 || h > 12) return null;
-        if (!/^\d{2}$/.test(String(minute))) return null;
-        const suffix = String(meridiem).toUpperCase();
-        if (suffix !== 'AM' && suffix !== 'PM') return null;
-        let h24 = h % 12;
-        if (suffix === 'PM') h24 += 12;
-        return `${String(h24).padStart(2, '0')}:${minute}`;
     }
 
     // Design-system decoration for the legacy-classed buttons the budget
@@ -1097,24 +881,7 @@
     // the live payload. Never touches form inputs (forms-never-touched).
     function renderOverrideLive(data) {
         const apps = (data.budget && data.budget.app_budgets) || {};
-        const windows = (data.overrides && data.overrides.windows) || [];
-        for (const w of windows) {
-            const row = document.querySelector('.window-row[data-window-id="' + cleanId(w.id) + '"]');
-            if (!row) continue;
-            const cell = row.querySelector('.window-allowance') || row.children[3];
-            let badge = cell ? cell.querySelector('.badge-window') : null;
-            const active = w.target_type === 'category'
-                ? !!(data.budget && data.budget[w.target] && data.budget[w.target].window_active)
-                : !!(apps[w.target] && apps[w.target].window_active);
-            if (active && !badge && cell) {
-                badge = document.createElement('span');
-                badge.className = 'badge-window pc-chip pc-chip--info';
-                badge.textContent = 'Window active';
-                cell.appendChild(badge);
-            } else if (!active && badge) {
-                badge.remove();
-            }
-        }
+        // Weekly-window badge upkeep retired with the calendar cutover.
         document.querySelectorAll('[data-override-row]').forEach(li => {
             const comm = li.getAttribute('data-override-row');
             const info = apps[comm];
@@ -1219,47 +986,6 @@
         refreshUserLive();
     }
 
-    async function saveBedtime(username) {
-        const form = document.querySelector('form[action="/api/bedtime"]');
-        if (!form) return;
-        // The form carries 12-hour selects; compose them back to
-        // 24h HH:MM so the /api/bedtime contract is unchanged.
-        const start = toHHMM(form.elements['start_hour'].value,
-                             form.elements['start_minute'].value,
-                             form.elements['start_meridiem'].value);
-        const end = toHHMM(form.elements['end_hour'].value,
-                           form.elements['end_minute'].value,
-                           form.elements['end_meridiem'].value);
-        if (start === null || end === null) {
-            showToast('Select a start and end time (hour, minute, AM/PM)', true);
-            return;
-        }
-        const formData = new FormData(form);
-        formData.set('start', start);
-        formData.set('end', end);
-        // The raw select fields are not part of the API contract.
-        for (const name of ['start_hour', 'start_minute', 'start_meridiem',
-                            'end_hour', 'end_minute', 'end_meridiem']) {
-            formData.delete(name);
-        }
-        try {
-            const resp = await fetch('/api/bedtime', {
-                method: 'POST',
-                headers: { 'X-CSRF-Token': CSRF },
-                body: new URLSearchParams(formData)
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast('Bedtime saved for ' + username, false);
-                refreshUserLive();
-            } else {
-                showToast('Error: ' + (data.message || data.error || 'unknown error'), true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
-    }
-
     async function lockUser(username) {
         const ok = await pcConfirm({
             title: 'Lock account',
@@ -1329,32 +1055,6 @@
             const data = await resp.json();
             if (data.success) {
                 showToast('Unlocked ' + username, false);
-                refreshUserLive();
-            } else {
-                showToast('Error: ' + data.message, true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
-    }
-
-    async function clearBedtime(username) {
-        const ok = await pcConfirm({
-            title: 'Clear bedtime',
-            body: 'Clear "' + username + '" bedtime schedule?',
-            confirmLabel: 'Clear schedule',
-            danger: true
-        });
-        if (!ok) return;
-        try {
-            const resp = await fetch('/api/bedtime', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
-                body: 'username=' + encodeURIComponent(username) + '&clear=1'
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast('Bedtime cleared for ' + username, false);
                 refreshUserLive();
             } else {
                 showToast('Error: ' + data.message, true);
@@ -1600,7 +1300,7 @@
         await unfreezeCategory(username, category);
     }
 
-    // -------- per-app overrides + weekly windows --------
+    // -------- per-app overrides --------
 
     async function postForm(path, params) {
         const resp = await fetch(path, {
@@ -1704,18 +1404,10 @@
         }
     }
 
-    function windowTargetTypeChanged() {
-        const type = document.getElementById('window-target-type').value;
-        const catSel = document.getElementById('window-category-target');
-        const appInput = document.getElementById('window-app-target');
-        const isApp = type === 'app';
-        if (catSel) catSel.style.display = isApp ? 'none' : '';
-        if (appInput) appInput.style.display = isApp ? '' : 'none';
-    }
-
     // ---- Searchable app picker (combobox) --------------------------------
     // One reusable implementation for every `input[data-app-picker]`
-    // (#override-comm and #window-app-target). Options come from the shared
+    // (#override-comm; the retired window editor's picker came here too
+    // until the calendar cutover). Options come from the shared
     // <datalist id="installed-apps">, which the server renders from
     // `app_names`, so the no-JS fallback and the styled dropdown share one
     // source. The input keeps its id, and `.value` is the raw comm, so the
@@ -1853,104 +1545,6 @@
             .forEach(pcEnhanceAppPicker);
     }
 
-    function selectedWindowDays() {
-        const days = [];
-        document.querySelectorAll('.window-day').forEach(cb => {
-            if (cb.checked) days.push(cb.value);
-        });
-        return days;
-    }
-
-    async function saveWindow() {
-        const type = document.getElementById('window-target-type').value;
-        const target = type === 'app'
-            ? (document.getElementById('window-app-target').value || '').trim()
-            : document.getElementById('window-category-target').value;
-        const days = selectedWindowDays();
-        const start = toHHMM(
-            document.querySelector('select[name="window_start_hour"]').value,
-            document.querySelector('select[name="window_start_minute"]').value,
-            document.querySelector('select[name="window_start_meridiem"]').value);
-        const end = toHHMM(
-            document.querySelector('select[name="window_end_hour"]').value,
-            document.querySelector('select[name="window_end_minute"]').value,
-            document.querySelector('select[name="window_end_meridiem"]').value);
-        const allowance = composeDuration(
-            document.getElementById('window-allowance-hours'),
-            document.getElementById('window-allowance'));
-        if (!target) { showToast('Choose a window target', true); return; }
-        if (days.length === 0) { showToast('Select at least one day', true); return; }
-        if (start === null || end === null || start === end) {
-            showToast('Select a start and end time', true);
-            return;
-        }
-        if (allowance === null || allowance === '' || allowance < 5) {
-            showToast('Enter an allowance of at least 5 minutes', true);
-            return;
-        }
-        try {
-            const data = await postForm('/api/budgets/windows', {
-                username: PAGE_USERNAME, action: 'set',
-                target_type: type, target: target,
-                days: days.join(','), start: start, end: end,
-                allowance_minutes: allowance, enabled: '1'
-            });
-            if (data.success) {
-                showToast('Window saved', false);
-                refreshUserLive();
-            } else {
-                showToast('Error: ' + (data.error || 'unknown'), true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
-    }
-
-    async function toggleWindow(checkbox) {
-        const windowId = checkbox.getAttribute('data-window-id');
-        try {
-            const data = await postForm('/api/budgets/windows', {
-                username: PAGE_USERNAME, action: 'update',
-                window_id: windowId, enabled: checkbox.checked ? '1' : '0'
-            });
-            if (data.success) {
-                showToast(checkbox.checked ? 'Window enabled' : 'Window disabled', false);
-                refreshUserLive();
-            } else {
-                showToast('Error: ' + (data.error || 'unknown'), true);
-                checkbox.checked = !checkbox.checked;
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-            checkbox.checked = !checkbox.checked;
-        }
-    }
-
-    async function clearWindow(button) {
-        const windowId = button.getAttribute('data-window-id');
-        const ok = await pcConfirm({
-            title: 'Delete weekly window',
-            body: 'Delete this weekly window? Its target freeze is released.',
-            confirmLabel: 'Delete window',
-            danger: true
-        });
-        if (!ok) return;
-        try {
-            const data = await postForm('/api/budgets/windows', {
-                username: PAGE_USERNAME, action: 'clear',
-                window_id: windowId
-            });
-            if (data.success) {
-                showToast('Window deleted', false);
-                refreshUserLive();
-            } else {
-                showToast('Error: ' + (data.error || 'unknown'), true);
-            }
-        } catch (e) {
-            showToast('Error: ' + e.message, true);
-        }
-    }
-
     // Progressive enhancement: turn the app fields into searchable pickers.
     pcInitAppPickers();
 
@@ -1963,13 +1557,8 @@
 </script>
 
 <script>
-    /* Design-translation affordances (Screen 2): the bedtime enable switch and
-       the override Revoke action. Both stay over the existing endpoints. */
-    function toggleBedtimeEnabled(el) {
-        var on = el.checked;
-        document.querySelectorAll('#bedtime-section input, #bedtime-section select, #bedtime-section button.btn-bedtime-save')
-            .forEach(function (c) { c.disabled = !on; });
-    }
+    /* Design-translation affordance (Screen 2): the override Revoke
+       action, over the existing endpoints. */
     async function revokeOverride(username) {
         const ok = await window.pcConfirm({
             title: 'Revoke override?',

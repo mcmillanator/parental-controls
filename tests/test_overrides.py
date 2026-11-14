@@ -347,16 +347,27 @@ class _EndpointBase(_AdminSessionMixin, _OverridesFileMixin,
                                         return_value=(True, ''))
             patcher.start()
             self.addCleanup(patcher.stop)
+        # Calendar cutover: the windows editor is gone, so the schedule-
+        # endpoint re-pins below write through the real doc funnel — point
+        # the schedule table (and its state.db home) at the temp dir.
+        patcher = mock.patch.object(
+            budgets, 'SCHEDULE_FILE',
+            os.path.join(os.path.dirname(
+                budgets.OVERRIDES_FILE), 'schedule.json'))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 class TestOverrideEndpoints(_EndpointBase):
     def test_api_auth_csrf_matrix(self):
         paths = (('/api/budgets/overrides',
                   {'username': KID, 'comm': 'steam', 'mode': 'exempt'}),
-                 ('/api/budgets/windows',
-                  {'username': KID, 'target_type': 'category',
-                   'target': 'games', 'days': '0', 'start': '10:00',
-                   'end': '11:00', 'allowance_minutes': '30'}))
+                 # Calendar cutover: the windows writer retired; the same
+                 # auth gate is pinned on its successor, /api/schedule.
+                 ('/api/schedule',
+                  {'username': KID, 'target': 'games', 'mode': 'capped',
+                   'allowance_minutes': '30', 'preset': 'DAILY',
+                   'dtstart': ACTIVE, 'start': '10:00', 'end': '11:00'}))
         anon = app.app.test_client()
         for path, data in paths:
             with self.subTest(path=path):
@@ -402,50 +413,73 @@ class TestOverrideEndpoints(_EndpointBase):
         self.assertEqual(
             budgets.load_overrides()[KID]['app_overrides'], {})
 
+    def _sched_block(self, **over):
+        data = {'username': KID, 'target': 'games', 'mode': 'capped',
+                'allowance_minutes': '30',
+                'preset': 'WEEKLY:BYDAY=MO,TU,WE', 'dtstart': ACTIVE,
+                'start': '10:00', 'end': '11:00', 'enabled': '1'}
+        data.update(over)
+        return data
+
     def test_api_window_validation(self):
-        good = {'username': KID, 'target_type': 'category',
-                'target': 'games', 'days': '0,1,2', 'start': '10:00',
-                'end': '11:00', 'allowance_minutes': '30', 'enabled': '1'}
+        # Re-pinned from POST /api/budgets/windows (retired with the
+        # calendar cutover) onto POST /api/schedule. Every old rejection
+        # maps to its block-model equivalent — same coverage, new grammar:
+        #   target_type='nope' / target='not-a-category' -> unknown target
+        #   days='' / days='7'                           -> bad preset
+        #   start='bogus' / start==end / allowance<5     -> unchanged fields
         for bad in (
-            dict(good, target_type='nope'),
-            dict(good, target='not-a-category'),
-            dict(good, days=''),
-            dict(good, days='7'),
-            dict(good, start='bogus'),
-            dict(good, start='10:00', end='10:00'),
-            dict(good, allowance_minutes='1'),
+            self._sched_block(target='nope'),
+            self._sched_block(target='not-a-category'),
+            self._sched_block(preset='WEEKLY:BYDAY='),
+            self._sched_block(preset='WEEKLY:BYDAY=XX'),
+            self._sched_block(start='bogus'),
+            self._sched_block(start='10:00', end='10:00'),
+            self._sched_block(allowance_minutes='1'),
         ):
             with self.subTest(bad=bad):
-                resp = self.authed_post('/api/budgets/windows', data=bad)
+                resp = self.authed_post('/api/schedule', data=bad)
                 self.assertEqual(resp.status_code, 400)
         self.assertEqual(budgets.load_overrides(), {})
-        # Create, then disable, then clear (round-trip).
-        resp = self.authed_post('/api/budgets/windows', data=good)
+        self.assertEqual(budgets.load_schedule(), {})
+        # Create, then disable, then clear (round-trip through the doc;
+        # the windows sub-doc is now only the write-synchronized mirror).
+        resp = self.authed_post('/api/schedule', data=self._sched_block())
         self.assertEqual(resp.status_code, 200)
-        wid = 'w-category-games'
+        wid = resp.get_json()['block']['id']
+        self.assertIn(wid, budgets.load_schedule()[KID]['events'])
         self.assertIn(wid, budgets.load_overrides()[KID]['windows'])
-        resp = self.authed_post('/api/budgets/windows',
-                                data={'username': KID, 'action': 'update',
-                                      'window_id': wid, 'enabled': '0'})
+        self.assertEqual(budgets.load_overrides()[KID]['windows'][wid]['days'],
+                         [0, 1, 2])
+        resp = self.authed_post('/api/schedule',
+                                data=self._sched_block(id=wid, enabled='0'))
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(
+            budgets.load_schedule()[KID]['events'][wid]['enabled'])
+        self.assertFalse(
             budgets.load_overrides()[KID]['windows'][wid]['enabled'])
-        resp = self.authed_post('/api/budgets/windows',
-                                data={'username': KID, 'action': 'clear',
-                                      'window_id': wid})
+        resp = self.client.delete('/api/schedule/' + wid,
+                                  data={'username': KID},
+                                  headers=self.csrf_headers)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(budgets.load_overrides()[KID]['windows'], {})
 
     def test_api_window_collision_rejected(self):
-        data = {'username': KID, 'target_type': 'category', 'target': 'games',
-                'days': '0', 'start': '10:00', 'end': '11:00',
-                'allowance_minutes': '30'}
+        # Same-child+target overlap rejection survives the cutover as the
+        # schedule API's overlap rule (CALENDAR_DESIGN.md owner rule #4).
+        data = self._sched_block(preset='DAILY', dtstart=ACTIVE,
+                                 start='10:00', end='11:00', id='b-a')
         self.assertEqual(
-            self.authed_post('/api/budgets/windows', data=data).status_code,
-            200)
-        resp = self.authed_post('/api/budgets/windows', data=data)
+            self.authed_post('/api/schedule', data=data).status_code, 200)
+        resp = self.authed_post('/api/schedule',
+                                data=dict(data, id='b-b', start='10:30'))
         self.assertEqual(resp.status_code, 400)
-        self.assertIn('already exists', resp.get_json()['error'])
+        self.assertIn('b-a', resp.get_json()['error'])
+        # ...and a DIFFERENT target may overlap freely (was the same rule
+        # on the old window editor).
+        resp = self.authed_post('/api/schedule',
+                                data=dict(data, id='b-c', target='media'))
+        self.assertEqual(resp.status_code, 200)
 
     def test_audit_entries(self):
         with mock.patch.object(budgets.audit, 'safe_log') as slog:
@@ -455,17 +489,16 @@ class TestOverrideEndpoints(_EndpointBase):
             self.authed_post('/api/budgets/overrides',
                              data={'username': KID, 'comm': 'steam',
                                    'mode': 'none'})
-            self.authed_post('/api/budgets/windows',
-                             data={'username': KID, 'target_type': 'category',
-                                   'target': 'games', 'days': '0',
-                                   'start': '10:00', 'end': '11:00',
-                                   'allowance_minutes': '30'})
-            self.authed_post('/api/budgets/windows',
-                             data={'username': KID, 'action': 'clear',
-                                   'window_id': 'w-category-games'})
+            self.authed_post('/api/schedule', data=self._sched_block(
+                preset='DAILY', id='b-a'))
+            self.client.delete('/api/schedule/b-a',
+                               data={'username': KID},
+                               headers=self.csrf_headers)
         actions = [c.args[1] for c in slog.call_args_list]
+        # Calendar cutover: window set/clear audits became the schedule
+        # funnel's block actions (same actor, same success shape).
         for expected in ('budget.override_set', 'budget.override_cleared',
-                         'budget.window_set', 'budget.window_cleared'):
+                         'schedule.block_set', 'schedule.block_cleared'):
             self.assertIn(expected, actions)
         self.assertTrue(all(c.args[0] == 'qaadmin'
                             for c in slog.call_args_list))
@@ -551,9 +584,11 @@ class TestUserPageTemplate(_AdminSessionMixin, unittest.TestCase):
             resp = self.client.get(f'/user/{KID}')
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        self.assertIn('Weekly windows', html)
-        self.assertIn('w-category-games', html)
-        self.assertIn('data-window-id="w-category-games"', html)
+        # Calendar cutover: the weekly-windows editor left the per-child
+        # page (blocks live on /calendar now) — the override UI stays.
+        self.assertNotIn('Weekly windows', html)
+        self.assertNotIn('data-window-id', html)
+        self.assertIn('/calendar?user=' + KID, html)   # the pointer
         self.assertIn('class="override-mode"', html)
         self.assertIn('applyOverride(this)', html)
         self.assertIn('installed-apps', html)
@@ -567,7 +602,7 @@ class TestUserPageTemplate(_AdminSessionMixin, unittest.TestCase):
             resp = self.client.get(f'/user/{KID}')
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        self.assertIn('No weekly windows configured.', html)
+        self.assertNotIn('No weekly windows configured.', html)
         self.assertIn('No app overrides configured.', html)
 
     def test_render_budgets_preserves_legacy_cells(self):

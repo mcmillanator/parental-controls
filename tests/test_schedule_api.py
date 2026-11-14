@@ -4,9 +4,11 @@
 Covers CALENDAR_DESIGN.md's HTTP surface with the same auth matrix as
 /api/budgets/windows (401 anon / 403 no-CSRF / 403 protected target /
 400 validation), the first-access migration via GET /api/schedule, the
-old-bedtime-editor write-through for migrated users, the entry mirror
-sync (incl. live-state preservation), the events expansion with the
-DERIVED bonus band, and the calendar-aware _bedtime_flag/enforce path.
+retirement of the old bedtime/windows writers (the calendar API is the
+only writer since the UI slice), the entry mirror sync (incl. live-state
+preservation + the immediate lock/unlock tail), the events expansion with
+the DERIVED bonus band, and the calendar-aware _bedtime_flag/enforce
+path.
 
 All four state homes (bedtime/overrides/budgets/schedule) point at ONE
 temp dir — the production layout — so the shared SQLite db + mirrors
@@ -60,6 +62,21 @@ class _CalendarHomeMixin:
 
     def setUp(self):
         super().setUp()
+        # Bedtime writes through /api/schedule carry the retired old writer's
+        # immediate lock/unlock tail (_enforce_bedtime_now) — pin the command
+        # seams so no test can touch the box, whatever the wall clock says
+        # (the file docstring's "no locks beyond mocked run_lock_command"
+        # now covers the schedule API too).
+        for name, ret in (('run_lock_command', (True, 'ok')),
+                          ('get_lock_status', (False, '')),
+                          ('_safe_notify', None)):
+            patcher = mock.patch.object(app, name, return_value=ret)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(budgets, 'is_admin_protected',
+                                    return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmp = tempfile.TemporaryDirectory()
         home = self._tmp.name
         self.addCleanup(self._tmp.cleanup)
@@ -177,19 +194,22 @@ class ScheduleCrudTest(_AdminSessionMixin, _CalendarHomeMixin,
         self.assertEqual(entry.get('windows'), {})
 
     def test_bedtime_block_syncs_entry_mirror(self):
+        # The block is UNTIL-bounded in the past, so the immediate-enforcement
+        # tail (ported from the retired old writer) has nothing to do at any
+        # wall clock, and the live keys below must survive untouched.
         self.seed_bedtime({KID: {'start': '21:00', 'end': '08:00',
                                  'days': ALL_DAYS,
-                                 'locked_by_bedtime': True,
+                                 'locked_by_bedtime': False,
                                  'bonus_until': '2026-10-12T09:00:00'}})
         resp = self.authed_post('/api/schedule', data={
             'username': KID, 'target': 'bedtime',
             'preset': 'WEEKLY:BYDAY=TU,TH', 'dtstart': '2026-10-01',
-            'start': '20:30', 'end': '06:30'})
+            'start': '20:30', 'end': '06:30', 'until': '2026-10-11'})
         self.assertEqual(resp.status_code, 200)
         entry = self.entry()
         self.assertEqual((entry['start'], entry['end']), ('20:30', '06:30'))
         self.assertEqual(entry['days'], [1, 3])
-        self.assertTrue(entry['locked_by_bedtime'])       # live keys kept
+        self.assertFalse(entry['locked_by_bedtime'])       # live keys kept
         self.assertEqual(entry['bonus_until'], '2026-10-12T09:00:00')
 
     def test_overlap_rejected_with_clear_error(self):
@@ -246,24 +266,46 @@ class ScheduleCrudTest(_AdminSessionMixin, _CalendarHomeMixin,
                                   headers=self.csrf_headers)
         self.assertEqual(resp.status_code, 400)
 
-    def test_delete_bedtime_block_drops_config_keeps_live(self):
+    def test_delete_bedtime_block_unlocks_bedtime_lock(self):
+        # The retired old writer's CLEAR unlocked what BEDTIME had locked;
+        # the tail rides DELETE /api/schedule/<id> now. The series is built
+        # around the real wall clock (DAILY anchored yesterday, now-1h to
+        # now+1h) so the window is deterministically ACTIVE at create
+        # ('already locked' -> the flag survives) and deterministically OVER
+        # at delete (the lock is released) at any hour.
+        now = datetime.now()
+        start = (now - timedelta(hours=1)).strftime('%H:%M')
+        end = (now + timedelta(hours=1)).strftime('%H:%M')
+        dtstart = (now - timedelta(days=1)).strftime('%Y-%m-%d')
         self.seed_bedtime({KID: {'start': '21:00', 'end': '08:00',
                                  'days': ALL_DAYS,
-                                 'locked_by_bedtime': True}})
+                                 'locked_by_bedtime': True,
+                                 'bonus_until': '2026-10-12T09:00:00'}})
         resp = self.authed_post('/api/schedule', data={
             'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
-            'dtstart': '2026-10-01', 'start': '20:00', 'end': '06:00'})
+            'dtstart': dtstart, 'start': start, 'end': end})
         self.assertEqual(resp.status_code, 200)
-        bid = resp.get_json()['block']['id']
-        resp = self.client.delete('/api/schedule/' + bid,
-                                  data={'username': KID},
-                                  headers=self.csrf_headers)
+        payload = resp.get_json()
+        self.assertTrue(payload['locked'])
+        self.assertIn('Already locked', payload['message'])
+        self.assertTrue(self.entry()['locked_by_bedtime'])
+        bid = payload['block']['id']
+        with mock.patch.object(app, 'run_lock_command',
+                               return_value=(True, 'ok')) as lock_cmd:
+            resp = self.client.delete('/api/schedule/' + bid,
+                                      data={'username': KID},
+                                      headers=self.csrf_headers)
         self.assertEqual(resp.status_code, 200)
+        actions = [c.args[1] for c in lock_cmd.call_args_list
+                   if len(c.args) > 1]
+        self.assertIn('unlock', actions)
+        self.assertFalse(resp.get_json()['locked'])
         self.assertEqual(self.doc()['events'], {})
         entry = self.entry()
         self.assertNotIn('start', entry)
         self.assertNotIn('days', entry)
-        self.assertTrue(entry['locked_by_bedtime'])   # live key survives
+        self.assertFalse(entry['locked_by_bedtime'])  # bedtime released its lock
+        self.assertEqual(entry['bonus_until'], '2026-10-12T09:00:00')  # others kept
 
 
 # ---------------------------------------------------------------------------
@@ -312,58 +354,51 @@ class MigrationAccessTest(_AdminSessionMixin, _CalendarHomeMixin,
 
 
 # ---------------------------------------------------------------------------
-# Old bedtime editor write-through for migrated users
+# Retired legacy editor surfaces (calendar cutover, CALENDAR_DESIGN.md §10)
 # ---------------------------------------------------------------------------
 
-class OldEditorWriteThroughTest(_AdminSessionMixin, _CalendarHomeMixin,
-                                unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        # The inline post-save enforcement reads the real lock state; pin
-        # the seams so the test never depends on the box or wall clock.
-        for name, ret in (('run_lock_command', (True, 'ok')),
-                          ('get_lock_status', (False, '')),
-                          ('_safe_notify', True)):
-            patcher = mock.patch.object(app, name, return_value=ret)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(budgets, 'is_admin_protected',
-                                    return_value=False)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.lock = app.run_lock_command
+class RetiredLegacyWritersTest(_AdminSessionMixin, _CalendarHomeMixin,
+                               unittest.TestCase):
+    """The old editors are gone; the calendar API is the only writer.
 
-    def _migrate(self):
-        self.authed_post('/api/schedule', data={
-            'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
-            'dtstart': '2026-10-01', 'start': '21:00', 'end': '08:00'})
+    The write-through these tests pinned (old /api/bedtime and
+    /api/budgets/windows editing the schedule doc for migrated users)
+    existed only while the old pages could write. With the hard cutover
+    the UI slice retired those writers, so what is pinned now is the
+    retirement itself + the surviving read contracts:
+      * POST /api/bedtime -> 405 (the rule exists GET-only for the live
+        chips/countdown readers);
+      * POST /api/budgets/windows -> 405 (only the /api/budgets/<username>
+        GET rule matches the path; no method it accepts);
+      * GET /api/bedtime keeps answering from the mirror (status rows).
+    """
 
-    def test_set_syncs_bedtime_block(self):
-        self._migrate()
+    def test_post_bedtime_retired(self):
         resp = self.authed_post('/api/bedtime', data={
             'username': KID, 'start': '20:00', 'end': '06:00',
-            'day_0': 'on', 'day_1': 'on', 'day_4': 'on'})
-        self.assertEqual(resp.status_code, 200)
-        block = self.doc()['events']['b-bedtime-1']
-        self.assertEqual((block['start'], block['end']), ('20:00', '06:00'))
-        self.assertEqual(block['preset'], 'WEEKLY:BYDAY=MO,TU,FR')
-
-    def test_clear_drops_all_bedtime_blocks(self):
-        self._migrate()
-        self.seed_bedtime({KID: {'start': '21:00', 'end': '08:00',
-                                 'days': ALL_DAYS,
-                                 'locked_by_bedtime': False}})
-        resp = self.authed_post('/api/bedtime',
-                                data={'username': KID, 'clear': '1'})
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotIn('b-bedtime-1', self.doc()['events'])
-
-    def test_unmigrated_user_writes_no_doc(self):
-        resp = self.authed_post('/api/bedtime', data={
-            'username': KID, 'start': '20:00', 'end': '06:00',
-            'all_days': 'on'})
-        self.assertEqual(resp.status_code, 200)
+            'all_days': '1'})
+        self.assertEqual(resp.status_code, 405)
+        # Nothing was written: no doc, no mirror config.
         self.assertEqual(budgets.load_schedule(), {})
+        self.assertEqual(app.load_bedtime(), {})
+
+    def test_post_windows_retired(self):
+        resp = self.authed_post('/api/budgets/windows', data={
+            'username': KID, 'action': 'set', 'target_type': 'category',
+            'target': 'games', 'days': '0,1,2', 'start': '16:00',
+            'end': '18:00', 'allowance_minutes': '45'})
+        self.assertEqual(resp.status_code, 405)
+        self.assertEqual(budgets.load_overrides(), {})
+
+    def test_get_bedtime_still_serves_mirrors(self):
+        self.seed_bedtime({KID: {'start': '21:00', 'end': '08:00',
+                                 'days': ALL_DAYS}})
+        resp = self.client.get('/api/bedtime')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()[KID]['start'], '21:00')
+
+    def test_time_rules_page_gone(self):
+        self.assertEqual(self.client.get('/time-rules').status_code, 404)
 
 
 # ---------------------------------------------------------------------------

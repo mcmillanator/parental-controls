@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app
 import auth
+import budgets
 
 Result = namedtuple('Result', ['returncode', 'stdout', 'stderr'])
 
@@ -472,6 +473,19 @@ class TestManualLockOwnership(_AdminSessionMixin, _BedtimeFileMixin,
     def _bedtime_locked_entry(self):
         return {KID: dict(WINDOW, locked_by_bedtime=True, manual_override=False)}
 
+    def _cal_home(self):
+        """Redirect schedule/overrides/budgets stores into the bedtime temp
+        home (production layout) for the calendar API paths."""
+        home = os.path.dirname(self._bedtime)
+        for target, attr, name in (
+                (budgets, 'SCHEDULE_FILE', 'schedule.json'),
+                (budgets, 'OVERRIDES_FILE', 'overrides.json'),
+                (budgets, 'BUDGETS_FILE', 'budgets.json')):
+            patcher = mock.patch.object(target, attr,
+                                        os.path.join(home, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_note_manual_lock_clears_bedtime_ownership(self):
         self.write_bedtime(self._bedtime_locked_entry())
         app.note_manual_lock(KID)
@@ -506,17 +520,32 @@ class TestManualLockOwnership(_AdminSessionMixin, _BedtimeFileMixin,
                          'had manually locked')
 
     def test_manual_lock_survives_schedule_being_cleared(self):
-        """Clearing the bedtime schedule must not unlock a manual lock."""
+        """Clearing the bedtime schedule must not unlock a manual lock.
+
+        Calendar cutover re-pin: the clear door is DELETE /api/schedule/<id>
+        (the old writer retired). The doc springs from the seeded legacy row
+        via the first calendar access — same end state, new door.
+        """
+        self._cal_home()
         self.write_bedtime(self._bedtime_locked_entry())
         app.note_manual_lock(KID)
+        resp = self.client.get('/api/schedule?username=' + KID)
+        self.assertEqual(resp.status_code, 200)
+        view = resp.get_json()['schedule'][KID]
+        self.assertIsNotNone(view)
+        bids = [b['id'] for b in view['events'] if b['target'] == 'bedtime']
+        self.assertEqual(bids, ['b-bedtime-1'])
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')) as lock_cmd:
-            resp = self.authed_post('/api/bedtime',
-                                    data={'username': KID, 'clear': '1'})
+            resp = self.client.delete('/api/schedule/b-bedtime-1',
+                                      data={'username': KID},
+                                      headers=self.csrf_headers)
         self.assertEqual(resp.status_code, 200)
         unlocked = [c.args for c in lock_cmd.call_args_list
                     if len(c.args) > 1 and c.args[1] == 'unlock']
-        self.assertEqual(unlocked, [])
+        self.assertEqual(unlocked, [],
+                         'bedtime clear unlocked an account the parent '
+                         'had manually locked')
 
     def test_bedtime_still_unlocks_what_it_locked(self):
         """The fix must not break bedtime's own unlock: if bedtime did

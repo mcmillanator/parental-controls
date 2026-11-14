@@ -28,27 +28,6 @@
     </div>
 </div>
 
-{% macro time_select(prefix, label, part) -%}
-{# 12-hour edit control (no native clock picker; see tests/test_time12h). #}
-{% set p = part or {'hour': '', 'minute': '', 'meridiem': ''} %}
-<span class="pc-time">
-<select name="{{ prefix }}_hour" class="pc-input" required aria-label="{{ label }} hour">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-{% for h in range(1, 13) %}<option value="{{ h }}"{% if p.hour == h %} selected{% endif %}>{{ h }}</option>{% endfor %}
-</select>
-<span class="pc-time__sep">:</span>
-<select name="{{ prefix }}_minute" class="pc-input" required aria-label="{{ label }} minute">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-{% for m in range(60) %}<option value="{{ '%02d' % m }}"{% if p.minute == m %} selected{% endif %}>{{ '%02d' % m }}</option>{% endfor %}
-</select>
-<select name="{{ prefix }}_meridiem" class="pc-input" required aria-label="{{ label }} AM/PM">
-{% if not part %}<option value="" selected disabled>--</option>{% endif %}
-<option value="AM"{% if p.meridiem == 'AM' %} selected{% endif %}>AM</option>
-<option value="PM"{% if p.meridiem == 'PM' %} selected{% endif %}>PM</option>
-</select>
-</span>
-{%- endmacro %}
-
 {# Filter row: user picker + date placeholder + refresh status. #}
 <div class="pc-card">
     <div class="pc-inline-form">
@@ -137,88 +116,15 @@
         </article>
         {% endfor %}
     </div>
+    {# Calendar pointer (replaces the retired weekly-windows section). #}
+    <p class="pc-hint" id="calendar-pointer">Recurring allowances (the old
+        weekly windows) are scheduled on the
+        <a href="{{ url_for('calendar', user=username) }}">Calendar</a>.</p>
 </section>
 
-{# Weekly windows (recurring allowances). #}
-<section class="pc-card" aria-labelledby="weekly-windows-heading">
-    <div class="pc-card__header">
-        <h2 class="pc-card__title" id="weekly-windows-heading">Weekly windows</h2>
-        <span class="pc-meta">Recurring allowances for school and weekend schedules.</span>
-    </div>
-    {% if overrides and overrides.windows and overrides.windows|length > 0 %}
-    {# Weekly windows as rows (not a table): REVISED-SPEC.md keeps tables only
-       on the Processes + Admin screens. #}
-    <div class="pc-stack" id="weekly-windows-list">
-        {% for w in overrides.windows %}
-        <div class="pc-card pc-window-row window-row" data-window-id="{{ w.id }}">
-            <p class="pc-window-row__main">
-                {{ 'Category' if w.target_type == 'category' else 'App' }}: {{ category_labels.get(w.target, w.target) if w.target_type == 'category' else w.target }}
-                · {% for d in w.days %}{{ day_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}
-                · {{ w.start|twelve }}–{{ w.end|twelve }}
-                · <span class="window-allowance">{{ w.allowance_minutes|hm }}</span> allowance
-                {% if w.window_active %} <span class="badge-window pc-chip pc-chip--info">Window active</span>{% endif %}
-            </p>
-            <span class="pc-row">
-                <label class="pc-switch"><input type="checkbox" class="window-enabled" data-window-id="{{ w.id }}" {% if w.enabled %}checked{% endif %} onchange="toggleWindow(this)"><span>Enabled</span></label>
-                <button type="button" class="btn-unfreeze pc-btn pc-btn--sm pc-btn--danger" data-window-id="{{ w.id }}" onclick="removeWindow(this)">Remove window</button>
-            </span>
-        </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <p id="windows-empty">No weekly windows configured.</p>
-    {% endif %}
-
-    <details class="pc-disclosure" id="weekly-window-add">
-        <summary>Add weekly window</summary>
-        <div class="pc-disclosure__body">
-            <div class="pc-field">
-                <label class="pc-field__label" for="window-target-type">Target type</label>
-                <select id="window-target-type" class="pc-input" onchange="windowTargetTypeChanged()">
-                    <option value="category">Category</option>
-                    <option value="app">App</option>
-                </select>
-            </div>
-            <div class="pc-field">
-                <label class="pc-field__label" for="window-category-target">Category</label>
-                <select id="window-category-target" class="pc-input">
-                    {% for cat in categories %}<option value="{{ cat }}">{{ category_labels[cat] }}</option>{% endfor %}
-                </select>
-            </div>
-            <div class="pc-field">
-                <label class="pc-field__label" for="window-app-target">App</label>
-                <input id="window-app-target" class="pc-input" list="installed-apps" placeholder="App command (e.g. steam)" style="display:none;">
-            </div>
-            <div class="pc-field">
-                <span class="pc-field__label">Days</span>
-                <span class="pc-row">
-                {% for label in day_labels %}
-                <label class="pc-daybtn"><input type="checkbox" class="window-day" value="{{ loop.index0 }}"> <span>{{ label }}</span></label>
-                {% endfor %}
-                </span>
-            </div>
-            <div class="pc-field">
-                <span class="pc-field__label">From</span>
-                {{ time_select('window_start', 'Window start', {'hour': 4, 'minute': 0, 'meridiem': 'PM'}) }}
-                <span class="pc-field__label">to</span>
-                {{ time_select('window_end', 'Window end', {'hour': 8, 'minute': 0, 'meridiem': 'PM'}) }}
-            </div>
-            <div class="pc-field">
-                <span class="pc-field__label">Allowance</span>
-                <span class="pc-row">
-                    <span class="pc-duration__unit">h</span>
-                    <input type="number" id="window-allowance-hours" class="pc-input" style="width: 4rem;" min="0" max="99" step="1" value="1" placeholder="h" aria-label="Window allowance hours">
-                    <span class="pc-duration__unit">m</span>
-                    <input type="number" id="window-allowance" class="pc-input" style="width: 4rem;" min="0" max="59" step="1" value="30" placeholder="m" aria-label="Window allowance minutes">
-                </span>
-            </div>
-            <div class="pc-card__footer">
-                <button type="button" class="btn-bedtime-save pc-btn pc-btn--primary" onclick="addWindow()">Add weekly window</button>
-            </div>
-        </div>
-    </details>
-    <datalist id="installed-apps">{% for comm in app_names %}<option value="{{ comm }}">{% endfor %}</datalist>
-</section>
+{# Weekly windows retired with the calendar cutover (CALENDAR_DESIGN.md
+   'UI slice'): recurring allowances are blocks on /calendar now, and the
+   App budgets card above points there. #}
 
 {# Design fixtures (Flowstep Screen 3 notes): the hours+minutes specimen, the
    app-override example, the state row and the implementation aside are
@@ -314,18 +220,6 @@
         if (isNaN(h) || isNaN(m) || h < 0 || h > 99 || m < 0 || m > 59) return null;
         return h * 60 + m;
     }
-    function toHHMM(hour, minute, meridiem) {
-        if (hour === '' || minute === '' || meridiem === '') return null;
-        const h = parseInt(hour, 10);
-        if (isNaN(h) || h < 1 || h > 12) return null;
-        if (!/^\d{2}$/.test(String(minute))) return null;
-        const suffix = String(meridiem).toUpperCase();
-        if (suffix !== 'AM' && suffix !== 'PM') return null;
-        let h24 = h % 12;
-        if (suffix === 'PM') h24 += 12;
-        return `${String(h24).padStart(2, '0')}:${minute}`;
-    }
-
     function switchBudgetUser(name) {
         const u = new URL(window.location.href);
         u.searchParams.set('user', name);
@@ -424,67 +318,5 @@
         } catch (e) { showToast('Error: ' + e.message, true); }
     }
 
-    function windowTargetTypeChanged() {
-        const isApp = document.getElementById('window-target-type').value === 'app';
-        document.getElementById('window-category-target').style.display = isApp ? 'none' : '';
-        document.getElementById('window-app-target').style.display = isApp ? '' : 'none';
-    }
-
-    function selectedWindowDays() {
-        return Array.from(document.querySelectorAll('.window-day:checked')).map(c => c.value).join(',');
-    }
-
-    async function addWindow() {
-        if (!BUDGET_USER) { return; }
-        const targetType = document.getElementById('window-target-type').value;
-        const target = targetType === 'app'
-            ? document.getElementById('window-app-target').value.trim()
-            : document.getElementById('window-category-target').value;
-        if (!target) { showToast('Pick a target first', true); return; }
-        const days = selectedWindowDays();
-        const start = toHHMM(
-            document.querySelector('[name="window_start_hour"]').value,
-            document.querySelector('[name="window_start_minute"]').value,
-            document.querySelector('[name="window_start_meridiem"]').value);
-        const end = toHHMM(
-            document.querySelector('[name="window_end_hour"]').value,
-            document.querySelector('[name="window_end_minute"]').value,
-            document.querySelector('[name="window_end_meridiem"]').value);
-        if (!days || !start || !end) { showToast('Pick days, a start and an end', true); return; }
-        const allowance = composeDuration(
-            document.getElementById('window-allowance-hours'),
-            document.getElementById('window-allowance'));
-        if (allowance === null || allowance < 1) { showToast('Enter an allowance', true); return; }
-        try {
-            const body = `username=${encodeURIComponent(BUDGET_USER)}&action=set&target_type=${encodeURIComponent(targetType)}&target=${encodeURIComponent(target)}&days=${encodeURIComponent(days)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&allowance_minutes=${encodeURIComponent(allowance)}&enabled=1`;
-            const data = await post('/api/budgets/windows', body);
-            if (data.success) { showToast('Weekly window added', false); window.location.reload(); }
-            else { showToast('Error: ' + (data.error || 'unknown'), true); }
-        } catch (e) { showToast('Error: ' + e.message, true); }
-    }
-
-    async function removeWindow(button) {
-        const id = button.getAttribute('data-window-id');
-        const ok = await window.pcConfirm({
-            title: 'Remove this weekly window?',
-            body: 'The recurring allowance stops applying immediately.',
-            confirmLabel: 'Confirm remove',
-            danger: true,
-        });
-        if (!ok) { return; }
-        try {
-            const data = await post('/api/budgets/windows', `username=${encodeURIComponent(BUDGET_USER)}&action=clear&window_id=${encodeURIComponent(id)}`);
-            if (data.success) { showToast('Window removed', false); window.location.reload(); }
-            else { showToast('Error: ' + (data.error || 'unknown'), true); }
-        } catch (e) { showToast('Error: ' + e.message, true); }
-    }
-
-    async function toggleWindow(checkbox) {
-        const id = checkbox.getAttribute('data-window-id');
-        try {
-            const data = await post('/api/budgets/windows', `username=${encodeURIComponent(BUDGET_USER)}&action=update&window_id=${encodeURIComponent(id)}&enabled=${checkbox.checked ? 1 : 0}`);
-            if (!data.success) { showToast('Error: ' + (data.error || 'unknown'), true); }
-        } catch (e) { showToast('Error: ' + e.message, true); }
-    }
 </script>
 {% endblock %}

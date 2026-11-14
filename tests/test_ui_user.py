@@ -46,10 +46,8 @@ PINNED_IDS = (
     'budget-games-hours', 'budget-games-minutes', 'budget-used-games',
     'budget-left-games', 'budget-status-games', 'budget-window-games',
     'budget-meter-games', 'process-section', 'hidden-procs', 'toast',
-    'window-target-type', 'window-category-target', 'window-app-target',
-    'window-allowance', 'override-comm', 'override-add-mode',
+    'override-comm', 'override-add-mode',
     'override-add-minutes', 'app-override-list', 'installed-apps',
-    'all_days_checkbox',
 )
 
 PINNED_CLASSES = (
@@ -57,16 +55,16 @@ PINNED_CLASSES = (
     'btn-logout', 'status-unlocked',
     'btn-group-toggle', 'btn-hide', 'btn-show-hidden', 'group-chevron',
     'process-name', 'group-row', 'group-detail', 'refresh-info',
-    'override-mode', 'window-row', 'day-checkbox', 'badge-window',
+    'override-mode', 'badge-window',
 )
 
 PINNED_ATTRS = (
-    'aria-expanded', 'aria-controls', 'data-window-id', 'data-group-cat',
+    'aria-expanded', 'aria-controls', 'data-group-cat',
     'data-group-comm', 'data-comm', 'data-override-row', 'data-label',
 )
 
 PINNED_TEXT = (
-    'Weekly windows', 'Grant custom', 'Revoke', '+15m', '+30m', '+1h',
+    'Grant custom', 'Revoke', '+15m', '+30m', '+1h',
     '+1h30', '+2h', 'Emergency logout', 'Daily limit per category',
     'Status updates automatically every 10 seconds',
     'Frozen — by parent', 'Set a limit first', 'Show hidden',
@@ -216,8 +214,10 @@ class UserPageRenderTest(_UserPageRender):
     def test_stacked_tables_carry_data_labels(self):
         html = self.render()
         self.assertIn('pc-table--stack', html)
+        # Calendar cutover: the weekly-windows table (the 'Allowance'
+        # data-label) retired; the remaining stacked tables keep the pattern.
         for label in ('Category', 'Limit (per day)', 'Used', 'Left', 'Status',
-                      'Usage', 'Command', 'Actions', 'Allowance'):
+                      'Usage', 'Command', 'Actions'):
             with self.subTest(label=label):
                 self.assertIn('data-label="%s"' % label, html,
                               'stacked card needs a "%s" label' % label)
@@ -229,8 +229,7 @@ class UserPageRenderTest(_UserPageRender):
         html = self.render()
         self.assertIn('pc-disclosure', html)
         for section_id in ('bedtime-section', 'bonus-section',
-                           'budgets-section', 'weekly-windows',
-                           'app-overrides'):
+                           'budgets-section', 'app-overrides'):
             with self.subTest(section=section_id):
                 self.assertIn('id="%s"' % section_id, html)
         # Native <details>, not a JS-only accordion.
@@ -318,8 +317,9 @@ class UserPageRenderTest(_UserPageRender):
         live['overrides'] = None
         live['app_names'] = []
         html = self.render(live)
-        self.assertIn('id="windows-empty"', html)
-        self.assertIn('No weekly windows configured.', html)
+        # Calendar cutover: the weekly-windows editor retired from this
+        # page; only the override empty state remains.
+        self.assertNotIn('No weekly windows configured.', html)
         self.assertIn('id="app-overrides-empty"', html)
         self.assertIn('No app overrides configured.', html)
 
@@ -355,30 +355,37 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('btn-revoke-override', html)
         self.assertIn('Revoke override', html)
 
-    def test_bedtime_enable_switch_and_warning_select(self):
+    def test_bedtime_is_read_only_mirror_with_calendar_link(self):
+        # Calendar cutover: the bedtime editor (enable switch, warning
+        # select, 12h forms) retired from this page. What stays is the
+        # read-only mirror summary + the pointer to /calendar.
         html = self.render(self._live_with())
-        self.assertIn('id="bedtime-enabled"', html)
-        self.assertIn('pc-switch', html)
-        self.assertIn('id="bedtime-warning"', html)
-        self.assertIn('Warning lead-time', html)
-        self.assertIn('schedule edits are reversible', html)
+        self.assertIn('id="bedtime-section"', html)
+        self.assertIn('Bedtime: 9:00 PM – 7:00 AM', html)
+        self.assertIn('Edit bedtime on the Calendar', html)
+        self.assertIn('/calendar?user=' + KID, html)
+        self.assertNotIn('id="bedtime-enabled"', html)
+        self.assertNotIn('id="bedtime-warning"', html)
 
-    def test_day_buttons_keep_the_day_checkboxes(self):
+    def test_day_checkbox_editor_retired(self):
+        # Calendar cutover: the Mon..Sun checkbox editor lived on this page;
+        # recurrence days are picked in the /calendar modal now. The summary
+        # line still lists the mirrored days (names, not checkboxes).
         html = self.render(self._live_with())
-        self.assertIn('class="pc-daybtn"', html)
+        self.assertIn('Days: Mon, Tue, Wed, Thu, Fri', html)
         for i in range(7):
             with self.subTest(day=i):
-                self.assertIn('name="day_%d"' % i, html)
-        self.assertIn('Apply to all days', html)
+                self.assertNotIn('name="day_%d"' % i, html)
+        self.assertNotIn('Apply to all days', html)
 
-    def test_days_group_is_a_fieldset_with_aria_pressed(self):
-        # REVISED-SPEC.md Screen 2: fieldset/legend for the Days group and
-        # aria-pressed day buttons.
+    def test_days_fieldset_retired_with_the_editor(self):
+        # REVISED-SPEC.md Screen 2's fieldset+aria-pressed Days group was
+        # part of the bedtime form; the calendar cutover retired the form
+        # (the /calendar modal carries the day-picking contract now, pinned
+        # by tests/test_ui_calendar.py).
         html = self.render(self._live_with())
-        self.assertIn('<fieldset class="pc-field pc-fieldset">', html)
-        self.assertIn('<legend class="pc-field__label">Custom days:</legend>', html)
-        self.assertIn('aria-pressed="true"', html)
-        self.assertIn('aria-pressed="false"', html)
+        self.assertNotIn('<legend class="pc-field__label">Custom days:</legend>', html)
+        self.assertNotIn('aria-pressed=', html)
 
     def test_countdown_readout_is_a_silent_live_region(self):
         # The readout ticks once a second (the shared 1 Hz ticker in app.js);
@@ -458,7 +465,9 @@ class TimeRulesDesignTest(_UserPageRender):
 
     def test_revoke_and_enable_scripts_are_wired(self):
         src = read(TEMPLATE)
-        self.assertIn('function toggleBedtimeEnabled(', src)
+        # Calendar cutover: toggleBedtimeEnabled (a client affordance of the
+        # retired bedtime form) is gone; the override Revoke wiring stays.
+        self.assertNotIn('function toggleBedtimeEnabled(', src)
         self.assertIn('function revokeOverride(', src)
         self.assertIn("'/api/lock'", src)
 

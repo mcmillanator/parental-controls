@@ -3,7 +3,7 @@
 
 Server-render checks for ``/budgets``: the app-budgets table (Category | Used
 today | Daily limit | State | Action) with the stack/card pattern + progress
-meter, the weekly-windows card, the hours+minutes specimen, the state row and
+meter, the hours+minutes specimen, the state row and
 the app-override modal specimen — all through the shared shell with the "Time
 rules" section active.
 
@@ -68,6 +68,13 @@ def live_dict():
     }
 
 
+def _live_with_window_active():
+    """Same live payload, one category inside its capped window."""
+    live = live_dict()
+    live['budget_state']['games']['window_active'] = True
+    return live
+
+
 class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
     def render(self, live=None, path='/budgets'):
         live = live_dict() if live is None else live
@@ -88,7 +95,7 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         sidebar = html[html.index('class="pc-sidebar"'):]
         sidebar = sidebar[:sidebar.index('</aside>')]
         self.assertIn('aria-current="page"', sidebar)
-        self.assertIn('Time rules', sidebar)
+        self.assertIn('Calendar', sidebar)
 
     def test_filter_row_has_user_picker(self):
         html = self.render()
@@ -128,15 +135,19 @@ class BudgetsRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('class="pc-hint btn-override"', html)
         self.assertIn('data-category="games"', html)
 
-    def test_weekly_windows_card(self):
+    def test_weekly_windows_retired_with_calendar_pointer(self):
+        # Calendar cutover: the windows editor left this page (recurring
+        # allowances are blocks on /calendar now); the card only points.
         html = self.render()
-        self.assertIn('Weekly windows', html)
-        self.assertIn('Add weekly window', html)
-        self.assertIn('Remove window', html)
-        self.assertIn('data-window-id="w-category-games"', html)
-        self.assertIn('pc-window-row window-row', html)
-        self.assertIn('4:00 PM', html)
-        self.assertIn('8:00 PM', html)
+        self.assertNotIn('Add weekly window', html)
+        self.assertNotIn('data-window-id', html)
+        self.assertNotIn('pc-window-row', html)
+        self.assertIn('id="calendar-pointer"', html)
+        self.assertIn('/calendar?user=' + KID, html)
+        # the runtime window badge (live enforcement state) still renders
+        # from budget_status — that's a READ, kept per CALENDAR_DESIGN.md
+        self.assertIn('Window active', self.render(
+            _live_with_window_active()))
 
     def test_hours_minutes_specimen(self):
         html = self.render(path='/budgets?preview=1')
@@ -193,9 +204,12 @@ class BudgetsSourceTest(unittest.TestCase):
 
     def test_wires_the_real_endpoints(self):
         for path in ("'/api/budgets'", "'/api/budgets/freeze'",
-                     "'/api/budgets/unfreeze'", "'/api/budgets/windows'"):
+                     "'/api/budgets/unfreeze'"):
             with self.subTest(path=path):
                 self.assertIn(path, self.src)
+        # Calendar cutover: the windows writer retired; the page must not
+        # reference it anymore.
+        self.assertNotIn("'/api/budgets/windows'", self.src)
 
     def test_budgets_screen_uses_no_tables(self):
         # REVISED-SPEC.md: tables stay on the Processes + Admin screens only;
@@ -215,7 +229,7 @@ class BudgetsSourceTest(unittest.TestCase):
     def test_freeze_and_remove_use_the_shared_dialog(self):
         # Freeze/thaw are access-changing, so they go through the ONE shared
         # confirmation dialog, like Remove window.
-        for fn in ('freezeCategory', 'unfreezeCategory', 'removeWindow'):
+        for fn in ('freezeCategory', 'unfreezeCategory'):
             start = self.src.index('function ' + fn + '(')
             body = self.src[start:self.src.index('\n    }', start)]
             with self.subTest(fn=fn):

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Hour+minute entry for the window/app-override allowances, and the
-apply-to-all-days row (UI_UX_PLAN.md §5.4).
+"""Hour+minute entry for the calendar/app-override allowances, and the
+day-picker row (UI_UX_PLAN.md §5.4).
 
-Three focused UI fixes on the user detail page:
-
-* the weekly-window "Allowance" entry is now an hours + minutes pair that
-  composes the same whole-minute value for the unchanged ``/api/budgets/windows``
-  contract (the server still takes ``allowance_minutes``),
+* the calendar modal's "Allowance" entry is an hours + minutes pair that
+  composes the same whole-minute value for the ``POST /api/schedule``
+  contract (``allowance_minutes``) — the weekly-window editor it replaced
+  retired with the calendar cutover (CALENDAR_DESIGN.md §10),
 * the app-override "Allowance" entry is the same h/m pair for the unchanged
   ``/api/budgets/overrides`` contract (still whole ``minutes``) — the
-  add-row form here, and the per-row editor in the shared #pc-override
-  dialog (see ``test_ui_override_dialog.py``),
-* the bedtime "Apply to all days:" label and checkbox share one row.
+  add-row form on the user page, and the per-row editor in the shared
+  #pc-override dialog (see ``test_ui_override_dialog.py``),
+* the calendar modal's repeat-days checkboxes share one row (the old
+  bedtime "Apply to all days" row retired with the bedtime form).
 
 Renders go through the mocked admin session harness (temp auth store, mocked
 ``get_user_live``). Stdlib only; nothing here touches a real account, the
@@ -32,6 +32,10 @@ from test_lock_regression import _AdminSessionMixin, KID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, 'templates', 'user.html')
+CALENDAR_TEMPLATE = os.path.join(ROOT, 'templates', 'calendar.html')
+CALENDAR_JS = os.path.join(ROOT, 'static', 'js', 'calendar.js')
+USERS = [{'username': KID, 'uid': 1001, 'home': '/home/kid',
+          'shell': '/bin/bash'}]
 
 
 def read(path):
@@ -109,13 +113,17 @@ class SourceTest(unittest.TestCase):
         self.assertIn('h < 0 || h > 99 || m < 0 || m > 59', self.src)
         self.assertIn("if (hStr === '' && mStr === '') return '';", self.src)
 
-    def test_save_window_composes_minutes_for_the_unchanged_api(self):
-        self.assertIn("document.getElementById('window-allowance-hours')",
-                      self.src)
-        self.assertIn("document.getElementById('window-allowance')", self.src)
-        self.assertIn('composeDuration(', self.src)
-        # The POST field is still the whole-minute allowance.
-        self.assertIn('allowance_minutes: allowance', self.src)
+    def test_user_page_has_no_window_editor_left(self):
+        # Calendar cutover: the weekly-window writer + its JS left the page.
+        self.assertNotIn('window-allowance', self.src)
+        self.assertNotIn('/api/budgets/windows', self.src)
+
+    def test_calendar_modal_composes_minutes_for_the_schedule_api(self):
+        js = read(CALENDAR_JS)
+        self.assertIn("$('block-allowance-hours')", js)
+        self.assertIn("$('block-allowance')", js)
+        # The POST field is the whole-minute allowance (API contract).
+        self.assertIn("body.set('allowance_minutes', allowance)", js)
 
     def test_override_add_composes_minutes_for_the_unchanged_api(self):
         self.assertIn("document.getElementById('override-add-hours')", self.src)
@@ -139,24 +147,29 @@ class SourceTest(unittest.TestCase):
 # Rendered page guards.
 # ---------------------------------------------------------------------------
 
-class WindowAllowanceTest(_Render):
-    def test_window_allowance_is_an_hours_and_minutes_pair(self):
-        html = self.render()
+class CalendarAllowanceTest(unittest.TestCase):
+    """The /calendar modal carries the h/m allowance pair (the window
+    editor's contract, moved to the schedule API). Source-level: stdlib
+    only, no Flask, no live payload probing."""
+
+    def test_allowance_is_an_hours_and_minutes_pair(self):
+        html = read(CALENDAR_TEMPLATE)
         self.assertRegex(
             html,
-            r'<input[^>]*id="window-allowance-hours"[^>]*max="99"')
+            r'<input[^>]*id="block-allowance-hours"[^>]*max="99"')
         self.assertRegex(
             html,
-            r'<input[^>]*id="window-allowance"[^>]*max="59"')
-        # Both are number inputs.
-        for field in ('window-allowance-hours', 'window-allowance'):
+            r'<input[^>]*id="block-allowance"[^>]*max="59"')
+        for field in ('block-allowance-hours', 'block-allowance'):
             m = re.search(r'<input[^>]*id="%s"[^>]*>' % field, html)
             self.assertIsNotNone(m, field)
             self.assertIn('type="number"', m.group(0))
 
-    def test_window_allowance_preserves_the_pinned_id(self):
-        # Pinned by UI_UX_PLAN.md §7.4 + test_ui_user.PINNED_IDS.
-        self.assertIn('id="window-allowance"', self.render())
+    def test_allowance_preserves_the_pinned_minutes_id(self):
+        # UI_UX_PLAN.md §7.4 pinned `window-allowance` for the minutes
+        # field; the calendar successor keeps the `-allowance` suffix
+        # pattern on the minutes input (the hours field is the -hours twin).
+        self.assertIn('id="block-allowance"', read(CALENDAR_TEMPLATE))
 
 
 class OverrideAllowanceTest(_Render):
@@ -210,31 +223,32 @@ class OverrideAllowanceTest(_Render):
         self.assertIn('id="override-add-minutes"', self.render())
 
 
-class ApplyToAllDaysRowTest(_Render):
-    def _assert_same_row(self, html, a, b):
-        ia, ib = html.find(a), html.find(b)
-        self.assertNotEqual(-1, ia, a)
-        self.assertNotEqual(-1, ib, b)
-        lo, hi = sorted((ia, ib))
-        between = html[lo:hi]
-        # No block boundary between the two -> they share one row.
-        self.assertNotIn('</div>', between)
-        self.assertNotIn('</span>', between)
-        # The shared row is the `.pc-row` wrapper inside the field.
-        field_start = html.rfind('<div class="pc-field">', 0, lo)
-        row_start = html.rfind('<span class="pc-row">', 0, lo)
-        self.assertGreater(row_start, field_start,
-                           'label + checkbox must sit inside one .pc-row')
+class CalendarDayRowTest(unittest.TestCase):
+    """The old bedtime all-days row retired with the form; the calendar
+    modal's day picker keeps the same row contract (source-level Jinja:
+    one <span class="pc-row"> wrapper inside the days field, holding the
+    seven loop-rendered checkboxes)."""
 
-    def test_label_and_checkbox_share_a_row(self):
-        html = self.render()
-        self._assert_same_row(html, 'for="all_days_checkbox"',
-                              'id="all_days_checkbox"')
+    def setUp(self):
+        self.html = read(CALENDAR_TEMPLATE)
 
-    def test_checkbox_id_and_name_unchanged(self):
-        html = self.render()
-        self.assertRegex(html, r'<input[^>]*name="all_days"[^>]*id="all_days_checkbox"')
-        self.assertIn('for="all_days_checkbox"', html)
+    def test_day_checkboxes_share_a_row(self):
+        field = self.html.index('id="block-days-field"')
+        row = self.html.index('<span class="pc-row">', field)
+        day = self.html.index('class="block-day"', row)
+        self.assertLess(field, row, 'the row must sit inside the days field')
+        self.assertLess(row, day, 'the checkboxes must sit in the shared row')
+
+    def test_day_inputs_carry_the_weekday_values(self):
+        # Source-level (Jinja): value binds loop.index0 == date.weekday()
+        # (MO..SU) per the schedule grammar; the seven day_labels render the
+        # seven boxes (the render path is covered by test_ui_calendar).
+        self.assertIn('<input type="checkbox" class="block-day" '
+                      'value="{{ loop.index0 }}">', self.html)
+        self.assertIn('{% for label in day_labels %}', self.html)
+        self.assertIn("'dayCodes': ['MO','TU','WE','TH','FR','SA','SU']",
+                      self.html)
+        self.assertNotIn('all_days_checkbox', self.html)
 
 
 if __name__ == '__main__':

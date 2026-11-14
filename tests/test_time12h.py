@@ -30,6 +30,7 @@ import re
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from datetime import datetime
 from unittest import mock
 
@@ -118,83 +119,71 @@ def live_dict(bedtime):
     }
 
 
-class TestBedtimeSelects(_AdminSessionMixin, unittest.TestCase):
-    """The bedtime forms edit 12-hour selects, prefilled from HH:MM."""
+class TestBedtimeSelects(unittest.TestCase):
+    """Calendar cutover re-pin: the bedtime form left templates/user.html;
+    the 12-hour select contract now lives in the /calendar modal
+    (templates/calendar.html + static/js/calendar.js). No native clock
+    picker anywhere; compose back to 24h HH:MM for the API."""
 
-    def _render(self, bedtime):
-        live = live_dict(bedtime)
-        with mock.patch.object(app, 'get_user_live', return_value=live):
-            resp = self.client.get(f'/user/{KID}')
-        self.assertEqual(resp.status_code, 200)
-        return resp.get_data(as_text=True)
+    def _calendar_html(self):
+        return read_template('calendar.html')
 
     def test_static_template_has_no_time_inputs(self):
-        src = read_template('user.html')
-        self.assertNotIn('type="time"', src)
-        self.assertNotIn('input[type="time"]', src)
+        for tpl in ('user.html', 'calendar.html'):
+            with self.subTest(template=tpl):
+                src = read_template(tpl)
+                self.assertNotIn('<input type="time"', src)
+                self.assertNotIn('type="time"', src)
 
     def test_rendered_page_has_no_time_inputs(self):
-        html = self._render({'start': '13:05', 'end': '21:00', 'days': [0]})
-        self.assertNotIn('type="time"', html)
+        # The bedtime forms retired from /user; the modal renders selects.
+        src = self._calendar_html()
+        self.assertIn('{% macro cal_time_select(prefix, label) -%}', src)
+        self.assertIn("cal_time_select('block_start', 'Block start')", src)
+        self.assertIn("cal_time_select('block_end', 'Block end')", src)
 
-    def test_prefill_mapping(self):
-        cases = [
-            ({'start': '00:30', 'end': '12:00', 'days': [0]},
-             {'start': ('12', '30', 'AM'), 'end': ('12', '00', 'PM')}),
-            ({'start': '13:05', 'end': '21:00', 'days': [0]},
-             {'start': ('1', '05', 'PM'), 'end': ('9', '00', 'PM')}),
-        ]
-        for bedtime, expected in cases:
-            html = self._render(bedtime)
-            for field, (hour, minute, meridiem) in expected.items():
-                with self.subTest(hhmm=bedtime['start'], field=field,
-                                  part='hour'):
-                    self.assertEqual(selected_values(html, f'{field}_hour'),
-                                     [hour])
-                    self.assertEqual(selected_values(html, f'{field}_minute'),
-                                     [minute])
-                    self.assertEqual(selected_values(html, f'{field}_meridiem'),
-                                     [meridiem])
+    def test_modal_selects_open_on_a_required_placeholder(self):
+        """Both select triples start on an empty disabled '--' option so a
+        missing pick blocks the save (calendar.js null-checks the parts)."""
+        src = self._calendar_html()
+        self.assertIn('<option value="" selected disabled>--</option>', src)
+        # The triple is emitted by the macro (name="{{ prefix }}_hour" etc.)
+        # and invoked for both fields:
+        self.assertIn('name="{{ prefix }}_hour"', src)
+        self.assertIn('name="{{ prefix }}_meridiem"', src)
 
-    def test_no_bedtime_form_placeholder_blocks_save(self):
-        """Both selects of the fallback form open on a required empty
-        placeholder, so a missing pick blocks the save natively and in
-        saveBedtime()'s null check."""
-        html = self._render({})
-        for field in ('start', 'end'):
-            for suffix in ('_hour', '_minute', '_meridiem'):
-                with self.subTest(field=field + suffix):
-                    self.assertEqual(
-                        selected_values(html, field + suffix), [''])
-
-    def test_save_bedtime_composes_hhmm_from_selects(self):
-        """Static assert: saveBedtime() turns the selects back into 24h
-        HH:MM (the API contract), with the 12 AM/PM edges and a
-        missing-selection block."""
-        src = read_template('user.html')
-        # The compose helper exists and keeps the 24h storage contract.
-        self.assertIn('function toHHMM(hour, minute, meridiem)', src)
-        # 12 AM -> 00 / 12 PM -> 12 edges.
-        self.assertIn('let h24 = h % 12;', src)
-        self.assertIn("if (suffix === 'PM') h24 += 12;", src)
-        self.assertIn("padStart(2, '0')", src)
-        # saveBedtime reads the selects, sets start/end, and drops the
-        # raw select fields (the API only knows username/start/end/days).
-        self.assertIn("form.elements['start_hour'].value", src)
-        self.assertIn("formData.set('start', start)", src)
-        self.assertIn("formData.set('end', end)", src)
-        self.assertIn("formData.delete(name)", src)
-        self.assertIn("'start_hour'", src)
-        # A missing selection blocks the save.
-        self.assertIn('start === null || end === null', src)
+    def test_calendar_js_composes_hhmm_from_selects(self):
+        """Static assert: readTimeSelect() turns the selects back into 24h
+        HH:MM (the /api/schedule contract), with the 12 AM/PM edges and a
+        missing-selection null, mirroring the retired saveBedtime()."""
+        js = Path(__file__).resolve().parents[1] / 'static' / 'js' / 'calendar.js'
+        src = js.read_text(encoding='utf-8')
+        self.assertIn('function readTimeSelect(prefix)', src)
+        self.assertIn("if (hour === '' || minute === '' || meridiem === '')",
+                      src)
+        self.assertIn('let h24 = parseInt(hour, 10) % 12;', src)
+        self.assertIn("if (meridiem === 'PM') { h24 += 12; }", src)
+        self.assertIn("return pad2(h24) + ':' + pad2(parseInt(minute, 10));",
+                      src)
 
     def test_js_helpers_mirror_server_side(self):
-        """fmt12 (display) and toHHMM (compose) exist in user.html; the
-        server side keeps format_12h/hhmm_12h_parts as their twins."""
+        """fmt12 (display) remains the user page's mirror of format_12h();
+        the compose twin moved to calendar.js readTimeSelect (the toHHMM
+        helper retired with the bedtime form)."""
         src = read_template('user.html')
         self.assertIn('function fmt12(hhmm)', src)
-        self.assertIn('function toHHMM(hour, minute, meridiem)', src)
+        self.assertNotIn('function toHHMM(', src)
         self.assertNotIn('<input type="time"', src)
+
+    def test_prefill_mapping_is_client_side_now(self):
+        # The modal prefills from the stored block (HH:MM -> hour/minute/
+        # meridiem selects) in setTimeSelect(); the server-side twelve_parts
+        # filter keeps its unit coverage above for any future consumer.
+        js = Path(__file__).resolve().parents[1] / 'static' / 'js' / 'calendar.js'
+        src = js.read_text(encoding='utf-8')
+        self.assertIn('function setTimeSelect(prefix, hhmmStr)', src)
+        self.assertIn("const mer = h >= 12 ? 'PM' : 'AM';", src)
+        self.assertIn('h = h % 12; if (h === 0) { h = 12; }', src)
 
 
 # ---------------------------------------------------------------------------

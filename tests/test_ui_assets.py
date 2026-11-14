@@ -100,7 +100,8 @@ COMPONENT_CLASSES = (
     # Phase 5 additions: auth body, light-theme chips, legacy hooks, states.
     '.pc-body--auth', '.pc-chip--stale', '.pc-chip--bonus', '.pc-skeleton-rows',
     '.pc-unit', '.override-mode', '.group-detail', '.actions',
-    # Searchable app picker (combobox) for #override-comm / #window-app-target.
+    # Searchable app picker (combobox) for #override-comm (#window-app-target
+    # retired with the calendar cutover).
     '.pc-combobox', '.pc-combobox__list', '.pc-combobox__option',
 )
 
@@ -485,8 +486,10 @@ class UserPageConversionTest(unittest.TestCase):
 
     def test_uses_the_stacked_table_pattern_with_labels(self):
         self.assertIn('pc-table--stack', self.html)
+        # Calendar cutover: the weekly-windows table (the 'Allowance'
+        # data-label) retired; the remaining stacked tables keep the pattern.
         for label in ('Category', 'Limit (per day)', 'Used', 'Left', 'Status',
-                      'Usage', 'Command', 'Actions', 'Allowance'):
+                      'Usage', 'Command', 'Actions'):
             with self.subTest(label=label):
                 self.assertIn('data-label="%s"' % label, self.html)
         # semantic theads stay in the DOM (clipped on phones, not removed)
@@ -497,9 +500,10 @@ class UserPageConversionTest(unittest.TestCase):
         self.assertIn('<details', self.html)
         # `bonus-section` is now the shared shell modal (still the pinned id,
         # no longer a <details>); `bonus` = user.html + the moved partial.
+        # Calendar cutover: the weekly-windows disclosure retired from the
+        # per-child page (blocks live on /calendar now).
         for section_id in ('bedtime-section', 'bonus-section',
-                           'budgets-section', 'weekly-windows',
-                           'app-overrides'):
+                           'budgets-section', 'app-overrides'):
             with self.subTest(section=section_id):
                 self.assertIn('id="%s"' % section_id, self.bonus)
 
@@ -527,7 +531,8 @@ class UserPageConversionTest(unittest.TestCase):
             'back-link', 'subtitle', 'badge-bonus', 'btn-lock', 'btn-unlock',
             'btn-logout', 'btn-group-toggle', 'btn-hide', 'btn-show-hidden',
             'group-chevron', 'process-name', 'group-row', 'group-detail',
-            'refresh-info', 'btn-override', 'window-row', 'day-checkbox',
+            # 'window-row'/'day-checkbox' retired with the windows editor.
+            'refresh-info', 'btn-override',
         )
         for token in pinned_ids:
             with self.subTest(kind='id', token=token):
@@ -537,7 +542,7 @@ class UserPageConversionTest(unittest.TestCase):
         for token in pinned_classes:
             with self.subTest(kind='class', token=token):
                 self.assertIn(token, self.html)
-        for attr in ('aria-expanded', 'aria-controls', 'data-window-id',
+        for attr in ('aria-expanded', 'aria-controls',
                      'data-group-cat', 'data-group-comm', 'data-comm',
                      'data-label'):
             with self.subTest(kind='attr', attr=attr):
@@ -546,10 +551,14 @@ class UserPageConversionTest(unittest.TestCase):
     def test_refresh_info_and_param_names_are_kept(self):
         self.assertIn('Status updates automatically every 10 seconds',
                       self.html)
+        # Calendar cutover: the bedtime/window form fields (start_hour,
+        # window_start_hour, all_days, day_0...) retired with their forms.
+        # The 12-hour compose contract moved to the /calendar modal — pinned
+        # by tests/test_ui_calendar.py — and no retired field may linger.
         for name in ('start_hour', 'end_hour', 'window_start_hour',
                      'window_end_hour', 'all_days', 'day_0'):
             with self.subTest(name=name):
-                self.assertIn(name, self.html)
+                self.assertNotIn(name, self.html)
 
     def test_router_needs_for_the_shell_are_satisfied(self):
         # The shell's app bar/tab bar link these; the page must keep the
@@ -803,7 +812,7 @@ class PinnedSelectorInventoryTest(unittest.TestCase):
             'btn-hide', 'btn-show-hidden', 'group-chevron', 'process-name',
             'group-row', 'group-detail', 'refresh-info',
         )
-        pinned_attrs = ('data-at', 'data-window-id', 'data-group-cat',
+        pinned_attrs = ('data-at', 'data-group-cat',
                         'data-group-comm', 'data-comm', 'aria-expanded',
                         'aria-controls')
         pinned_text = ('Parental Controls', 'Log in', 'Change password',

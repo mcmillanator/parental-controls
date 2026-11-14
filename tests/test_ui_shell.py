@@ -4,12 +4,12 @@
 Covers the shell commit of the design translation:
 
 * source guards on ``templates/base.html`` and the ``_partials/`` sidebar /
-  app bar / tab bar: the 5-section nav (Overview / Time rules / Activity /
+  app bar / tab bar: the 5-section nav (Overview / Calendar / Activity /
   Admin / Settings), the "Selected machine" card, the user chip + theme toggle
   + Help, and the phone bottom tab bar;
 * server-rendered checks (mocked admin session) that every section renders
   through the shell with the right ``aria-current`` and stays offline;
-* the new routes (``/time-rules``, ``/budgets``, ``/processes``,
+* the new routes (``/calendar``, ``/budgets``, ``/processes``,
   ``/settings``) are reachable and do not disturb the existing endpoints.
 
 Nothing here touches a real account, the service, /etc, /opt or the checkout;
@@ -35,7 +35,7 @@ APP_CSS = os.path.join(ROOT, 'static', 'css', 'app.css')
 
 EXTERNAL_ASSET = re.compile(r'''(?:href|src)\s*=\s*["']https?://''', re.I)
 
-SECTIONS = ('Overview', 'Time rules', 'Activity', 'Admin', 'Settings')
+SECTIONS = ('Overview', 'Calendar', 'Activity', 'Admin', 'Settings')
 
 USERS = [
     {'username': 'kidlocked', 'uid': 1001, 'home': '/home/kidlocked',
@@ -99,7 +99,7 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
     def test_every_section_is_reachable_and_renders_the_shell(self):
         # Overview uses the SAME shared shell as every other section now:
         # desktop sidebar + app bar, with the phone tab bar below 768px.
-        for path in ('/', '/time-rules', '/budgets', '/processes',
+        for path in ('/', '/calendar', '/budgets', '/processes',
                      '/admin/audit', '/settings'):
             with self.subTest(path=path):
                 html = self._render(path)
@@ -119,20 +119,21 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
                 self.assertIn(label, sidebar)
 
     def test_tabbar_lists_four_tabs_plus_account_and_settings(self):
-        # REVISED-SPEC.md Screen 1/3: the phone bar is Home/Time/Activity/Admin;
-        # Settings lives in the account popover on phones.
+        # REVISED-SPEC.md Screen 1/3: the phone bar is Home/Calendar/
+        # Activity/Admin; Settings lives in the account popover on phones.
+        # (Calendar cutover: the old 'Time' tab IS the Calendar now.)
         html = self._render('/')
         tabbar = html[html.index('class="pc-tabbar"'):]
         tabbar = tabbar[:tabbar.index('</nav>')]
-        for label in ('Home', 'Time', 'Activity', 'Admin', 'Account',
+        for label in ('Home', 'Calendar', 'Activity', 'Admin', 'Account',
                       'Settings'):
             with self.subTest(label=label):
                 self.assertIn(label, tabbar)
 
     def test_active_section_is_marked_current(self):
         cases = {
-            '/time-rules': 'Time rules',
-            '/budgets': 'Time rules',
+            '/calendar': 'Calendar',
+            '/budgets': 'Calendar',
             '/processes': 'Activity',
             '/admin/audit': 'Admin',
             '/settings': 'Settings',
@@ -180,7 +181,7 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
         # Every section (Overview included) uses the sidebar >=768px, so none
         # carries `pc-layout--phone`; the >=768px `.pc-tabbar { display: none }`
         # hide applies and they navigate via the sidebar (tab bar below 768px).
-        for path in ('/', '/time-rules', '/budgets', '/processes',
+        for path in ('/', '/calendar', '/budgets', '/processes',
                      '/admin/audit', '/settings'):
             with self.subTest(path=path):
                 html = self._render(path)
@@ -205,7 +206,7 @@ class ShellRenderTest(_AdminSessionMixin, unittest.TestCase):
         self.assertIn('aria-label="Account menu"', html)
 
     def test_no_external_assets_on_any_section(self):
-        for path in ('/', '/time-rules', '/budgets', '/processes', '/settings'):
+        for path in ('/', '/calendar', '/budgets', '/processes', '/settings'):
             with self.subTest(path=path):
                 html = self._render(path)
                 self.assertIsNone(EXTERNAL_ASSET.search(html))
@@ -262,7 +263,7 @@ class ShellSourceTest(unittest.TestCase):
         self.assertIn('pc_nav_link(', self.sidebar)
 
     def test_tabbar_has_four_tabs_and_settings_in_the_menu(self):
-        for label in ('Home', 'Time', 'Activity', 'Admin'):
+        for label in ('Home', 'Calendar', 'Activity', 'Admin'):
             with self.subTest(label=label):
                 self.assertIn("'%s'" % label, self.tabbar)
         # Settings is sidebar-only / account-menu on phones, not a tab.

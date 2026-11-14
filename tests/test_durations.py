@@ -16,6 +16,7 @@ the service, /etc, /opt, or the checkout.
 import os
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -90,7 +91,13 @@ class TestTemplateUsesHmFilter(unittest.TestCase):
     def test_override_and_window_allowances(self):
         src = read_template('user.html')
         self.assertIn('{{ ov.minutes|hm }}', src)
-        self.assertIn('{{ w.allowance_minutes|hm }}', src)
+        # Calendar cutover: the windows table (w.allowance_minutes|hm)
+        # retired from the per-child page; allowance text now formats in
+        # the calendar JS (hm() in static/js/calendar.js) for stored blocks.
+        self.assertNotIn('{{ w.allowance_minutes|hm }}', src)
+        js = (Path(__file__).resolve().parents[1] / 'static' / 'js' /
+              'calendar.js').read_text(encoding='utf-8')
+        self.assertIn('function hm(minutes)', js)
 
     def test_no_bare_minute_duration_left(self):
         """The converted spots never emit a bare 'N min' duration again."""

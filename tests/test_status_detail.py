@@ -334,7 +334,7 @@ class StatusNoLeakRenderTest(_AdminSessionMixin, unittest.TestCase):
             user_html = self.client.get(f'/user/{KID}').get_data(as_text=True)
             live_json = self.client.get(
                 f'/api/user/{KID}/live').get_data(as_text=True)
-            rules_html = self.client.get('/time-rules').get_data(as_text=True)
+            rules_html = self.client.get('/calendar').get_data(as_text=True)
         return html, rows, api_json, user_html, live_json, rules_html
 
     def test_owner_report_never_renders_anywhere(self):
@@ -347,7 +347,7 @@ class StatusNoLeakRenderTest(_AdminSessionMixin, unittest.TestCase):
                 _assert_parent_safe(self, api_json, 'GET /api/users')
                 _assert_parent_safe(self, user_html, 'GET /user/<name>')
                 _assert_parent_safe(self, live_json, 'GET /api/user/live')
-                _assert_parent_safe(self, rules, 'GET /time-rules')
+                _assert_parent_safe(self, rules, 'GET /calendar')
                 # ...and the parent is TOLD something, not just spared.
                 self.assertIn(FRIENDLY, html)
                 self.assertIn(FRIENDLY, api_json)

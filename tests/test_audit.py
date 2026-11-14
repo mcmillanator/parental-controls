@@ -213,6 +213,19 @@ class TestAuditNeverBreaks(_AuditFileMixin, unittest.TestCase):
 
 class TestAuditHooks(_AdminSessionMixin, _AuditFileMixin, _BedtimeFileMixin,
                      unittest.TestCase):
+    def _cal_home(self):
+        """Redirect schedule/overrides/budgets stores into the bedtime temp
+        home (production layout) for the calendar-API writes below."""
+        home = os.path.dirname(self._bedtime)
+        for target, attr, name in (
+                (budgets, 'SCHEDULE_FILE', 'schedule.json'),
+                (budgets, 'OVERRIDES_FILE', 'overrides.json'),
+                (budgets, 'BUDGETS_FILE', 'budgets.json')):
+            patcher = mock.patch.object(target, attr,
+                                        os.path.join(home, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def _ok_run(self):
         """subprocess.run fake: every privileged call succeeds, no session."""
         return mock.patch.object(app.subprocess, 'run',
@@ -255,26 +268,34 @@ class TestAuditHooks(_AdminSessionMixin, _AuditFileMixin, _BedtimeFileMixin,
         self.assertEqual(resp.status_code, 200)
         self.assert_logged(self.ADMIN_USER, 'account.logout', KID)
 
-    def test_bedtime_set_and_clear_logged(self):
+    def test_bedtime_block_set_and_cleared_logged(self):
+        # Calendar cutover re-pin: the bedtime editor's writers retired, so
+        # the same audit hooks now ride the schedule funnel's actions
+        # (schedule.block_set / schedule.block_cleared, target 'user:id').
+        self._cal_home()
         self.write_bedtime({})
-        with mock.patch.object(app, 'is_in_bedtime', return_value=False), \
+        with mock.patch.object(app, '_bedtime_flag', return_value=False), \
              mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')):
-            resp = self.authed_post('/api/bedtime',
-                                    data={'username': KID, 'start': '21:00',
-                                          'end': '07:00', 'all_days': '1'})
+            resp = self.authed_post('/api/schedule', data={
+                'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
+                'dtstart': '2026-11-01', 'start': '21:00', 'end': '07:00',
+                'id': 'b-bedtime-1'})
         self.assertEqual(resp.status_code, 200)
-        self.assert_logged(self.ADMIN_USER, 'bedtime.set', KID)
+        self.assert_logged(self.ADMIN_USER, 'schedule.block_set',
+                           KID + ':b-bedtime-1')
         entry = [e for e in self.audit_entries()
-                 if e['action'] == 'bedtime.set'][0]
+                 if e['action'] == 'schedule.block_set'][0]
         self.assertEqual(entry['detail']['start'], '21:00')
 
         with mock.patch.object(app, 'run_lock_command',
                                return_value=(True, 'OK')):
-            resp = self.authed_post('/api/bedtime',
-                                    data={'username': KID, 'clear': '1'})
+            resp = self.client.delete('/api/schedule/b-bedtime-1',
+                                      data={'username': KID},
+                                      headers=self.csrf_headers)
         self.assertEqual(resp.status_code, 200)
-        self.assert_logged(self.ADMIN_USER, 'bedtime.clear', KID)
+        self.assert_logged(self.ADMIN_USER, 'schedule.block_cleared',
+                           KID + ':b-bedtime-1')
 
     def test_bonus_grant_and_revoke_logged(self):
         self.write_bedtime({KID: dict(BONUS)})

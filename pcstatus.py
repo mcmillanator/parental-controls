@@ -288,7 +288,7 @@ def status_row_core(username, probe, audit):
     difference between the two sides; the classification here is not) and
     `audit` is the module's `audit_status_probe`, both resolved at call
     time by the thin wrappers so patches on the facade still bind.
-    index(), api_users(), get_user_live() and time_rules() all build their
+    index(), api_users(), get_user_live() and calendar() all build their
     rows from the wrappers, so no producer can forget the mapping.
     """
     locked, detail = probe(username)

@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app
 import auth
+import budgets
 
 Result = namedtuple('Result', ['returncode', 'stdout', 'stderr'])
 
@@ -201,21 +202,43 @@ class TestLockNeverTerminates(_AdminSessionMixin, _BedtimeFileMixin,
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)
         assert_no_terminate(self, calls, 'enforce_bedtime auto-lock')
 
+    def _cal_home(self):
+        """Redirect the schedule store + mirrors into the bedtime temp
+        home — the calendar API (the bedtime writer since the UI slice)
+        writes through all of them."""
+        home = os.path.dirname(self._bedtime)
+        for target, attr, name in (
+                (budgets, 'SCHEDULE_FILE', 'schedule.json'),
+                (budgets, 'OVERRIDES_FILE', 'overrides.json'),
+                (budgets, 'BUDGETS_FILE', 'budgets.json')):
+            patcher = mock.patch.object(target, attr, os.path.join(home, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_bedtime_save_enforce_never_terminates(self):
-        """Saving an in-window schedule auto-locks without terminating."""
+        """Saving an in-window schedule auto-locks without terminating.
+
+        Calendar cutover re-pin: the writer is POST /api/schedule now; the
+        immediate-enforcement tail moved with it (_enforce_bedtime_now), so
+        the same usermod -L / no-terminate contract is asserted on the new
+        path at the same real wall clock.
+        """
+        self._cal_home()
         self.write_bedtime({})
         now = datetime.now()
         start = (now - timedelta(minutes=60)).strftime('%H:%M')
         end = (now + timedelta(minutes=60)).strftime('%H:%M')
-        days = [0, 1, 2, 3, 4, 5, 6]
-        form = {'username': KID, 'start': start, 'end': end,
-                'all_days': 'on'}
+        # Anchor one day back so a midnight-crossing window (start after
+        # 23:00 or end before 01:00) is ACTIVE at `now` at any wall clock.
+        dtstart = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+        form = {'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
+                'dtstart': dtstart, 'start': start, 'end': end}
         calls = []
         with mock.patch.object(app.subprocess, 'run',
                                side_effect=subprocess_recorder(
                                    calls, sessions='')), \
              mock.patch.object(app, '_safe_notify'):
-            resp = self.authed_post('/api/bedtime', data=form)
+            resp = self.authed_post('/api/schedule', data=form)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.get_json()['locked'])
         self.assertIn(['sudo', 'usermod', '-L', KID], calls)

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app
 import auth
+import budgets
 from test_lock_regression import (_AdminSessionMixin, _BedtimeFileMixin,
                                   KID, WINDOW, IN_WINDOW, OUT_WINDOW)
 
@@ -387,24 +388,65 @@ class TestBonusGrantAPI(_AdminSessionMixin, _BedtimeFileMixin,
         actions = [c.args[1] for c in lock_cmd.call_args_list if len(c.args) > 1]
         self.assertNotIn('unlock', actions)
 
+    def _cal_home(self):
+        """Redirect the schedule/overrides/budgets stores into the bedtime
+        temp home (production layout) — the calendar API writes all of them."""
+        home = os.path.dirname(self._bedtime)
+        for target, attr, name in (
+                (budgets, 'SCHEDULE_FILE', 'schedule.json'),
+                (budgets, 'OVERRIDES_FILE', 'overrides.json'),
+                (budgets, 'BUDGETS_FILE', 'budgets.json')):
+            patcher = mock.patch.object(target, attr, os.path.join(home, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_save_bedtime_preserves_bonus(self):
+        # Calendar cutover re-pin: the bedtime config writer is
+        # POST /api/schedule now; the live bonus key must still survive a
+        # schedule edit (CALENDAR_DESIGN.md §6 mirror policy).
+        self._cal_home()
         self.write_bedtime({KID: _active_bonus_entry(minutes=30,
                                                      until=IN_WINDOW)})
-        resp = self.authed_post('/api/bedtime',
-                                data={'username': KID, 'start': '22:00',
-                                      'end': '07:00', 'all_days': 'on'})
+        today = datetime.now().strftime('%Y-%m-%d')
+        with mock.patch.object(app, '_bedtime_flag', return_value=False), \
+             mock.patch.object(app, 'run_lock_command',
+                               return_value=(True, 'OK')):
+            resp = self.authed_post('/api/schedule', data={
+                'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
+                'dtstart': today, 'start': '22:00', 'end': '07:00'})
         self.assertEqual(resp.status_code, 200)
         entry = self.read_bedtime()[KID]
         self.assertIn('bonus_until', entry, 'schedule edit must keep the bonus')
         self.assertEqual(entry['start'], '22:00')
 
-    def test_clear_bedtime_drops_bonus(self):
+    def test_delete_bedtime_series_keeps_bonus_live_state(self):
+        # Old behavior: CLEAR deleted the whole bedtime row (bonus included).
+        # Post-cutover truth (CALENDAR_DESIGN.md §6, merged backend): the
+        # mirror sync drops only the CONFIG fields; live-state keys — bonus_*
+        # among them — are never rewritten and expire naturally at
+        # bonus_until (a dangling bonus is inert while no bedtime enforces).
+        self._cal_home()
         self.write_bedtime({KID: _active_bonus_entry(minutes=30,
                                                      until=IN_WINDOW)})
-        resp = self.authed_post('/api/bedtime',
-                                data={'username': KID, 'clear': '1'})
+        today = datetime.now().strftime('%Y-%m-%d')
+        with mock.patch.object(app, '_bedtime_flag', return_value=False), \
+             mock.patch.object(app, 'run_lock_command',
+                               return_value=(True, 'OK')):
+            resp = self.authed_post('/api/schedule', data={
+                'username': KID, 'target': 'bedtime', 'preset': 'DAILY',
+                'dtstart': today, 'start': '22:00', 'end': '07:00'})
         self.assertEqual(resp.status_code, 200)
-        self.assertNotIn(KID, self.read_bedtime())
+        bid = resp.get_json()['block']['id']
+        with mock.patch.object(app, 'run_lock_command',
+                               return_value=(True, 'OK')):
+            resp = self.client.delete('/api/schedule/' + bid,
+                                      data={'username': KID},
+                                      headers=self.csrf_headers)
+        self.assertEqual(resp.status_code, 200)
+        entry = self.read_bedtime()[KID]
+        self.assertNotIn('start', entry)   # config fields dropped
+        self.assertNotIn('days', entry)
+        self.assertIn('bonus_until', entry)  # live state survives (design §6)
 
 
 class TestBonusLivePayload(_AdminSessionMixin, _BedtimeFileMixin,
