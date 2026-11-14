@@ -251,7 +251,8 @@ the Weekly-Windows editors. Decisions + pins:
   byte counts and the upgrade procedure live in
   `static/vendor/fullcalendar/NOTICE.txt`. **No CDN/network reference may
   ever appear in templates or static** — pinned by
-  `tests/test_ui_assets.py` (offline-asset guard extended to the new page).
+  `tests/test_ui_calendar.py` (offline-asset guard for the new page) and
+  `tests/test_ui_assets.py` (rendered-page sweep on /calendar).
 * **Page:** `/calendar` (replaces `/time-rules` as the `time` nav section).
   Child selector follows the budgets-page pattern (`?user=`), week grid
   (`timeGridWeek`) default + month toggle (`dayGridMonth`), live `now`
