@@ -767,3 +767,48 @@ The parent-facing **Calendar page** on the merged `/api/schedule` backend
   pull, a human eyeball on aiden-pc (calendar renders with real fonts/
   theme, drag-create a bedtime block, windows section gone from
   /budgets).
+
+## Calendar create-path fix (2026-11-14, `fix/calendar-create`)
+
+The owner on the deployed box: "I don't see any way to add to the
+calendar." Root cause, one word: `boot()` in `static/js/calendar.js`
+never set **`selectable: true`**. The FullCalendar options carried a
+wired `select:` callback (+ `selectMirror`), but the vendored bundle's
+shipped default is `selectable:!1` (pinned in
+`tests/test_ui_calendar.CalendarCreatePathTest`), so drag-select did
+nothing and there was no other create entry point at all. The modal
+itself (`openEditor mode:'create'`) was never broken and is untouched
+beyond how it is invoked.
+
+Three creation paths now, all landing in that same modal:
+
+1. **Drag-select** — `selectable: true` re-enables the existing flow.
+2. **Plain click on a slot/day** — new `dateClick` handler (week: clicked
+   hour + 1 h via the existing `hhmm`/`hhmmOfMin` helpers; month/all-day:
+   date only, modal time defaults kept).
+3. **'+ New block' toolbar button** — `customButtons.newBlock`, wired
+   into `headerToolbar` left (`prev,next today,newBlock`); opens the
+   modal for the displayed child, today 16:00–18:00.
+
+Two FullCalendar-6 facts reverse-engineered from the minified bundle
+(re-read them there before "fixing" this again): a zero-move click fires
+BOTH `select` and `dateClick` unless `selectMinDistance` is set (we pin
+`selectMinDistance: 5` so clicks belong to `dateClick` exclusively), and
+the v6 standard bundle styles **no cursor** for selectable slots — the
+crosshair affordance is one app.css rule (`.pc-calendar-card .fc
+.fc-timegrid-col-frame`), since zero `crosshair` strings exist in the
+artifact. All three paths also `return` early on `editorState` (the
+never-clobber-open-edits convention).
+
+- Suite: **Ran 1681 → Ran 1686, OK (skipped=158)** in the container
+  (`.scratch/venv`); the +5 are `CalendarCreatePathTest` string pins.
+- **Lesson: UI-slice JS has no runner in this suite** — when behavior
+  lives in browser code, pin the shipped CONFIG LITERALS
+  (`selectable: true`, `dateClick:`, `customButtons`, toolbar id) AND
+  mirror each option against the vendored artifact so a typo'd or
+  unsupported option fails loudly. The original calendar slice pinned
+  assets/hashes but not options, and shipped a dead create path.
+- PENDING (manager, on the VM): suite + `CALENDAR_DESIGN.md` §10.1 (step
+  3 amended to cover all three paths); human eyeball: click a slot →
+  modal with hour prefilled; drag → modal with the range; '+ New block'
+  → modal today 16:00–18:00; crosshair over week-grid slots.

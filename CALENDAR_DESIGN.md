@@ -299,7 +299,9 @@ against the URL install.sh prints:
    striped blue band. Click the band → hint strip pointing at the child
    page's bonus dialog. No browser-console 404s; devtools Network tab
    shows ZERO off-origin requests (offline promise).
-3. **Drag Mon 21:00→Tue 08:00** on the grid → modal: target Bedtime,
+3. **Drag Mon 21:00→Tue 08:00** on the grid (or single-click a slot, or
+   press the '+ New block' toolbar button — all three create paths land in
+   the same modal; 2026-11-14 fix) → modal: target Bedtime,
    repeat Every day, save → block appears; Overview/user-page chips +
    countdown reflect it (mirror writes work); `curl -s -b <session>
    .../api/bedtime` shows the mirrored start/end/days.
