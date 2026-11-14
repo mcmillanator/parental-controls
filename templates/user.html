@@ -52,12 +52,29 @@
 </nav>
 {% endif %}
 
+{# Manual override active (design Screen 2): primary-tinted hero card + Revoke,
+   ABOVE the live countdown (owner request 2026-11-14). Markup is single-
+   sourced in templates/_partials/override_card.html: rendered live here only
+   while the override is ACTIVE (correct, fail-safe no-JS first paint) and
+   again INERTLY inside the <template> skeleton below — the 10s poll
+   (syncOverrideCard, next to renderCountdown) clones that skeleton and
+   inserts/removes the card as the payload's state changes, so granting or
+   revoking an override updates this page WITHOUT a reload. The end-time
+   label follows the payload (`bedtime_end`). The card keeps its
+   aria-labelledby heading; insert/remove is silent — the status/toast
+   region stays the announced one (same convention as the badges rebuild). #}
+{% if user.in_bedtime and bedtime.manual_override %}
+{% include '_partials/override_card.html' %}
+{% endif %}
+<template id="override-card-tpl">{% include '_partials/override_card.html' %}</template>
+
 {# Live countdown (design Screen 2) — muted card with a big mono readout.
-   It is now the FIRST card in the content area, directly under the page title
-   and above the Account hero, so the time-to-bedtime is the first thing the
-   parent sees. The readout is genuinely live: `data-countdown-seconds` seeds
-   the shared 1 Hz ticker in static/js/app.js and the 10s poll re-syncs it from
-   the /live payload (`renderCountdown`). It ticks *silently* (`aria-live="off"`):
+   It is the FIRST card in the content area except when the manual-override
+   card is present above it (see the block just before this comment), so the
+   time-to-bedtime is the first thing the parent sees. The readout is
+   genuinely live: `data-countdown-seconds` seeds the shared 1 Hz ticker in
+   static/js/app.js and the 10s poll re-syncs it from the /live payload
+   (`renderCountdown`). It ticks *silently* (`aria-live="off"`):
    a 1 Hz live region would make a screen reader announce the time every second,
    so the status region (toasts) stays the announced one — same as the
    Overview's per-card countdowns. #}
@@ -91,19 +108,6 @@
         <button type="button" class="btn-logout{{ ' pc-btn pc-btn--danger' }}" onclick="logoutUser('{{ username }}')" title="Terminates ALL sessions for this user immediately">Emergency logout</button>
     </div>
 </section>
-
-{# Manual override active (design Screen 2): primary-tinted card + Revoke.
-   Revoking re-locks at bedtime now, which clears the override flag. #}
-{% if user.in_bedtime and bedtime.manual_override %}
-<section class="pc-card pc-card--hero" id="override-card" aria-labelledby="override-heading">
-    <div class="pc-card__header">
-        <h2 class="pc-card__title" id="override-heading">Manual override active</h2>
-        <span class="pc-chip pc-chip--override">Active</span>
-    </div>
-    <p class="pc-meta">Bedtime is being bypassed until this window ends{% if bedtime.end %} ({{ bedtime.end|twelve }}){% endif %}.</p>
-    <button type="button" class="pc-btn pc-btn--primary pc-btn--block btn-revoke-override" onclick="revokeOverride('{{ username }}')">Revoke override</button>
-</section>
-{% endif %}
 
 <!-- Bedtime -->
 <details class="pc-disclosure" id="bedtime-section" open>
@@ -386,8 +390,8 @@
                 Implementation
             </h3>
             <p>Flask + Jinja server-rendered, vanilla JavaScript only, with Bootstrap 5 vendored locally under <code>static/vendor/bootstrap/</code>. Product tokens/theme load from <code>static/css/app.css</code> after Bootstrap (the mockup's <code>static/css/tokens.css</code>).</p>
-            <p>Save, grant, revoke and clear POST form-encoded data to the existing Flask endpoints; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
-            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, a silent (<code>aria-live="off"</code>) countdown readout, the status/toast region as the announced one, fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
+            <p>Save, grant, revoke and clear POST form-encoded data to the existing Flask endpoints; Jinja macros cover the time inputs, day toggles, buttons, badges and dialogs. Vanilla JS only enhances shortcut selection, the countdown refresh, the manual-override card's live DOM add/remove (cloning the inert <code>#override-card-tpl</code> skeleton the same partial renders the server card from — never hide/show), validation, dialog focus trapping and toasts — no build step, no CDN, no external assets.</p>
+            <p>Accessibility: 12-hour screen-reader-friendly time labels, <code>aria-pressed</code> day buttons, a silent (<code>aria-live="off"</code>) countdown readout, the status/toast region as the announced one (override-card inserts/removes are equally silent), fieldsets/legends for the day group, 44px targets and reduced-motion support.</p>
         </aside>
     </div>
 </details>
@@ -938,6 +942,54 @@
         }
     }
 
+    // Dynamic add/remove of the manual-override card (owner request
+    // 2026-11-14): the card lives ABOVE the countdown card and appears in /
+    // leaves the DOM with the override state — no reload. Single markup
+    // source: the inert skeleton (#override-card-tpl) — the same
+    // partial the server renders the live card from); clone it and insert
+    // with `anchor.parentNode.insertBefore(live, anchor)` immediately before
+    // #countdown-card, remove with `card.parentNode.removeChild(card)`.
+    // Never hide/show. Active state = `in_bedtime && manual_override`,
+    // exactly the server condition; both come from the polled payload. The
+    // end-time label re-syncs from `bedtime_end` ('HH:MM', fmt12 mirrors the
+    // server's twelve filter) — and only when the payload actually carries a
+    // string there, so an older remote-agent payload keeps the skeleton's
+    // server-rendered label (fail-safe). Insertions/removals are SILENT:
+    // the status/toast region stays the announced one, matching the badges
+    // innerHTML rebuild — the revoke toast already covers the user action.
+    // Revoke resyncs through the same path (revokeOverride ->
+    // refreshUserLive), so the card vanishes on the next tick.
+    function cloneOverrideCard() {
+        const tpl = document.getElementById('override-card-tpl');
+        if (!tpl || !tpl.content) return null;
+        const proto = tpl.content.querySelector('#override-card');
+        return proto ? proto.cloneNode(true) : null;
+    }
+
+    function syncOverrideCard(data) {
+        const anchor = document.getElementById('countdown-card');
+        if (!anchor || !anchor.parentNode) return;
+        const active = !!(data && data.in_bedtime && data.manual_override);
+        const card = document.getElementById('override-card');
+        if (!active) {
+            if (card) card.parentNode.removeChild(card);
+            return;
+        }
+        let live = card;
+        if (!live) {
+            live = cloneOverrideCard();
+            if (!live) return;
+            anchor.parentNode.insertBefore(live, anchor);
+        }
+        if (typeof data.bedtime_end === 'string') {
+            const note = live.querySelector('[data-override-note]');
+            if (note) {
+                note.textContent = 'Bedtime is being bypassed until this window ends' +
+                    (data.bedtime_end ? ' (' + fmt12(data.bedtime_end) + ')' : '') + '.';
+            }
+        }
+    }
+
     // Refresh-state affordances (plan §6.2): a subtle stale chip when a
     // poll fails (last good data is kept, never blanked) and a visible
     // "paused while you edit" hint when the 10s poll is skipped.
@@ -965,6 +1017,7 @@
             renderAccount(data);
             renderBonus(data);
             renderCountdown(data);
+            syncOverrideCard(data);
             renderProcesses(data);
             renderBudgets(data);
         } catch (e) {

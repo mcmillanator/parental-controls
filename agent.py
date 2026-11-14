@@ -813,6 +813,10 @@ def read_user_live(username):
         'status_detail': user_row['status_detail'],
         'in_bedtime': user_row['in_bedtime'],
         'manual_override': bool(user_row['bedtime'].get('manual_override')),
+        # Mirrors the panel's /api/user/<u>/live key (additive): the page's
+        # syncOverrideCard re-labels the dynamically inserted override card
+        # from it. tests/test_ui_live_parity.py pins the shared surface.
+        'bedtime_end': user_row['bedtime'].get('end'),
         'bonus': user_row['bonus'],
         'uid': user_row['uid'],
         'home': user_row['home'],

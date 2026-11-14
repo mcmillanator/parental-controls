@@ -2644,6 +2644,10 @@ def api_user_live(username):
         'status_detail': user['status_detail'],
         'in_bedtime': user['in_bedtime'],
         'manual_override': bool(user['bedtime'].get('manual_override', False)),
+        # Window end ('HH:MM' or None) for the override card's end-time
+        # label, re-synced client-side by syncOverrideCard (additive; the
+        # agent payload mirrors this key — tests/test_ui_live_parity.py).
+        'bedtime_end': user['bedtime'].get('end'),
         'bonus': user['bonus'],
         # Same countdown the first paint rendered (countdown_state), so the
         # 10s poll re-syncs the live ticker instead of drifting.

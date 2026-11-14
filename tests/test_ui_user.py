@@ -355,6 +355,69 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertIn('btn-revoke-override', html)
         self.assertIn('Revoke override', html)
 
+    def test_override_card_precedes_the_countdown_card(self):
+        # Owner request (2026-11-14): the "Manual override active" card
+        # renders ABOVE the "Live countdown" card when active (and before
+        # the Account hero, which trails the countdown).
+        live = self._live_with()
+        live['user']['bedtime']['manual_override'] = True
+        html = self.render(live)
+        card = html.index('id="override-card"')
+        self.assertLess(card, html.index('id="countdown-card"'),
+                        'override card must precede the countdown card')
+        self.assertLess(card,
+                        html.index('aria-labelledby="pc-user-title"'),
+                        'override card must precede the Account hero')
+
+    def test_override_skeleton_template_precedes_the_countdown_card(self):
+        # Inactive case: no live card server-side (fail-safe first paint),
+        # but the inert <template> skeleton the poll clones from must sit
+        # right before the countdown card — the insertion anchor is
+        # #countdown-card itself, and the skeleton's presence is what
+        # makes DOM insertion possible without a reload. (The one section
+        # occurrence is the skeleton's; template content is not part of
+        # the document, so getElementById can never see it.)
+        html = self.render(self._live_with())
+        self.assertEqual(
+            html.count('<section class="pc-card pc-card--hero"'
+                       ' id="override-card"'), 1,
+            'inactive override must not render a live card')
+        self.assertLess(html.index('id="override-card-tpl"'),
+                        html.index('id="countdown-card"'),
+                        'skeleton must precede the countdown card')
+
+    def test_override_card_markup_is_single_sourced(self):
+        # The card is authored ONCE (templates/_partials/override_card.html)
+        # and rendered twice when active: the live server card + the inert
+        # skeleton. A third copy (or a JS-built clone) is what this pins out.
+        live = self._live_with()
+        live['user']['bedtime']['manual_override'] = True
+        html = self.render(live)
+        # Live card + inert skeleton, byte-identical section markup.
+        self.assertEqual(
+            html.count('<section class="pc-card pc-card--hero"'
+                       ' id="override-card"'), 2)
+        # ... and never a third copy: the id appears exactly twice (the
+        # JS reads it via getElementById strings, not an id= attribute).
+        self.assertEqual(html.count('id="override-card"'), 2)
+        self.assertEqual(html.count('id="override-card-tpl"'), 1)
+        # The end-time label renders from the mirrored bedtime end (07:00).
+        self.assertIn('(7:00 AM)', html)
+
+    def test_live_endpoint_carries_override_card_fields(self):
+        # syncOverrideCard decides active-ness and the end label from the
+        # POLL payload, not the page context: in_bedtime, manual_override
+        # and the additive bedtime_end ('HH:MM' display-only) must all ship.
+        live = live_dict()
+        with mock.patch.object(app, 'get_user_live', return_value=live):
+            resp = self.client.get('/api/user/' + KID + '/live')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data['success'])
+        self.assertIsInstance(data['manual_override'], bool)
+        self.assertIn('in_bedtime', data)
+        self.assertEqual(data['bedtime_end'], '07:00')
+
     def test_bedtime_is_read_only_mirror_with_calendar_link(self):
         # Calendar cutover: the bedtime editor (enable switch, warning
         # select, 12h forms) retired from this page. What stays is the
@@ -415,11 +478,15 @@ class TimeRulesDesignTest(_UserPageRender):
 
     def test_countdown_card_is_the_first_card_in_the_content_area(self):
         # Owner request: the live countdown moved to the top of the user page —
-        # directly under the page title and above the Account status hero.
+        # it trails ONLY the manual-override card (2026-11-14), and must still
+        # precede the Account status hero. The hero is located by its unique
+        # aria-labelledby="pc-user-title": the override card shares the
+        # pc-card--hero class (server-rendered AND inside the inert
+        # #override-card-tpl skeleton), so the bare class is ambiguous now.
         html = self.render(self._live_with())
         title = html.index('id="pc-user-title"')
         card = html.index('id="countdown-card"')
-        hero = html.index('class="pc-card pc-card--hero"')
+        hero = html.index('aria-labelledby="pc-user-title"')
         self.assertLess(title, card, 'countdown must follow the page title')
         self.assertLess(card, hero, 'countdown must precede the Account hero')
         # ... and it sits above the disclosures it used to trail.
@@ -470,6 +537,36 @@ class TimeRulesDesignTest(_UserPageRender):
         self.assertNotIn('function toggleBedtimeEnabled(', src)
         self.assertIn('function revokeOverride(', src)
         self.assertIn("'/api/lock'", src)
+
+    def test_override_card_poll_sync_is_wired(self):
+        # Owner request (2026-11-14): the override card is ADDED to and
+        # REMOVED from the DOM by the 10s poll — the same path that re-seeds
+        # the countdown — not by a reload. Pinned statically (no JS runner):
+        # the sync function, its call in refreshUserLive's render chain, the
+        # exact DOM mutation calls, the clone source, and the payload field
+        # names it reads.
+        src = read(TEMPLATE)
+        for literal in (
+            'function syncOverrideCard(data)',   # the sync entry point
+            'syncOverrideCard(data);',           # called from refreshUserLive
+            'function cloneOverrideCard()',      # skeleton -> fresh element
+            "getElementById('override-card-tpl')",
+            'tpl.content.querySelector(',
+            'cloneNode(true)',
+            'parentNode.insertBefore(live, anchor)',   # insert before #countdown-card
+            'parentNode.removeChild(card)',            # DOM removal, never hide/show
+            "getElementById('countdown-card')",        # the insertion anchor
+            'data.in_bedtime',
+            'data.manual_override',
+            'data.bedtime_end',                        # end-time label from payload
+        ):
+            self.assertIn(literal, src)
+        # The card is DOM-mutated, not toggled: no hidden-style display
+        # flip for #override-card anywhere in the shipped script.
+        self.assertNotIn("getElementById('override-card').style", src)
+        self.assertNotIn("getElementById('override-card').hidden", src)
+        # Same offline rule as the whole page: the sync code ships no URLs.
+        self.assertIsNone(EXTERNAL_ASSET.search(src))
 
 
 class BonusModalTest(_UserPageRender):

@@ -1,0 +1,31 @@
+{# Manual-override hero card — SINGLE source of truth for its markup.
+
+   Rendered by templates/user.html in two places, never a third copy:
+   1. live (inside `{% if user.in_bedtime and bedtime.manual_override %}`)
+      immediately ABOVE the countdown card — the server-rendered first
+      paint, so the no-JS page is correct and fail-safe;
+   2. inertly inside `<template id="override-card-tpl">` right before the
+      countdown card — the 10s poll (syncOverrideCard) clones this and
+      inserts the clone before #countdown-card when the override state
+      flips to active, and removes the element when it flips away
+      (owner request 2026-11-14: DOM add/remove, never hide/show).
+
+   Context: `username` (route global) + `bedtime` (user.bedtime mirror —
+   start/end/days stay write-synchronized since the calendar cutover).
+   The end-time label re-syncs from the polled payload (`bedtime_end`);
+   the button text/class and the revoke wiring are pinned by
+   tests/test_ui_user.py. Revoking re-locks at bedtime now, which clears
+   the override flag; the next poll removes the card without a reload.
+
+   a11y: the card is a labelled region (aria-labelledby -> its heading).
+   Inserts/removes are SILENT — matching the badges innerHTML rebuild;
+   the page's status/toast region stays the announced one, so a poll
+   tick never spams a screen reader. #}
+<section class="pc-card pc-card--hero" id="override-card" aria-labelledby="override-heading">
+    <div class="pc-card__header">
+        <h2 class="pc-card__title" id="override-heading">Manual override active</h2>
+        <span class="pc-chip pc-chip--override">Active</span>
+    </div>
+    <p class="pc-meta" data-override-note>Bedtime is being bypassed until this window ends{% if bedtime and bedtime.end %} ({{ bedtime.end|twelve }}){% endif %}.</p>
+    <button type="button" class="pc-btn pc-btn--primary pc-btn--block btn-revoke-override" onclick="revokeOverride('{{ username }}')">Revoke override</button>
+</section>
