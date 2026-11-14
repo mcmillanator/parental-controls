@@ -945,8 +945,8 @@
     // Dynamic add/remove of the manual-override card (owner request
     // 2026-11-14): the card lives ABOVE the countdown card and appears in /
     // leaves the DOM with the override state — no reload. Single markup
-    // source: the inert skeleton (#override-card-tpl) — the same
-    // partial the server renders the live card from); clone it and insert
+    // source: the inert skeleton (#override-card-tpl) — the same partial
+    // the server renders the live card from — cloned and inserted with
     // with `anchor.parentNode.insertBefore(live, anchor)` immediately before
     // #countdown-card, remove with `card.parentNode.removeChild(card)`.
     // Never hide/show. Active state = `in_bedtime && manual_override`,

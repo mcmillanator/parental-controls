@@ -873,3 +873,66 @@ presence-only guard survives. Container suite: **Ran 1686 -> Ran 1705,
 OK (skipped=158)**, skip delta 0. `TestHomelessVenv`'s pinned-HOME
 regexes now read install.sh + venv_lib.sh (the create moved into the
 lib).
+## Override card above the countdown + live DOM add/remove (2026-11-14, `fix/override-card-live`)
+
+Owner request, user detail page: (1) the "Manual override active" card
+renders ABOVE the "Live countdown" card; (2) the card appears in / leaves
+the DOM with the override state — previously Jinja-only, so it needed a
+page reload.
+
+- **Single markup source:** the card lives in
+  `templates/_partials/override_card.html`, included TWICE by `user.html`:
+  live (only while `user.in_bedtime and bedtime.manual_override`, so the
+  no-JS first paint stays correct and fail-safe) and INERTLY inside
+  `<template id="override-card-tpl">`, both immediately before
+  `#countdown-card`. Template content is not part of the document, so
+  `getElementById` can never see the skeleton — no id collisions.
+- **Sync mechanism:** `syncOverrideCard(data)` in the page script, called
+  from `refreshUserLive()` right after `renderCountdown(data)` (the same
+  10s `/api/user/<u>/live` path). Active = `in_bedtime && manual_override`
+  (exactly the server condition). Absent+active → clone the skeleton
+  (`cloneNode(true)`) and `anchor.parentNode.insertBefore(live, anchor)`
+  before `#countdown-card`; present+inactive →
+  `card.parentNode.removeChild(card)`. DOM add/remove, never hide/show
+  (owner's wording). The Revoke flow already resyncs through
+  `refreshUserLive()`, so the card vanishes on the next tick without a
+  reload.
+- **Template-skeleton chosen over JS-built DOM** because the card's
+  markup (hero classes, `aria-labelledby` heading, revoke button literal +
+  `revokeOverride('{{ username }}')` wiring, meta text) is pinned by the
+  suite and hand-authored in Jinja: a JS builder would duplicate every
+  pinned literal in a language with no test runner here, and drift would
+  be invisible. The skeleton is server-rendered ONCE — the clone is
+  byte-identical to the server card by construction.
+- **Payload (additive only):** new top-level `bedtime_end` (`user.bedtime
+  .get('end')`, display 'HH:MM', never a rename/removal) on BOTH
+  `app.api_user_live` and `agent.read_user_live` — the JS label re-sync
+  uses `fmt12(data.bedtime_end)` (mirror of the `twelve` filter) and only
+  when the key is a string, so an older remote agent keeps the
+  server-painted label (fail-safe). New
+  `tests/test_ui_live_parity.py` pins the live payloads' shared key
+  surface: panel-only = {countdown} (the sanctioned overview degradation),
+  agent-only = the `_remote_live_context` context extras; adding a key on
+  one side only now fails loudly (the pair was previously pinned only by
+  this file's prose).
+- **a11y:** the card keeps `aria-labelledby="override-heading"`; inserts/
+  removes are SILENT, consistent with the page's live-region convention
+  (countdown `aria-live="off"`, the status/toast region is the announced
+  one; badges already rebuild via innerHTML unannounced). The revoke
+  toast remains the user-facing announcement.
+- Tests: DOM-order pins (active card and skeleton both precede
+  `#countdown-card`), single-source counts, endpoint field pins, and
+  JS-literal pins for the sync path (no CDN literals). The countdown
+  first-card pin re-pointed its hero locator at the Account hero's unique
+  `aria-labelledby="pc-user-title"` (the override card shares the
+  `pc-card--hero` class now, including in the skeleton) — intent kept,
+  not weakened.
+- Suite: **Ran 1686 -> Ran 1695, OK (skipped=158)** in the container
+  (`.scratch/venv`); the +9 are the five `test_ui_user` order/sync/
+  payload pins + `tests/test_ui_live_parity.py` (4).
+- VERIFY-ON-VM (human): open a child in bedtime with an override granted —
+  card sits above the countdown; click Revoke override: card disappears
+  within the 10s poll tick, no reload. Then grant one from the panel
+  (manual unlock at bedtime) and watch the card APPEAR on the next tick,
+  likewise without a refresh. Remote-device pages get the same behavior
+  (payload parity pinned).
