@@ -812,3 +812,64 @@ never-clobber-open-edits convention).
   3 amended to cover all three paths); human eyeball: click a slot →
   modal with hour prefilled; drag → modal with the range; '+ New block'
   → modal today 16:00–18:00; crosshair over week-grid slots.
+
+## Venv self-heal after an interpreter swap (2026-11-14, `fix/venv-self-heal`)
+
+**Incident.** A Bazzite rpm-ostree image update landed Python **3.15** on
+the VM at reboot. `/opt/parental-controls/.venv` had been created by
+install.sh from the floating `python3` (its packages live under
+`lib/python3.14/site-packages`), so the venv's `bin/python` resolved to
+3.15, the 3.14 site-packages silently fell off `sys.path`, and
+`parental-controls.service` crash-looped `ModuleNotFoundError: No module
+named 'cheroot'` (27 restarts) until the manager `rm -rf`'d the venv and
+re-ran install.sh. The installer's guard was a presence check (`[ ! -d
+"$INSTALL_DIR/.venv" ]`) — a version-orphaned venv is very much present —
+and pip, asked through the same broken venv, reported the requirements
+"already satisfied". aiden-pc (the live family box) carried the identical
+latent bomb for its next image update.
+
+**Fix.** New `venv_lib.sh` (sourced + preflighted by install.sh, staged
+like tls_lib.sh). `venv_healthy` asks the venv interpreter itself: it
+derives the distribution names from requirements.txt (no hardcoded list)
+and requires each to be both *findable* (`importlib.metadata`) and
+*importable* (`flask`, `argon2`, `waitress`, `cheroot` — the incident's
+exact failure surface). That fails exactly when orphaned — a new-minor
+interpreter never sees `lib/python<old>/site-packages` — and also
+catches dangling `bin/python`, half-deleted venvs and purged packages;
+it runs `-B` so a root probe writes nothing into the service user's
+tree. `ensure_venv` is step 2/8's new decision: keep a healthy venv,
+otherwise announce `venv interpreter mismatch/orphaned -> rebuilding`,
+`rm -rf`, recreate from the image's current `python3`; the inline
+`pip install -r` repair line is byte-comparable. The recovery-CLI site
+(step 5b) replaced its bare `-x bin/python` trust with the same probe.
+Sites audited: staging excludes (not trust), systemd unit ExecStarts
+(panel/enforce/agent — all start only after step 2/8 healed the venv;
+their `.venv/bin/activate` is the healed tree), per-child session-agent
+unit (runs **system** python3 by design, stdlib-only — no venv trust),
+`run.sh`/dev venv (checkout-side, not a deployed artifact). Not
+pinning `python3.14`: atomic updates *remove* the old interpreter at
+reboot, so a pinned venv becomes a brick (dangling `bin/python`, no
+interpreter to repair with) instead of a crash-loop — self-heal is the
+permanent pattern.
+
+**Post-fix behavior.** After an image update, a rebooted panel can still
+crash-loop until someone runs the installer — but that run is now the
+*entire* recovery: step 2/8 detects the orphan (prints the rebuilding
+line) and the first run after any update takes ~30s (venv rebuild + pip
+install) instead of crash-looping forever. `sudo ./install.sh
+--deploy-webserver` is the one-command fix on both VM and aiden-pc; no
+manual `rm -rf` ever again.
+
+**Tests.** `tests/test_venv_selfheal.py` (19): probe matrix on throwaway
+venvs with fake pip-style `.dist-info` (healthy / orphaned via
+lib-rename + pyvenv.cfg version rewrite / dangling interpreter symlink /
+metadata-present-but-unimportable / missing and nameless requirements),
+requirements-derived naming (specifiers, extras, comments, option lines;
+`dash-pkg` -> import `dash`), no-hardcoded-package-list pin on the probe
+body, no-bytecode pin, `ensure_venv` replays with scripted `run()`/
+`as_user()` stubs (dry-run echoes + real heal inside the tempdir), and
+installer wiring pins including the regression pin that neither
+presence-only guard survives. Container suite: **Ran 1686 -> Ran 1705,
+OK (skipped=158)**, skip delta 0. `TestHomelessVenv`'s pinned-HOME
+regexes now read install.sh + venv_lib.sh (the create moved into the
+lib).
